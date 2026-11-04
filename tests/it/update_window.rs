@@ -111,37 +111,38 @@ fn header_stays_put_while_the_cards_scroll() {
     assert!(h.get_by_label("v1.1.0").rect().top() > heading_top);
 }
 
-/// 清單頭尾各留 16 px，捲動時內容在副標下方 12 px 處被切掉，不貼著文字。
+/// 清單頭尾各留 16 px（頂端從標題區的分隔線起算），標題區下方另留 12 px，捲動時內容不貼著副標。
 #[test]
 fn card_list_has_padding_at_both_ends() {
-    let long = "A long paragraph of release notes.
-
-"
-    .repeat(80);
+    let long = "A long paragraph of release notes.\n\n".repeat(80);
     let releases = vec![release("1.2.0", &long), release("1.1.0", "Older notes")];
     let mut h = window_with(releases, Phase::Idle, (0, 0), false);
-    let cards = |h: &Harness<'static, Window>| -> Vec<Rect> {
-        let mut rects: Vec<Rect> = h
+    let cards = |h: &Harness<'static, Window>| -> Vec<(Rect, Rect)> {
+        let mut found: Vec<(Rect, Rect)> = h
             .output()
             .shapes
             .iter()
             .filter_map(|c| match &c.shape {
-                Shape::Rect(r) if r.fill == theme::CARD_BG => Some(r.rect),
+                Shape::Rect(r) if r.fill == theme::CARD_BG => Some((r.rect, c.clip_rect)),
                 _ => None,
             })
             .collect();
-        rects.sort_by(|a, b| a.top().total_cmp(&b.top()));
-        rects
+        found.sort_by(|a, b| a.0.top().total_cmp(&b.0.top()));
+        found
     };
     let sub = t(
         "update.subheading",
         &[("current", env!("CARGO_PKG_VERSION")), ("count", "2")],
     );
-    let header_bottom = h.get_by_label(&sub).rect().bottom();
-    let first = cards(&h)[0];
+    let sub_bottom = h.get_by_label(&sub).rect().bottom();
+    let (first, viewport) = cards(&h)[0];
     assert!(
-        first.top() - header_bottom >= 15.5,
-        "{first:?} vs {header_bottom}"
+        viewport.top() - sub_bottom >= 11.5,
+        "{viewport:?} vs {sub_bottom}"
+    );
+    assert!(
+        first.top() - viewport.top() >= 15.5,
+        "{first:?} vs {viewport:?}"
     );
 
     h.event(Event::PointerMoved(pos2(300.0, 300.0)));
@@ -163,23 +164,10 @@ fn card_list_has_padding_at_both_ends() {
             _ => None,
         })
         .expect("the footer is drawn");
-    let last = *cards(&h).last().expect("a card is drawn");
+    let (last, _) = *cards(&h).last().expect("a card is drawn");
     assert!(
         footer_top - last.bottom() >= 15.5,
         "{last:?} vs {footer_top}"
-    );
-    let clip = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|c| match &c.shape {
-            Shape::Rect(r) if r.fill == theme::CARD_BG => Some(c.clip_rect),
-            _ => None,
-        })
-        .expect("a card is drawn");
-    assert!(
-        clip.top() - header_bottom >= 11.5,
-        "{clip:?} vs {header_bottom}"
     );
 }
 
