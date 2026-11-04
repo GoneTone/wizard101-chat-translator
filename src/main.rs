@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use tokio::runtime::Handle;
@@ -27,11 +28,12 @@ use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::reader::message_log::SharedWriter;
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
+use wizard101_chat_translator::runtime::self_update::{AFTER_UPDATE_ARG, remove_leftovers};
 use wizard101_chat_translator::runtime::updater::{
     RELEASES_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
 };
 use wizard101_chat_translator::runtime::{
-    AcquireError, acquire_single_instance, focus_running_instance,
+    AcquireError, acquire_single_instance, acquire_waiting, focus_running_instance,
 };
 use wizard101_chat_translator::ui::app::{self, App, OnCancel, OnSave};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -42,7 +44,10 @@ use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
 use wizard101_chat_translator::ui::win32::cursor_pos;
-use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
+use wizard101_chat_translator::util::{Clock, read, sweep_stale_temps, write};
+
+/// 更新後重啟時等舊程序放掉單一實例鎖的上限。
+const AFTER_UPDATE_WAIT: Duration = Duration::from_secs(10);
 
 fn main() {
     // rten 預設用滿實體核心、框選 OCR 時與遊戲搶 CPU；它只在第一次建立執行緒池時讀這個變數
@@ -55,11 +60,33 @@ fn main() {
         unsafe { std::env::set_var("RTEN_NUM_THREADS", threads.to_string()) };
     }
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
-    let lock = acquire_single_instance();
+    let after_update = std::env::args().any(|arg| arg == AFTER_UPDATE_ARG);
+    let waited = Instant::now();
+    let lock = if after_update {
+        acquire_waiting(
+            &Clock::default(),
+            AFTER_UPDATE_WAIT,
+            acquire_single_instance,
+        )
+    } else {
+        acquire_single_instance()
+    };
     if !matches!(lock, Err(AcquireError::AlreadyRunning)) && !cfg!(debug_assertions) {
         match logs::open_session_log(&app_dir().join("app.log"), chrono::Utc::now()) {
             Ok(file) => logs::init(Sink::File(file)),
             Err(e) => log(format!("[log] cannot open app.log: {e}")),
+        }
+    }
+    if after_update {
+        match &lock {
+            Ok(_) => log(format!(
+                "[update] after-update: instance lock acquired after {} ms",
+                waited.elapsed().as_millis()
+            )),
+            Err(_) => log(format!(
+                "[update] after-update: instance lock still held after {} s",
+                AFTER_UPDATE_WAIT.as_secs()
+            )),
         }
     }
     logs::install_panic_hook();
@@ -89,6 +116,12 @@ fn main() {
     let Some(_instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
         return;
     };
+    match std::env::current_exe() {
+        Ok(exe) => remove_leftovers(&exe),
+        Err(e) => log(format!(
+            "[update] cannot locate own exe, skipping leftover cleanup: {e}"
+        )),
+    }
     for dir in [app_dir(), local_state_dir()] {
         sweep_stale_temps(&dir, pid_alive);
     }

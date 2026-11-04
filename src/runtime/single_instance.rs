@@ -1,6 +1,7 @@
 //! 單一實例（命名 mutex）、喚起既有視窗與管理員權限檢查。
 
 use std::ptr::null;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
@@ -14,6 +15,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::ui::win32::{force_foreground, window_title};
+use crate::util::{Clock, poll_until};
 
 /// 第二份實例會搶著對遊戲掛 hook，也會同時寫同一份 config.json 與 log。
 const SINGLE_INSTANCE_MUTEX: &str = "wizard101-chat-translator.single-instance";
@@ -39,6 +41,27 @@ pub enum AcquireError {
 /// 搶下單一實例的 mutex。呼叫端須留住回傳值直到程序結束。
 pub fn acquire_single_instance() -> Result<InstanceLock, AcquireError> {
     acquire_named(SINGLE_INSTANCE_MUTEX)
+}
+
+/// 重試搶鎖的間隔。
+const ACQUIRE_RETRY: Duration = Duration::from_millis(200);
+
+/// 只在 `AlreadyRunning` 時每 200 ms 重試到 `wait`；逾時回最後一次的結果。
+pub fn acquire_waiting<L>(
+    clock: &Clock,
+    wait: Duration,
+    mut acquire: impl FnMut() -> Result<L, AcquireError>,
+) -> Result<L, AcquireError> {
+    let mut last = acquire();
+    if !matches!(last, Err(AcquireError::AlreadyRunning)) {
+        return last;
+    }
+    let deadline = (clock.now)() + wait;
+    poll_until(clock, deadline, ACQUIRE_RETRY, || {
+        last = acquire();
+        (!matches!(last, Err(AcquireError::AlreadyRunning))).then_some(())
+    });
+    last
 }
 
 /// 建立 mutex 失敗的錯誤碼分類：拒絕存取代表較高權限的那份已持有它。

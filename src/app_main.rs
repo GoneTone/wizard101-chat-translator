@@ -46,6 +46,7 @@ use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
 use crate::region::capture::{self, CaptureError, Frame};
 use crate::region::pipeline::{RegionError, RegionPipeline, describe_error};
 use crate::runtime::is_elevated;
+use crate::runtime::self_update::relaunch_if_requested;
 use crate::translation::cache::{TranslationCache, fingerprint_of, translate_and_cache};
 use crate::translation::context::{ClientContexts, ContextMap};
 use crate::translation::errors::TranslateError;
@@ -936,6 +937,7 @@ pub fn shutdown(running: Running) -> ! {
         SUPERVISOR_JOIN_BUDGET,
         || translation.cache.flush(),
     );
+    relaunch_if_requested();
     std::process::exit(0)
 }
 

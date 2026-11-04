@@ -52,6 +52,7 @@ mod real_fingerprint;
 mod region_flow;
 mod region_pipeline;
 mod richtext_golden;
+mod self_update;
 mod service_form;
 mod service_list;
 mod settings_widgets;
