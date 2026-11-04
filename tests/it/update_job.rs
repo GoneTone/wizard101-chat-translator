@@ -58,13 +58,13 @@ async fn serve(delay: Duration) -> MockServer {
     server
 }
 
-fn start(job: &mut UpdateJob, server: &MockServer) -> oneshot::Receiver<Result<(), String>> {
+fn start(job: &mut UpdateJob, server: &MockServer) -> oneshot::Receiver<(u64, Result<(), String>)> {
     let (tx, rx) = oneshot::channel();
     job.start(
         &Handle::current(),
         download_client(&server.uri()),
-        Box::new(move |result| {
-            let _ = tx.send(result);
+        Box::new(move |run, result| {
+            let _ = tx.send((run, result));
         }),
     );
     rx
@@ -81,7 +81,8 @@ async fn download_ends_ready_with_the_new_file() {
 
     let done = start(&mut job, &server);
     assert_eq!(job.phase(), &Phase::Downloading);
-    job.finish(done.await.unwrap());
+    let (run, result) = done.await.unwrap();
+    job.finish(run, result);
 
     assert_eq!(job.phase(), &Phase::Ready);
     assert_eq!(std::fs::read(new_path(&exe)).unwrap(), BODY);
@@ -97,7 +98,8 @@ async fn checksum_mismatch_fails_without_a_new_file() {
     job.set_releases(vec![release("1.2.0", &url, sha(b"other"))]);
 
     let done = start(&mut job, &server);
-    job.finish(done.await.unwrap());
+    let (run, result) = done.await.unwrap();
+    job.finish(run, result);
 
     match job.phase() {
         Phase::Failed { error, replace } => {
@@ -122,9 +124,9 @@ async fn cancel_deletes_the_partial_file() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     job.cancel();
     assert_eq!(job.phase(), &Phase::Cancelled);
-    let result = done.await.unwrap();
+    let (run, result) = done.await.unwrap();
     assert!(result.is_err());
-    job.finish(result);
+    job.finish(run, result);
 
     assert_eq!(job.phase(), &Phase::Cancelled);
     assert!(!part_path(&exe).exists());
@@ -143,7 +145,7 @@ fn start_without_verifiable_asset_fails_immediately() {
     job.start(
         rt.handle(),
         download_client("http://127.0.0.1:1"),
-        Box::new(|_| panic!("no download should run")),
+        Box::new(|_, _| panic!("no download should run")),
     );
 
     match job.phase() {
@@ -230,7 +232,8 @@ async fn newer_release_during_download_discards_on_finish() {
     let done = start(&mut job, &server);
     job.set_releases(vec![release("1.3.0", &url, sha(BODY))]);
     assert_eq!(job.releases()[0].version, "1.2.0");
-    job.finish(done.await.unwrap());
+    let (run, result) = done.await.unwrap();
+    job.finish(run, result);
 
     assert_eq!(job.releases()[0].version, "1.3.0");
     assert!(!new_path(&exe).exists());
@@ -268,4 +271,122 @@ fn open_does_not_reset_phase() {
     job.set_releases(vec![offline_release("1.2.0")]);
 
     assert_eq!(job.phase(), &Phase::Restarting);
+}
+
+fn failed(replace: bool) -> Phase {
+    Phase::Failed {
+        error: "x".to_owned(),
+        replace,
+    }
+}
+
+#[test]
+fn closing_when_cancelled_deletes_the_partial_file() {
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    touch(&part_path(&exe));
+    let mut job = UpdateJob::with_phase(
+        exe.clone(),
+        vec![offline_release("1.2.0")],
+        Phase::Cancelled,
+    );
+
+    job.window_closed();
+
+    assert!(!part_path(&exe).exists());
+    assert_eq!(job.phase(), &Phase::Idle);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_while_downloading_is_a_no_op() {
+    let server = serve(Duration::from_secs(30)).await;
+    let dir = TempDir::new().unwrap();
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe_in(&dir));
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+    let _done = start(&mut job, &server);
+
+    job.window_closed();
+
+    assert_eq!(job.phase(), &Phase::Downloading);
+    job.cancel();
+}
+
+#[test]
+fn newer_release_discards_a_download_waiting_for_replace_retry() {
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    touch(&new_path(&exe));
+    let mut job = UpdateJob::with_phase(exe.clone(), vec![offline_release("1.2.0")], failed(true));
+
+    job.set_releases(vec![offline_release("1.3.0")]);
+
+    assert!(!new_path(&exe).exists());
+    assert_eq!(job.phase(), &Phase::Idle);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn late_ok_after_cancel_deletes_the_new_file() {
+    let server = serve(Duration::ZERO).await;
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe.clone());
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+
+    let done = start(&mut job, &server);
+    let (run, result) = done.await.unwrap();
+    assert!(result.is_ok());
+    job.cancel();
+    job.finish(run, result);
+
+    assert_eq!(job.phase(), &Phase::Cancelled);
+    assert!(!new_path(&exe).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_after_cancel_waits_for_the_old_task() {
+    let server = serve(Duration::from_millis(500)).await;
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe.clone());
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+
+    let old = start(&mut job, &server);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    job.cancel();
+    let new = start(&mut job, &server);
+    assert_eq!(job.phase(), &Phase::Downloading);
+
+    let (run, result) = old.await.unwrap();
+    assert!(result.is_err());
+    job.finish(run, result);
+    assert_eq!(job.phase(), &Phase::Downloading);
+
+    let (run, result) = new.await.unwrap();
+    job.finish(run, result);
+    assert_eq!(job.phase(), &Phase::Ready);
+    assert_eq!(std::fs::read(new_path(&exe)).unwrap(), BODY);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn late_result_after_cancel_and_close_keeps_idle() {
+    let server = serve(Duration::from_millis(500)).await;
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe.clone());
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+
+    let done = start(&mut job, &server);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    job.cancel();
+    job.window_closed();
+    assert_eq!(job.phase(), &Phase::Idle);
+    let (run, result) = done.await.unwrap();
+    job.finish(run, result);
+
+    assert_eq!(job.phase(), &Phase::Idle);
+    assert!(!part_path(&exe).exists());
 }

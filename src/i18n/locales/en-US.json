@@ -21,6 +21,7 @@
   "local.banner.loading": "Loading local model ({model})…",
   "update.latest": "You're on the latest version",
   "update.failed": "Update check failed: {error}",
+  "update.no_verifiable_asset": "Version {version} has no verifiable {asset}",
   "local.dialog.title": "Download a model",
   "local.dialog.select_title": "Choose a model",
   "local.dialog.tab_recommended": "Recommended",

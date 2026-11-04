@@ -21,6 +21,7 @@
   "local.banner.loading": "正在加载本地模型（{model}）…",
   "update.latest": "已是最新版本",
   "update.failed": "检查更新失败：{error}",
+  "update.no_verifiable_asset": "v{version} 没有可验证的 {asset}",
   "local.dialog.title": "下载模型",
   "local.dialog.select_title": "选择模型",
   "local.dialog.tab_recommended": "推荐模型",

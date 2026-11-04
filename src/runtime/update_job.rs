@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::self_update::{new_path, part_path};
 use super::updater::{EXE_ASSET, Release, is_newer};
+use crate::i18n::t;
 use crate::local::download::{Progress, download};
 use crate::logs::log;
 
@@ -30,6 +31,16 @@ pub enum Phase {
     Cancelled,
 }
 
+/// 下載任務結束時的回呼：帶上該次下載的 run id 與結果。
+pub type DoneCallback = Box<dyn FnOnce(u64, Result<(), String>) + Send>;
+
+/// 舊下載還沒結束時被擋下的 `start`，等舊任務的 `finish` 進來再跑。
+struct QueuedStart {
+    rt: Handle,
+    http: reqwest::Client,
+    done: DoneCallback,
+}
+
 /// 一次更新流程的狀態：release 清單、階段、下載進度與取消。
 pub struct UpdateJob {
     releases: Vec<Release>,
@@ -40,6 +51,10 @@ pub struct UpdateJob {
     exe: PathBuf,
     /// 下載中或已下載的版本。
     target: Option<String>,
+    run: u64,
+    /// 目前那次下載的任務還沒結束（保證 `.new.part` 只有一個寫入者）。
+    running: bool,
+    queued: Option<QueuedStart>,
 }
 
 impl UpdateJob {
@@ -52,6 +67,9 @@ impl UpdateJob {
             cancel: None,
             exe,
             target: None,
+            run: 0,
+            running: false,
+            queued: None,
         }
     }
 
@@ -109,13 +127,8 @@ impl UpdateJob {
         }
     }
 
-    /// 開始下載最新版；沒有可驗證的 exe 直接進 Failed。`done` 在下載任務結束時被呼叫（任何執行緒）。
-    pub fn start(
-        &mut self,
-        rt: &Handle,
-        http: reqwest::Client,
-        done: Box<dyn FnOnce(Result<(), String>) + Send>,
-    ) {
+    /// 開始下載最新版；沒有可驗證的 exe 直接進 Failed。舊下載的任務還沒結束時排隊，等它的 `finish` 再開始。
+    pub fn start(&mut self, rt: &Handle, http: reqwest::Client, done: DoneCallback) {
         if !matches!(
             self.phase,
             Phase::Idle | Phase::Cancelled | Phase::Failed { replace: false, .. }
@@ -123,27 +136,50 @@ impl UpdateJob {
             return;
         }
         let Some(release) = self.releases.first() else {
-            return self.fail("no release to download".to_owned());
+            log("[update] start ignored: no release in the list");
+            return;
         };
-        let Some(asset) = release.asset.clone() else {
-            let error = format!(
-                "release {} has no verifiable {EXE_ASSET} asset",
-                release.version
+        if release.asset.is_none() {
+            let error = t(
+                "update.no_verifiable_asset",
+                &[("version", &release.version), ("asset", EXE_ASSET)],
             );
+            log(format!(
+                "[update] release {} has no verifiable {EXE_ASSET} asset",
+                release.version
+            ));
             return self.fail(error);
+        }
+        self.target = Some(release.version.clone());
+        self.phase = Phase::Downloading;
+        let job = QueuedStart {
+            rt: rt.clone(),
+            http,
+            done,
+        };
+        if self.running {
+            log("[update] previous download still running; start queued");
+            self.queued = Some(job);
+        } else {
+            self.spawn(job);
+        }
+    }
+
+    fn spawn(&mut self, job: QueuedStart) {
+        let Some(asset) = self.releases.first().and_then(|r| r.asset.clone()) else {
+            return;
         };
         log(format!(
-            "[update] download start: version={} size={}",
-            release.version, asset.size
+            "[update] download start: version={:?} size={}",
+            self.target, asset.size
         ));
-        self.target = Some(release.version.clone());
+        self.run += 1;
+        self.running = true;
         self.progress = Arc::new(Progress::default());
         let cancel = CancellationToken::new();
         self.cancel = Some(cancel.clone());
-        self.phase = Phase::Downloading;
-
-        let progress = self.progress.clone();
-        let dest = new_path(&self.exe);
+        let (run, progress, dest) = (self.run, self.progress.clone(), new_path(&self.exe));
+        let QueuedStart { rt, http, done } = job;
         rt.spawn(async move {
             let result = download(
                 &http,
@@ -156,17 +192,24 @@ impl UpdateJob {
             )
             .await
             .map_err(|e| e.to_string());
-            done(result);
+            done(run, result);
         });
     }
 
-    /// 下載任務的結果；已取消時不改 phase，只刪 `.new.part`。
-    pub fn finish(&mut self, result: Result<(), String>) {
+    /// 下載任務的結果；已取消或視窗已關時不改 phase，只刪 `.new.part` 與 `.new`。
+    pub fn finish(&mut self, run: u64, result: Result<(), String>) {
+        if run != self.run || !self.running {
+            log(format!("[update] ignoring result of superseded run {run}"));
+            return;
+        }
+        self.running = false;
         self.cancel = None;
-        if self.phase == Phase::Cancelled {
-            log("[update] download cancelled");
+        if let Some(job) = self.queued.take() {
             self.remove(&part_path(&self.exe));
-        } else {
+            self.remove(&new_path(&self.exe));
+            return self.spawn(job);
+        }
+        if self.phase == Phase::Downloading {
             match result {
                 Ok(()) => {
                     log(format!(
@@ -177,6 +220,10 @@ impl UpdateJob {
                 }
                 Err(error) => self.fail(error),
             }
+        } else {
+            log("[update] download cancelled");
+            self.remove(&part_path(&self.exe));
+            self.remove(&new_path(&self.exe));
         }
         if let Some(releases) = self.pending.take() {
             self.set_releases(releases);
@@ -188,6 +235,8 @@ impl UpdateJob {
         if self.phase != Phase::Downloading {
             return;
         }
+        log("[update] cancel requested");
+        self.queued = None;
         if let Some(cancel) = &self.cancel {
             cancel.cancel();
         }
@@ -211,6 +260,7 @@ impl UpdateJob {
             self.phase,
             Phase::Ready | Phase::Failed { replace: true, .. }
         ) {
+            log("[update] restarting to apply the update");
             self.phase = Phase::Restarting;
         }
     }
