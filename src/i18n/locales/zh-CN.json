@@ -41,7 +41,7 @@
   "update.redownload": "重新下载",
   "update.unsaved": "⚠ 设置窗口有更改还没保存，重新启动后会丢失",
   "update.discard_restart": "放弃更改并重新启动",
-  "update.ready": "✓ 下载完成，可以重新启动了",
+  "update.ready": "✓ 下载完成，重新启动后即可使用新版",
   "update.restart": "重新启动",
   "local.dialog.title": "下载模型",
   "local.dialog.select_title": "选择模型",

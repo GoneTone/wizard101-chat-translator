@@ -41,7 +41,7 @@
   "update.redownload": "Download again",
   "update.unsaved": "⚠ The settings window has unsaved changes; they will be lost when restarting",
   "update.discard_restart": "Discard changes and restart",
-  "update.ready": "✓ Downloaded and ready to restart",
+  "update.ready": "✓ Downloaded. Restart to start using the new version",
   "update.restart": "Restart",
   "local.dialog.title": "Download a model",
   "local.dialog.select_title": "Choose a model",
