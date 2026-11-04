@@ -419,36 +419,10 @@ impl<C: HostedContent> Host<C> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
-    use eframe::egui::{Context, RawInput, ViewportEvent, ViewportInfo};
+    use eframe::egui::RawInput;
 
     use super::*;
-
-    thread_local! {
-        static CLOSE_NEXT: Cell<bool> = const { Cell::new(false) };
-    }
-
-    /// 同 eframe：immediate viewport 在自己的 `run_ui` 裡跑，`request_discard` 只重跑這個 viewport。
-    fn native_like_context() -> Context {
-        let ctx = Context::default();
-        ctx.set_embed_viewports(false);
-        Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
-            let mut info = ViewportInfo::default();
-            if CLOSE_NEXT.take() {
-                info.events.push(ViewportEvent::Close);
-            }
-            let mut input = RawInput {
-                viewport_id: viewport.ids.this,
-                ..Default::default()
-            };
-            input.viewports.insert(viewport.ids.this, info);
-            ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui))
-                .textures_delta
-                .clear();
-        });
-        ctx
-    }
+    use crate::ui::viewport::testing::{close_next, input_with_windows, native_like_context};
 
     /// 視窗建好之後跑一幀；`content` 第一個 pass 要求重排，回傳（pass 數，收到的動作，各 pass 收到的關閉要求）。
     fn relaid_frame(close: bool) -> (usize, Vec<&'static str>, Vec<bool>) {
@@ -460,16 +434,8 @@ mod tests {
         });
         assert!(registered.viewport_output.contains_key(&win.id()));
         registered.textures_delta.clear();
-        let mut input = RawInput::default();
-        input
-            .viewports
-            .insert(ViewportId::ROOT, ViewportInfo::default());
-        let window = ViewportInfo {
-            native_pixels_per_point: Some(1.0),
-            ..Default::default()
-        };
-        input.viewports.insert(win.id(), window);
-        CLOSE_NEXT.set(close);
+        let input = input_with_windows(&[win.id()]);
+        close_next(close);
         let mut closing = Vec::new();
         let mut got = Vec::new();
         let mut output = ctx.run_ui(input, |ui| {

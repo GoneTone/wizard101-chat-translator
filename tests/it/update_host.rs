@@ -1,11 +1,9 @@
 //! 更新視窗的托管：開關窗、下載中擋 ✕、驗證後的設定檢查與重新啟動時機（離屏 viewport，wiremock 伺服假 exe）。
 
-use std::cell::Cell;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use eframe::egui::{
-    Context, FullOutput, RawInput, ViewportCommand, ViewportEvent, ViewportId, ViewportInfo,
-};
+use eframe::egui::{Context, FullOutput, ViewportCommand, ViewportId};
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio::runtime::{Handle, Runtime};
@@ -18,48 +16,31 @@ use wizard101_chat_translator::runtime::update_job::{Phase, UpdateJob};
 use wizard101_chat_translator::runtime::updater::{Asset, Release};
 use wizard101_chat_translator::ui::events::UiPoster;
 use wizard101_chat_translator::ui::fonts_egui;
+use wizard101_chat_translator::ui::settings::update_window::UpdateAction;
 use wizard101_chat_translator::ui::settings_host::WindowOps;
 use wizard101_chat_translator::ui::update_host::{HostAction, UpdateHost};
+use wizard101_chat_translator::ui::viewport::testing::{
+    close_next, input_with_windows, native_like_context,
+};
 
 const BODY: &[u8] = b"fake exe";
-
-thread_local! {
-    static CLOSE_NEXT: Cell<bool> = const { Cell::new(false) };
-}
-
-/// 同 eframe：immediate viewport 在自己的 `run_ui` 裡跑；`CLOSE_NEXT` 時那一幀帶關閉要求。
-fn native_like_context() -> Context {
-    let ctx = Context::default();
-    fonts_egui::install(&ctx, "en-US");
-    ctx.set_embed_viewports(false);
-    Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
-        let mut info = ViewportInfo::default();
-        if CLOSE_NEXT.take() {
-            info.events.push(ViewportEvent::Close);
-        }
-        let mut input = RawInput {
-            viewport_id: viewport.ids.this,
-            ..Default::default()
-        };
-        input.viewports.insert(viewport.ids.this, info);
-        ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui))
-            .textures_delta
-            .clear();
-    });
-    ctx
-}
 
 /// 一連串幀：上一幀登記過的視窗下一幀當成已建好。
 struct Frames {
     ctx: Context,
     windows: Vec<ViewportId>,
+    /// 最近一幀根 viewport 要求的重繪延遲。
+    root_repaint: Duration,
 }
 
 impl Frames {
     fn new() -> Self {
+        let ctx = native_like_context();
+        fonts_egui::install(&ctx, "en-US");
         Self {
-            ctx: native_like_context(),
+            ctx,
             windows: Vec::new(),
+            root_repaint: Duration::MAX,
         }
     }
 
@@ -70,24 +51,14 @@ impl Frames {
         unsaved: bool,
         close: bool,
     ) -> (Vec<HostAction>, Vec<ViewportCommand>) {
-        let mut input = RawInput::default();
-        input
-            .viewports
-            .insert(ViewportId::ROOT, ViewportInfo::default());
-        for id in &self.windows {
-            let window = ViewportInfo {
-                native_pixels_per_point: Some(1.0),
-                ..Default::default()
-            };
-            input.viewports.insert(*id, window);
-        }
-        CLOSE_NEXT.set(close);
+        close_next(close);
         let mut got = Vec::new();
-        let mut output: FullOutput = self.ctx.run_ui(input, |ui| {
+        let mut output: FullOutput = self.ctx.run_ui(input_with_windows(&self.windows), |ui| {
             got = host.show(ui.ctx(), &[], unsaved);
         });
-        CLOSE_NEXT.set(false);
+        close_next(false);
         output.textures_delta.clear();
+        self.root_repaint = output.viewport_output[&ViewportId::ROOT].repaint_delay;
         self.windows = output
             .viewport_output
             .keys()
@@ -100,6 +71,13 @@ impl Frames {
             .flat_map(|v| v.commands)
             .collect();
         (got, commands)
+    }
+
+    /// 跑 `n` 幀，收集 host 交給 App 的所有動作。
+    fn handoffs(&mut self, host: &mut UpdateHost, unsaved: bool, n: usize) -> Vec<HostAction> {
+        (0..n)
+            .flat_map(|_| self.run(host, unsaved, false).0)
+            .collect()
     }
 }
 
@@ -279,4 +257,66 @@ async fn reopening_when_ready_does_not_auto_restart() {
     }
 
     assert_eq!(host.phase(), &Phase::Ready);
+}
+
+fn failed_replace() -> Phase {
+    Phase::Failed {
+        error: "x".to_owned(),
+        replace: true,
+    }
+}
+
+#[test]
+fn retrying_a_failed_replace_without_unsaved_settings_restarts() {
+    let rt = Runtime::new().unwrap();
+    let dir = TempDir::new().unwrap();
+    let mut host = host_in(&rt, &dir, failed_replace());
+    let mut frames = Frames::new();
+    host.open();
+    frames.run(&mut host, false, false);
+
+    host.act(&frames.ctx, UpdateAction::Retry, false);
+
+    assert_eq!(host.phase(), &Phase::Restarting);
+    assert_eq!(frames.handoffs(&mut host, false, 3), [HostAction::Restart]);
+}
+
+#[test]
+fn retrying_a_failed_replace_with_unsaved_settings_waits_in_ready() {
+    let rt = Runtime::new().unwrap();
+    let dir = TempDir::new().unwrap();
+    let mut host = host_in(&rt, &dir, failed_replace());
+    let mut frames = Frames::new();
+    host.open();
+    frames.run(&mut host, true, false);
+
+    host.act(&frames.ctx, UpdateAction::Retry, true);
+
+    assert_eq!(host.phase(), &Phase::Ready);
+    assert!(frames.handoffs(&mut host, true, 3).is_empty());
+}
+
+#[test]
+fn downloading_keeps_the_root_repainting() {
+    let rt = Runtime::new().unwrap();
+    let dir = TempDir::new().unwrap();
+    let mut frames = Frames::new();
+    let mut idle = host_in(&rt, &dir, Phase::Cancelled);
+    idle.open();
+    // 開窗後頭幾幀本來就會要求立刻重繪，等它停下來才比較
+    frames.handoffs(&mut idle, false, 5);
+    assert!(
+        frames.root_repaint > Duration::from_secs(1),
+        "{:?}",
+        frames.root_repaint
+    );
+
+    let mut downloading = host_in(&rt, &dir, Phase::Downloading);
+    downloading.open();
+    frames.handoffs(&mut downloading, false, 5);
+    assert!(
+        !frames.root_repaint.is_zero() && frames.root_repaint <= Duration::from_millis(100),
+        "{:?}",
+        frames.root_repaint
+    );
 }

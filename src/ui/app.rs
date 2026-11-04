@@ -1,10 +1,12 @@
 //! egui 應用程式外殼：overlay 是根 viewport（縮小時根視窗本身縮成泡泡），翻譯輸入框、框選與設定的視窗是 immediate viewport，每幀先取完 UI 事件再繪製。
 
+use std::io;
+use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
-use eframe::egui::{self, Color32, UiBuilder, ViewportCommand, ViewportId, WindowLevel};
+use eframe::egui::{self, Color32, OpenUrl, UiBuilder, ViewportCommand, ViewportId, WindowLevel};
 
 use serde_json::Value;
 
@@ -119,6 +121,10 @@ pub struct App {
     settings: Option<SettingsWiring>,
     first_run: Option<FirstRun>,
     update: Option<UpdateHost>,
+    /// 最新版的 release 網頁；沒接上更新視窗時，點新版改開它。
+    latest_url: Option<String>,
+    /// 換上新版執行檔；測試換成會失敗的版本。
+    replace_exe: fn(&Path) -> io::Result<()>,
     /// overlay 根視窗與泡泡目前的疊放層級；設定或更新視窗開著時降為一般層級。
     overlay_level: WindowLevel,
 }
@@ -161,6 +167,8 @@ impl App {
             settings: None,
             first_run: None,
             update: None,
+            latest_url: None,
+            replace_exe,
             overlay_level: WindowLevel::AlwaysOnTop,
         }
     }
@@ -265,17 +273,24 @@ impl App {
         }
     }
 
-    /// 開更新視窗；已開著就叫到前景。
-    fn open_update(&mut self) {
-        match &mut self.update {
-            Some(update) => update.open(),
-            None => log("[update] update window requested but no updater is wired"),
+    /// 開更新視窗；已開著就叫到前景。沒接上更新視窗時改用瀏覽器開最新版的網頁。
+    fn open_update(&mut self, ctx: &egui::Context) {
+        match (&mut self.update, &self.latest_url) {
+            (Some(update), _) => update.open(),
+            (None, Some(url)) => {
+                log(format!(
+                    "[update] no updater wired; opening release page: {url}"
+                ));
+                ctx.open_url(OpenUrl::new_tab(url));
+            }
+            (None, None) => log("[update] update window requested but nothing to open"),
         }
     }
 
     /// 新版清單：橫幅提示最新那筆（`offer` 為自動檢查：關掉過的版本不再跳出），清單交給更新視窗。
     fn update_found(&mut self, releases: Vec<Release>, offer: bool) {
         if let Some(latest) = releases.first().cloned() {
+            self.latest_url = Some(latest.url.clone());
             if offer {
                 self.banners.offer_update(latest);
             } else {
@@ -657,7 +672,7 @@ impl App {
             SettingsAction::PreviewAlpha(alpha) => self.frame.set_alpha(alpha),
             SettingsAction::PreviewLanguage => self.relabel(ctx),
             SettingsAction::UpdateFound(releases) => self.update_found(releases, false),
-            SettingsAction::OpenUpdate => self.open_update(),
+            SettingsAction::OpenUpdate => self.open_update(ctx),
             SettingsAction::Save(cfg) => {
                 let Some(wiring) = &mut self.settings else {
                     return;
@@ -683,21 +698,28 @@ impl App {
     /// 每幀畫出開著的更新視窗；它要求重新啟動時換上新版執行檔並關閉程式，新版等關閉流程跑完才啟動。
     fn show_update(&mut self, ctx: &egui::Context) {
         let known = self.viewport_hwnds();
+        let unsaved = self.update.as_ref().is_some_and(UpdateHost::is_open)
+            && self.settings.as_ref().is_some_and(|w| w.host.has_unsaved());
         let Some(update) = &mut self.update else {
             return;
         };
-        let unsaved =
-            update.is_open() && self.settings.as_ref().is_some_and(|w| w.host.has_unsaved());
         for action in update.show(ctx, &known, unsaved) {
-            match action {
-                HostAction::Restart => match replace_exe(update.exe()) {
-                    Ok(()) => {
-                        request_relaunch(update.exe().to_path_buf());
-                        ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
-                    }
-                    Err(e) => update.restart_failed(e.to_string()),
-                },
-            }
+            self.update_action(ctx, action);
+        }
+    }
+
+    fn update_action(&mut self, ctx: &egui::Context, action: HostAction) {
+        let Some(update) = &mut self.update else {
+            return;
+        };
+        match action {
+            HostAction::Restart => match (self.replace_exe)(update.exe()) {
+                Ok(()) => {
+                    request_relaunch(update.exe().to_path_buf());
+                    ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
+                }
+                Err(e) => update.restart_failed(e.to_string()),
+            },
         }
     }
 
@@ -769,7 +791,7 @@ impl App {
         }
         self.content(ui);
         if self.banners.take_update_click() {
-            self.open_update();
+            self.open_update(&ctx);
         }
         // 最後畫：疊在分頁列與橫幅之上，邊框才繞得完整一圈
         glass::rim(ui.painter(), ui.max_rect(), glass::WINDOW_RADIUS, 1.0);
@@ -2067,8 +2089,45 @@ mod tests {
         poster.post(UiEvent::UpdateFound(new_version()));
         harness.step();
         assert_eq!(harness.state().overlay_level(), WindowLevel::AlwaysOnTop);
-        harness.state_mut().open_update();
+        let ctx = harness.ctx.clone();
+        harness.state_mut().open_update(&ctx);
         harness.step();
         assert_eq!(harness.state().overlay_level(), WindowLevel::Normal);
+    }
+
+    #[test]
+    fn a_failed_replace_is_reported_back_to_the_update_window() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_update(&mut harness);
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut();
+        app.replace_exe = |_| Err(io::Error::other("locked"));
+        app.update_action(&ctx, HostAction::Restart);
+        assert_eq!(
+            app.update.as_ref().unwrap().phase(),
+            &crate::runtime::update_job::Phase::Failed {
+                error: "locked".into(),
+                replace: true
+            }
+        );
+    }
+
+    #[test]
+    fn without_an_updater_the_banner_opens_the_release_page() {
+        let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let mut releases = new_version();
+        releases[0].url = "https://example.invalid/rel".into();
+        poster.post(UiEvent::UpdateFound(releases));
+        harness.step();
+        harness
+            .get_by_label(&crate::i18n::t("update.available", &[("version", "9.9.9")]))
+            .click();
+        harness.step();
+        assert_eq!(
+            crate::ui::text_select::opened_urls(&harness.output().platform_output),
+            ["https://example.invalid/rel"]
+        );
     }
 }

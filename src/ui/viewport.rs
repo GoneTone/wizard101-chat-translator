@@ -118,24 +118,31 @@ pub fn frameless_setup(hwnd: isize, owner: isize) {
     win32::hide_from_taskbar(hwnd, owner);
 }
 
-#[cfg(test)]
-mod tests {
-    use eframe::egui::{Context, RawInput, ViewportInfo};
+/// 離屏跑 immediate viewport 的測試工具。
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing {
+    use std::cell::Cell;
 
-    use super::*;
+    use eframe::egui::{Context, RawInput, ViewportEvent, ViewportId, ViewportInfo};
+
+    thread_local! {
+        static CLOSE_NEXT: Cell<bool> = const { Cell::new(false) };
+    }
 
     /// 同 eframe：不嵌入、immediate viewport 在自己的 `run_ui` 裡跑。
-    fn native_like_context() -> Context {
+    pub fn native_like_context() -> Context {
         let ctx = Context::default();
         ctx.set_embed_viewports(false);
         Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
+            let mut info = ViewportInfo::default();
+            if CLOSE_NEXT.take() {
+                info.events.push(ViewportEvent::Close);
+            }
             let mut input = RawInput {
                 viewport_id: viewport.ids.this,
                 ..Default::default()
             };
-            input
-                .viewports
-                .insert(viewport.ids.this, ViewportInfo::default());
+            input.viewports.insert(viewport.ids.this, info);
             ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui))
                 .textures_delta
                 .clear();
@@ -143,8 +150,13 @@ mod tests {
         ctx
     }
 
+    /// 這個執行緒下一個畫出的 immediate viewport 收到關閉要求（✕）；`false` 撤銷。
+    pub fn close_next(close: bool) {
+        CLOSE_NEXT.set(close);
+    }
+
     /// 根 viewport 的輸入：`windows` 裡的 viewport 已有原生視窗。
-    fn input_with_windows(windows: &[ViewportId]) -> RawInput {
+    pub fn input_with_windows(windows: &[ViewportId]) -> RawInput {
         let mut input = RawInput::default();
         input
             .viewports
@@ -158,6 +170,14 @@ mod tests {
         }
         input
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{Context, RawInput};
+
+    use super::testing::{input_with_windows, native_like_context};
+    use super::*;
 
     /// 跑一幀根 viewport，依序對 `ids` 呼叫 [`show_immediate`]；回傳各自的結果、`before` 與輸出。
     fn frame(

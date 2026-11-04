@@ -172,14 +172,20 @@ impl UpdateHost {
         out
     }
 
-    fn act(&mut self, ctx: &egui::Context, action: UpdateAction, unsaved: bool) {
+    /// 處理使用者在視窗按下的動作；`unsaved` 同 [`Self::show`]。
+    pub fn act(&mut self, ctx: &egui::Context, action: UpdateAction, unsaved: bool) {
         match action {
             UpdateAction::Start => self.start(),
             UpdateAction::Cancel => self.job.cancel(),
+            // 替換失敗的重試也是重新啟動：一樣先過設定檢查
             UpdateAction::Retry
                 if matches!(self.job.phase(), Phase::Failed { replace: true, .. }) =>
             {
-                self.begin_restart(ctx);
+                if unsaved {
+                    self.job.back_to_ready();
+                } else {
+                    self.begin_restart(ctx);
+                }
             }
             UpdateAction::Retry => self.start(),
             UpdateAction::OpenReleasePage => {

@@ -262,6 +262,16 @@ impl UpdateJob {
         }
     }
 
+    /// 替換失敗後重試、但設定有尚未存下的變更：回到 Ready（`.new` 還在），等使用者決定。
+    pub fn back_to_ready(&mut self) {
+        if matches!(self.phase, Phase::Failed { replace: true, .. }) {
+            log(
+                "[update] replace retry held: back to ready until the settings are saved or discarded",
+            );
+            self.phase = Phase::Ready;
+        }
+    }
+
     /// 替換執行檔失敗。
     pub fn restart_failed(&mut self, error: String) {
         log(format!("[update] replace failed: {error}"));
