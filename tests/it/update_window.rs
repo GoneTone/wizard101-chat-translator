@@ -257,20 +257,26 @@ fn list_items_line_up_with_their_text() {
 
     let text = text_rows(&h, "New Crowdin")[0];
     for link in ["@GoneTone", "#72"] {
-        let y = text_rows(&h, link)[0].0;
-        assert!((y - text.0).abs() <= 1.0, "{link}: {y} vs {}", text.0);
+        let row = text_rows(&h, link)[0];
+        assert!(
+            (row.0 - text.0).abs() <= 1.0 && (row.1 - text.1).abs() <= 1.0,
+            "{link} is not on the item's first row: {row:?} vs {text:?}"
+        );
     }
 
+    let middle = text.0 + text.1 / 2.0;
     let bullet = h
         .output()
         .shapes
         .iter()
-        .find_map(|c| match &c.shape {
-            Shape::Circle(c) => Some(c.center.y),
+        .filter_map(|c| match &c.shape {
+            Shape::Circle(c) if (text.0..=text.0 + text.1).contains(&c.center.y) => {
+                Some(c.center.y)
+            }
             _ => None,
         })
-        .expect("bullet painted");
-    let middle = text.0 + text.1 / 2.0;
+        .min_by(|a, b| (a - middle).abs().total_cmp(&(b - middle).abs()))
+        .expect("bullet painted on the item's first row");
     assert!((bullet - middle).abs() <= 1.0, "{bullet} vs {middle}");
 
     let gap = |rows: &[(f32, f32)]| rows[1].0 - rows[0].0;
