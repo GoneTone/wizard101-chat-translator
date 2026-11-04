@@ -2,7 +2,7 @@
 
 use crate::common::kittest::{click, themed_harness, tr};
 use eframe::egui::accesskit::Role;
-use eframe::egui::{FontFamily, Shape, vec2};
+use eframe::egui::{Color32, FontFamily, Shape, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::i18n::t;
@@ -353,6 +353,50 @@ mod links {
         );
     }
 
+    /// URL 只含 RFC 3986 字元：中文與全形標點、強調記號都不進網址。
+    #[test]
+    fn url_ends_at_cjk_text_and_emphasis_markers() {
+        assert_eq!(
+            linkify_github("詳見https://x.com/a，謝謝"),
+            "詳見<https://x.com/a>，謝謝"
+        );
+        assert_eq!(
+            linkify_github("**https://x.com/a**"),
+            "**<https://x.com/a>**"
+        );
+        assert_eq!(linkify_github("https://x.com/a。"), "<https://x.com/a>。");
+    }
+
+    /// 成對括號留在網址裡，不成對的結尾括號才切掉。
+    #[test]
+    fn balanced_parentheses_stay_in_the_url() {
+        assert_eq!(
+            linkify_github("https://en.wikipedia.org/wiki/Foo_(bar)"),
+            "<https://en.wikipedia.org/wiki/Foo_(bar)>"
+        );
+        assert_eq!(
+            linkify_github("(see https://x.com/a)"),
+            "(see <https://x.com/a>)"
+        );
+    }
+
+    /// 行內程式碼依反引號數量配對。
+    #[test]
+    fn inline_code_pairs_backtick_runs() {
+        for same in ["``a ` https://x.com/a``", "`a` and ```b https://x.com/a```"] {
+            let out = linkify_github(same);
+            assert!(!out.contains("<https://x.com/a>"), "{out}");
+        }
+        assert_eq!(
+            linkify_github("`x` https://x.com/a"),
+            "`x` <https://x.com/a>"
+        );
+        assert_eq!(
+            linkify_github("`unclosed https://x.com/a"),
+            "`unclosed <https://x.com/a>"
+        );
+    }
+
     fn body_window(body: &str) -> Harness<'static, Window> {
         window_with(vec![release("1.2.0", body)], Phase::Idle, (0, 0), false)
     }
@@ -380,7 +424,10 @@ mod links {
                 _ => None,
             })
             .expect("link painted");
-        // 區段色是佔位色，實際色由 override／fallback 決定
+        for section in &shape.galley.job.sections {
+            let c = section.format.color;
+            assert!(c == Color32::PLACEHOLDER || c == theme::LINK, "{c:?}");
+        }
         let color = shape.override_text_color.unwrap_or(shape.fallback_color);
         assert_eq!(color, theme::LINK);
     }

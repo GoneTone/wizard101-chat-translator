@@ -11,19 +11,28 @@ static TOKEN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
         (?P<keep>\[[^\]]*\]\([^)]*\) | <https?://[^>\s]+>)
-        | (?P<url>https?://[^\s<>]+)
+        | (?P<url>https?://[A-Za-z0-9\-._~:/?\#\[\]@!$&'()+,;=%]+)
         | @(?P<user>[A-Za-z0-9][A-Za-z0-9-]*)(?P<bot>\[bot\])?",
     )
     .expect("valid regex")
 });
 
-/// 網址尾端的句讀不算網址的一部分。
-const TRAILING: &[char] = &[
-    '.', ',', ';', ':', '!', '?', ')', ']', '}', '\'', '"', '。', '，', '、', '；', '：', '！',
-    '？', '）', '」', '』',
-];
+/// 網址尾端的 ASCII 句讀不算網址的一部分；`)` 另外依括號是否成對判斷。
+const TRAILING: &[char] = &['.', ',', ';', ':', '!', '?', ']', '\'', '_'];
 
-/// 把裸網址與 `@使用者` 改寫成 Markdown 連結；程式碼區塊與行內程式碼不動。
+fn trim_trailing(url: &str) -> &str {
+    let mut url = url;
+    loop {
+        let unbalanced = url.ends_with(')') && url.matches(')').count() > url.matches('(').count();
+        if unbalanced || url.ends_with(TRAILING) {
+            url = &url[..url.len() - 1];
+        } else {
+            return url;
+        }
+    }
+}
+
+/// 把裸網址與 `@使用者` 改寫成 Markdown 連結；程式碼區塊與行內程式碼不動（行內程式碼不跨行）。
 pub fn linkify_github(body: &str) -> String {
     let mut fenced = false;
     body.lines()
@@ -36,18 +45,7 @@ pub fn linkify_github(body: &str) -> String {
             if fenced || line.len() - trimmed.len() >= 4 {
                 return line.to_owned();
             }
-            // 奇數段在反引號之間，是行內程式碼
-            line.split('`')
-                .enumerate()
-                .map(|(i, seg)| {
-                    if i % 2 == 0 {
-                        linkify(seg)
-                    } else {
-                        seg.to_owned()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("`")
+            outside_code(line, linkify)
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -62,7 +60,7 @@ fn linkify(text: &str) -> String {
             }
             if let Some(url) = c.name("url") {
                 let url = url.as_str();
-                let clean = url.trim_end_matches(TRAILING);
+                let clean = trim_trailing(url);
                 return format!("{}{}", url_link(clean), &url[clean.len()..]);
             }
             // 前一個字元若是帳號／路徑字元，就是信箱或路徑而不是提及
@@ -102,4 +100,35 @@ fn url_link(url: &str) -> String {
         Some(label) => format!("[{label}]({url})"),
         None => format!("<{url}>"),
     }
+}
+
+/// 對 `line` 中不在行內程式碼裡的片段套用 `f`；N 個反引號開頭的程式碼在下一串剛好 N 個的反引號結束。
+fn outside_code(line: &str, f: impl Fn(&str) -> String) -> String {
+    let runs = |from: usize| {
+        let mut found = Vec::new();
+        let mut i = from;
+        while let Some(off) = line[i..].find('`') {
+            let start = i + off;
+            let len = line[start..].len() - line[start..].trim_start_matches('`').len();
+            found.push((start, len));
+            i = start + len;
+        }
+        found
+    };
+    let all = runs(0);
+    let (mut out, mut pos, mut k) = (String::new(), 0, 0);
+    while k < all.len() {
+        let (start, len) = all[k];
+        match all[k + 1..].iter().position(|&(_, l)| l == len) {
+            Some(j) => {
+                let (cs, cl) = all[k + 1 + j];
+                out += &f(&line[pos..start]);
+                out += &line[start..cs + cl];
+                pos = cs + cl;
+                k += j + 2;
+            }
+            None => k += 1,
+        }
+    }
+    out + &f(&line[pos..])
 }

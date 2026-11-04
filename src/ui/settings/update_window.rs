@@ -135,6 +135,10 @@ impl UpdateView {
                     ui.style_mut()
                         .text_styles
                         .insert(TextStyle::Heading, theme::bold(MARKDOWN_HEADING_SIZE));
+                    // 主題的 override_text_color 會把連結也染成內文色
+                    let visuals = ui.visuals_mut();
+                    visuals.override_text_color = None;
+                    visuals.widgets.noninteractive.fg_stroke.color = theme::TEXT;
                     let body = linkify_github(&flatten_headings(&release.body));
                     CommonMarkViewer::new().show(ui, &mut self.markdown, &body);
                 });
