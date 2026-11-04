@@ -379,6 +379,7 @@ mod tests {
         Release {
             version: version.into(),
             url: "https://example.invalid/rel".into(),
+            ..Default::default()
         }
     }
 

@@ -461,7 +461,11 @@ impl App {
             UiEvent::HotkeysUnavailable => self.banners.set_hotkeys_unavailable(),
             UiEvent::ConfigSaveFailed => self.banners.set_config_unsaved(true),
             UiEvent::ConfigSaved => self.banners.set_config_unsaved(false),
-            UiEvent::UpdateFound(release) => self.banners.offer_update(release),
+            UiEvent::UpdateFound(releases) => {
+                if let Some(latest) = releases.into_iter().next() {
+                    self.banners.offer_update(latest);
+                }
+            }
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
             UiEvent::AddMessage {
                 slot,
@@ -617,7 +621,11 @@ impl App {
         match action {
             SettingsAction::PreviewAlpha(alpha) => self.frame.set_alpha(alpha),
             SettingsAction::PreviewLanguage => self.relabel(ctx),
-            SettingsAction::UpdateFound(release) => self.banners.set_update(release),
+            SettingsAction::UpdateFound(releases) => {
+                if let Some(latest) = releases.into_iter().next() {
+                    self.banners.set_update(latest);
+                }
+            }
             SettingsAction::Save(cfg) => {
                 let Some(wiring) = &mut self.settings else {
                     return;
@@ -960,6 +968,7 @@ mod tests {
         harness.state_mut().banners_mut().set_update(Release {
             version: format!("0.2.0-{}", "rc.".repeat(20)),
             url: "https://example.invalid/rel".into(),
+            ..Default::default()
         });
         harness.step();
         harness.get_by_label("─").click();

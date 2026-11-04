@@ -94,7 +94,7 @@ pub enum SettingsAction {
     /// 視窗已呼叫 `set_language`，App 只需 relabel 常駐介面。
     PreviewLanguage,
     /// 手動檢查查到新版。
-    UpdateFound(Release),
+    UpdateFound(Vec<Release>),
     /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),

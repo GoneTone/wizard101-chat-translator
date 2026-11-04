@@ -28,7 +28,7 @@ use wizard101_chat_translator::reader::message_log::SharedWriter;
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
 use wizard101_chat_translator::runtime::updater::{
-    LATEST_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
+    RELEASES_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
 };
 use wizard101_chat_translator::runtime::{
     AcquireError, acquire_single_instance, focus_running_instance,
@@ -328,7 +328,7 @@ fn start_main(app: &mut App, startup: Startup) {
     schedule_update_checks(
         &rt,
         built.stop.clone(),
-        LATEST_API.to_owned(),
+        RELEASES_API.to_owned(),
         UPDATE_CHECK_INTERVAL,
         Arc::new(move |release| ui.post(UiEvent::UpdateFound(release))),
     );

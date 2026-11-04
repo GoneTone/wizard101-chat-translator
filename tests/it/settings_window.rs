@@ -1107,7 +1107,7 @@ const UP_TO_DATE_LOG: &str = "[update] manual check: already up to date";
 fn deliver_check(
     h: &mut Harness<State>,
     round: u64,
-    result: Result<Option<Release>, String>,
+    result: Result<Vec<Release>, String>,
 ) -> usize {
     static LOCK: Mutex<()> = Mutex::new(());
     let _serial = util::lock(&LOCK);
@@ -1121,7 +1121,7 @@ fn deliver_check(
 }
 
 /// 在關於頁按〔檢查更新〕並送回 `result`；回傳多記的 `UP_TO_DATE_LOG` 行數。
-fn check_update(h: &mut Harness<State>, result: Result<Option<Release>, String>) -> usize {
+fn check_update(h: &mut Harness<State>, result: Result<Vec<Release>, String>) -> usize {
     go(h, "settings.tab.about");
     click(h, Role::Button, &tr("button.check_update"));
     let round = *h.state().env.checks.borrow().last().unwrap();
@@ -1132,6 +1132,7 @@ fn release() -> Release {
     Release {
         version: "9.9.9".into(),
         url: "https://example.invalid/rel".into(),
+        ..Default::default()
     }
 }
 
@@ -1151,14 +1152,14 @@ fn checking_disables_the_button_until_the_result() {
     let checking = h.get_by_role_and_label(Role::Button, &label);
     assert!(checking.accesskit_node().is_disabled());
     let round = h.state().env.checks.borrow()[0];
-    deliver_check(&mut h, round, Ok(None));
+    deliver_check(&mut h, round, Ok(vec![]));
     assert!(update_button_enabled(&h));
 }
 
 #[test]
 fn manual_check_reports_up_to_date() {
     let mut h = harness(configured_cfg());
-    let logged = check_update(&mut h, Ok(None));
+    let logged = check_update(&mut h, Ok(vec![]));
     text(&h, &tr("update.latest"));
     assert!(update_button_enabled(&h));
     assert_eq!(logged, 1);
@@ -1167,7 +1168,7 @@ fn manual_check_reports_up_to_date() {
 #[test]
 fn manual_check_keeps_update_found_quiet_when_up_to_date() {
     let mut h = harness(configured_cfg());
-    check_update(&mut h, Ok(None));
+    check_update(&mut h, Ok(vec![]));
     assert!(
         !h.state()
             .actions
@@ -1179,14 +1180,17 @@ fn manual_check_keeps_update_found_quiet_when_up_to_date() {
 #[test]
 fn manual_check_hands_a_new_version_to_update_found() {
     let mut h = harness(configured_cfg());
-    check_update(&mut h, Ok(Some(release())));
-    assert_eq!(h.state().actions, [SettingsAction::UpdateFound(release())]);
+    check_update(&mut h, Ok(vec![release()]));
+    assert_eq!(
+        h.state().actions,
+        [SettingsAction::UpdateFound(vec![release()])]
+    );
 }
 
 #[test]
 fn manual_check_reports_a_new_version() {
     let mut h = harness(configured_cfg());
-    check_update(&mut h, Ok(Some(release())));
+    check_update(&mut h, Ok(vec![release()]));
     let text = t("update.available", &[("version", "9.9.9")]);
     assert_eq!(click_link(&mut h, &text), ["https://example.invalid/rel"]);
 }
@@ -1195,7 +1199,7 @@ fn manual_check_reports_a_new_version() {
 fn update_result_is_only_clickable_over_its_text() {
     // 「有新版」整行是連結，但只到文字為止；不可撐滿整列讓空白也可點
     let mut h = harness(configured_cfg());
-    check_update(&mut h, Ok(Some(release())));
+    check_update(&mut h, Ok(vec![release()]));
     let label = t("update.available", &[("version", "9.9.9")]);
     let link = h.get_by_role_and_label(Role::Link, &label).rect();
     let text = find_text_shape(&h.output().shapes, &label)
@@ -1389,10 +1393,10 @@ fn hero_lines(h: &Harness<State>) -> (Rect, Rect) {
 
 #[test]
 fn an_update_result_does_not_move_the_name_and_version() {
-    let results: [Result<Option<Release>, String>; 3] = [
-        Ok(None),
+    let results: [Result<Vec<Release>, String>; 3] = [
+        Ok(vec![]),
         Err("HTTP 403: API rate limit exceeded for 203.0.113.7".into()),
-        Ok(Some(release())),
+        Ok(vec![release()]),
     ];
     let texts = [
         tr("update.latest"),

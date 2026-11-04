@@ -33,6 +33,7 @@ fn status_key_relabels_on_language_change() {
     harness.state_mut().banners_mut().offer_update(Release {
         version: "0.2.0".into(),
         url: "https://example.invalid/rel".into(),
+        ..Default::default()
     });
     harness.step();
     let zh_status = t("status.listening", &[]);

@@ -201,18 +201,19 @@ fn basic_states() {
 }
 
 fn update_states() {
-    let results: [(&str, Result<Option<Release>, String>); 3] = [
-        ("latest", Ok(None)),
+    let results: [(&str, Result<Vec<Release>, String>); 3] = [
+        ("latest", Ok(vec![])),
         (
             "failed",
             Err("HTTP 403: API rate limit exceeded for 203.0.113.7".into()),
         ),
         (
             "available",
-            Ok(Some(Release {
+            Ok(vec![Release {
                 version: "0.7.0".into(),
                 url: "https://github.com/GoneTone/wizard101-chat-translator/releases/latest".into(),
-            })),
+                ..Default::default()
+            }]),
         ),
     ];
     for (name, result) in results {
