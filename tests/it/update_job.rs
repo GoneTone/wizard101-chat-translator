@@ -390,3 +390,50 @@ async fn late_result_after_cancel_and_close_keeps_idle() {
     assert_eq!(job.phase(), &Phase::Idle);
     assert!(!part_path(&exe).exists());
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_drops_a_queued_start() {
+    let server = serve(Duration::from_millis(500)).await;
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe.clone());
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+
+    let old = start(&mut job, &server);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    job.cancel();
+    let queued = start(&mut job, &server);
+    job.cancel();
+    let (run, result) = old.await.unwrap();
+    job.finish(run, result);
+
+    assert_eq!(job.phase(), &Phase::Cancelled);
+    assert!(queued.await.is_err());
+    assert!(!part_path(&exe).exists());
+    assert!(!new_path(&exe).exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn newer_release_during_queued_start_discards_the_queued_download() {
+    let server = serve(Duration::from_millis(300)).await;
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let url = format!("{}/app.exe", server.uri());
+    let mut job = UpdateJob::new(exe.clone());
+    job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
+
+    let old = start(&mut job, &server);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    job.cancel();
+    let queued = start(&mut job, &server);
+    job.set_releases(vec![release("1.3.0", &url, sha(BODY))]);
+    let (run, result) = old.await.unwrap();
+    job.finish(run, result);
+    let (run, result) = queued.await.unwrap();
+    job.finish(run, result);
+
+    assert_eq!(job.releases()[0].version, "1.3.0");
+    assert!(!new_path(&exe).exists());
+    assert_eq!(job.phase(), &Phase::Idle);
+}

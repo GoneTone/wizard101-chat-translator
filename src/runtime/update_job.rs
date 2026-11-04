@@ -140,15 +140,7 @@ impl UpdateJob {
             return;
         };
         if release.asset.is_none() {
-            let error = t(
-                "update.no_verifiable_asset",
-                &[("version", &release.version), ("asset", EXE_ASSET)],
-            );
-            log(format!(
-                "[update] release {} has no verifiable {EXE_ASSET} asset",
-                release.version
-            ));
-            return self.fail(error);
+            return self.fail_no_asset();
         }
         self.target = Some(release.version.clone());
         self.phase = Phase::Downloading;
@@ -167,7 +159,7 @@ impl UpdateJob {
 
     fn spawn(&mut self, job: QueuedStart) {
         let Some(asset) = self.releases.first().and_then(|r| r.asset.clone()) else {
-            return;
+            return self.fail_no_asset();
         };
         log(format!(
             "[update] download start: version={:?} size={}",
@@ -272,6 +264,18 @@ impl UpdateJob {
             error,
             replace: true,
         };
+    }
+
+    fn fail_no_asset(&mut self) {
+        let version = self.releases.first().map_or("", |r| r.version.as_str());
+        let error = t(
+            "update.no_verifiable_asset",
+            &[("version", version), ("asset", EXE_ASSET)],
+        );
+        log(format!(
+            "[update] release {version} has no verifiable {EXE_ASSET} asset"
+        ));
+        self.fail(error);
     }
 
     fn fail(&mut self, error: String) {
