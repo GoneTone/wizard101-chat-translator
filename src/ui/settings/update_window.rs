@@ -259,7 +259,7 @@ fn footer(
         let used = shown.response.rect.height();
         if (used - height).abs() > 0.5 {
             ui.data_mut(|d| d.insert_temp(status, used));
-            ui.ctx().request_discard("footer status resized");
+            crate::ui::relayout(ui.ctx(), "footer status resized");
         }
         right_aligned(ui, buttons, |ui| {
             let label = |key| t(key, &[]);

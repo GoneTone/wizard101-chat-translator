@@ -890,3 +890,63 @@ fn footer_status_is_vertically_centred_on_the_buttons() {
         );
     }
 }
+
+/// 畫面上以 `prefix` 開頭、整段落在剪裁範圍內的文字中最上面那段：(文字, 頂端 y)。
+fn topmost_text(h: &Harness<'static, Window>, prefix: &str) -> (String, f32) {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t)
+                if t.galley.text().starts_with(prefix) && t.pos.y >= c.clip_rect.top() =>
+            {
+                Some((t.galley.text().to_owned(), t.pos.y))
+            }
+            _ => None,
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .expect("the text is drawn")
+}
+
+/// 捲到中間後改視窗寬度，內文重新換行，可見範圍最上面那段仍留在原位。
+#[test]
+fn resizing_keeps_the_text_at_the_top_in_place() {
+    let body = |v: &str| {
+        (1..=30)
+            .map(|i| format!("Para {i} of {v}: release notes that wrap onto more lines when the window gets narrower.\n\n"))
+            .collect::<String>()
+    };
+    let releases = ["1.3.0", "1.2.0", "1.1.0"]
+        .map(|v| release(v, &body(v)))
+        .to_vec();
+    let mut h = window_with(releases, Phase::Idle, (0, 0), false);
+    h.event(Event::PointerMoved(pos2(300.0, 300.0)));
+    run(&mut h);
+    h.event(Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: vec2(0.0, -1500.0),
+        phase: TouchPhase::Move,
+        source: MouseWheelSource::Unknown,
+        modifiers: Modifiers::NONE,
+    });
+    run(&mut h);
+    let (text, top) = topmost_text(&h, "Para ");
+
+    for width in [420.0, 900.0, 620.0] {
+        h.set_size(vec2(width, 600.0));
+        run(&mut h);
+        let now = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Text(t) if t.galley.text() == text => Some(t.pos.y),
+                _ => None,
+            })
+            .expect("the paragraph is still drawn");
+        assert!(
+            (now - top).abs() <= 3.0,
+            "{text:?} at {width}: {top} -> {now}"
+        );
+    }
+}

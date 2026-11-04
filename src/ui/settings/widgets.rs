@@ -7,8 +7,8 @@ use std::sync::Arc;
 use eframe::egui::style::{ScrollStyle, StyleModifier, WidgetVisuals};
 use eframe::egui::{
     Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, FontSelection, Frame, Galley,
-    Id, Label, Layout, Margin, Pos2, Rect, Response, RichText, Role, ScrollArea, Sense, Shape,
-    Stroke, StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiKind,
+    Id, Label, Layout, Margin, Pos2, Rangef, Rect, Response, RichText, Role, ScrollArea, Sense,
+    Shape, Stroke, StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiKind,
     UiStackInfo, Vec2, WidgetInfo, WidgetText, lerp, pos2, text::LayoutJob, vec2,
 };
 
@@ -35,22 +35,119 @@ pub(super) fn scroll_page<R>(
     let bar = ui
         .available_rect_before_wrap()
         .shrink2(vec2(0.0, BAR_INSET));
-    ScrollArea::vertical()
-        .id_salt(salt)
+    let key = ui.scope_id().with(("scroll_page_top", &salt));
+    let mut area = ScrollArea::vertical()
+        .id_salt(&salt)
         .auto_shrink([false, false])
-        .scroll_bar_rect(bar)
-        .show(ui, |ui| {
-            ui.set_style(style);
-            Frame::new()
-                .inner_margin(margin)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = gap;
-                    add(ui)
-                })
-                .inner
+        .scroll_bar_rect(bar);
+    if let Some(anchor) = ui.data(|d| d.get_temp::<TopAnchor>(key))
+        && anchor.pending > 0
+    {
+        area = area.vertical_scroll_offset(anchor.offset);
+    }
+    let spans = Id::unique(CARD_SPANS);
+    ui.data_mut(|d| d.insert_temp(spans, Some(Vec::<Rangef>::new())));
+    let output = area.show(ui, |ui| {
+        ui.set_style(style);
+        let origin = ui.max_rect().top();
+        let inner = Frame::new()
+            .inner_margin(margin)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = gap;
+                add(ui)
+            })
+            .inner;
+        (origin, inner)
+    });
+    let cards = ui
+        .data_mut(|d| {
+            d.get_temp_mut_or_default::<Option<Vec<Rangef>>>(spans)
+                .take()
         })
-        .inner
+        .unwrap_or_default();
+    let (origin, inner) = output.inner;
+    keep_top_in_place(ui, key, output.inner_rect, origin, &cards);
+    inner
+}
+
+/// `scroll_page` 收集卡片上下緣的暫存 Id：捲動頁內的 `card()` 會把自己的範圍記進去。
+const CARD_SPANS: &str = "scroll_page_card_spans";
+
+/// 可見範圍頂端落在第幾張卡片的幾成處（超過 1 表示在卡片下方的間距裡）；`offset` 是取錨點時的捲動位置，`pending` 大於 0 時則是下一輪要捲到的位置。
+#[derive(Clone, Copy)]
+struct TopAnchor {
+    width: f32,
+    card: usize,
+    fraction: f32,
+    offset: f32,
+    pending: u8,
+}
+
+/// 改寬度後最多校正幾輪：設定列要重排好幾輪才定，捲到底被夾住時也不會一直重畫。
+const ANCHOR_RETRIES: u8 = 8;
+
+/// 改寬度時內文重新換行、高度跟著變，捲動位置照舊像素不動的話畫面內容會跑掉；改把頂端換算回同一張卡片的同一處，版面排定、位置也對上才停。
+///
+/// 連續改寬度時沿用最初的錨點，來回拉才不會累積誤差；使用者自己捲動後才重取。`origin` 是這一幀內容實際排版的頂端（平滑捲動途中捲動狀態會先往前走）。
+fn keep_top_in_place(ui: &Ui, key: Id, viewport: Rect, origin: f32, cards: &[Rangef]) {
+    let width = viewport.width();
+    let offset = viewport.top() - origin;
+    let span = |i: usize| cards.get(i).map(|s| (s.min - origin, s.span()));
+    let anchor = match ui.data(|d| d.get_temp::<TopAnchor>(key)) {
+        Some(a) if a.width != width || a.pending > 0 => span(a.card).map(|(top, height)| {
+            let target = top + a.fraction * height;
+            let aligned = (target - offset).abs() < 0.5;
+            // 這一輪還有元件要求重排（列高還在變）就不算排定
+            let settled = a.width == width && !ui.ctx().output(|o| o.requested_discard());
+            let pending = if a.width == width {
+                a.pending - 1
+            } else {
+                ANCHOR_RETRIES
+            };
+            if pending == 0 || (settled && aligned) {
+                return TopAnchor {
+                    width,
+                    offset,
+                    pending: 0,
+                    ..a
+                };
+            }
+            if aligned {
+                ui.ctx().request_repaint();
+            } else {
+                crate::ui::relayout(ui.ctx(), "scroll page reflowed");
+            }
+            TopAnchor {
+                width,
+                offset: target,
+                pending,
+                ..a
+            }
+        }),
+        Some(a) if (a.offset - offset).abs() < 0.5 => Some(a),
+        _ => None,
+    };
+    // 卡片按畫完的順序記錄；取頂端在可見範圍上緣以上、最靠下的那張（巢狀時就是內層）
+    let anchor = anchor.or_else(|| {
+        (0..cards.len())
+            .filter_map(|i| span(i).map(|(top, height)| (i, top, height)))
+            .filter(|&(_, top, height)| top <= offset && height > 0.0)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(card, top, height)| TopAnchor {
+                width,
+                card,
+                fraction: (offset - top) / height,
+                offset,
+                pending: 0,
+            })
+    });
+    ui.data_mut(|d| match anchor {
+        Some(anchor) => {
+            d.insert_temp(key, anchor);
+        }
+        None => d.remove::<TopAnchor>(key),
+    });
 }
 
 /// 捲軸軌道上下各縮進的距離。
@@ -296,7 +393,7 @@ pub(super) fn centered_column<R>(
     let used = shown.response.rect.height();
     if (used - height).abs() > 0.5 {
         ui.data_mut(|d| d.insert_temp(id, used));
-        ui.ctx().request_discard("centered column resized");
+        crate::ui::relayout(ui.ctx(), "centered column resized");
     }
     shown.inner
 }
@@ -332,7 +429,7 @@ pub(super) fn footer_bar(
 
 /// 把 `add` 加入的元件推到這一列的右緣；元件依加入順序由左往右排，Tab 順序與畫面一致。
 ///
-/// 寬度取上一幀以 `id` 量到的值（`right_aligned_width`）排版，變了就重排一次（`request_discard`）。
+/// 寬度取上一幀以 `id` 量到的值（`right_aligned_width`）排版，變了就重排一次（`crate::ui::relayout`）。
 pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) -> R {
     let width = right_aligned_width(ui, id);
     ui.add_space((ui.available_width() - width).max(0.0));
@@ -340,7 +437,7 @@ pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) ->
     let used = shown.response.rect.width();
     if (used - width).abs() > 0.5 {
         ui.data_mut(|d| d.insert_temp(id, used));
-        ui.ctx().request_discard("right-aligned row resized");
+        crate::ui::relayout(ui.ctx(), "right-aligned row resized");
     }
     shown.inner
 }
@@ -359,7 +456,7 @@ pub(super) fn row_group<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) 
     let now = ui.data(|d| d.get_temp::<bool>(narrow)).unwrap_or(false);
     if now != stacked {
         ui.data_mut(|d| d.insert_temp(id, now));
-        ui.ctx().request_discard("row group restacked");
+        crate::ui::relayout(ui.ctx(), "row group restacked");
     }
     inner
 }
@@ -431,7 +528,15 @@ pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
     let mut rect = content.min_rect();
     rect.max.x = max.max.x;
     ui.painter().set(background, frame.paint(rect));
-    ui.allocate_rect(frame.outer_rect(rect), Sense::hover());
+    let outer = frame.outer_rect(rect);
+    ui.allocate_rect(outer, Sense::hover());
+    ui.data_mut(|d| {
+        if let Some(spans) =
+            d.get_temp_mut_or_default::<Option<Vec<Rangef>>>(Id::unique(CARD_SPANS))
+        {
+            spans.push(outer.y_range());
+        }
+    });
     inner
 }
 
@@ -633,7 +738,7 @@ pub(super) const STACK_GAP: f32 = 6.0;
 /// 卡片裡的一列：左邊名稱與說明（說明可含連結），右邊控制項，兩邊垂直置中；不是第一列時上方畫分隔線。
 ///
 /// 開關與 `fields` 的下拉、數值欄放在這裡時以這一列的名稱當無障礙名稱。
-/// 控制項的寬高與左欄高度取上一幀量到的值排版，變了就重排一次（`request_discard`）。
+/// 控制項的寬高與左欄高度取上一幀量到的值排版，變了就重排一次（`crate::ui::relayout`）。
 pub fn setting_row(ui: &mut Ui, label: &str, hint: Option<&str>, control: impl FnOnce(&mut Ui)) {
     labeled_row(ui, label, false, hint_details(hint), control);
 }
@@ -809,7 +914,7 @@ fn labeled_row(
                 (measured.0 - label_h).abs() > 0.5 || (measured.1 - control_size).length() > 0.5;
             if moved {
                 ui.data_mut(|d| d.insert_temp(id, measured));
-                ui.ctx().request_discard("setting row resized");
+                crate::ui::relayout(ui.ctx(), "setting row resized");
             }
         });
     if !first {

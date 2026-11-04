@@ -422,7 +422,7 @@ impl SettingsWindow {
         let needed = (used.height() + 2.0 * pad_y).max(theme::FOOTER_HEIGHT);
         if (needed - footer_height).abs() > 0.5 {
             ui.data_mut(|d| d.insert_temp(id, needed));
-            ui.ctx().request_discard("settings footer resized");
+            crate::ui::relayout(ui.ctx(), "settings footer resized");
         }
     }
 

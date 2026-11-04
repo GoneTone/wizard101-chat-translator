@@ -178,7 +178,7 @@ impl Banners {
             let height = child.min_rect().height();
             if height != self.error_height {
                 self.error_height = height;
-                ui.ctx().request_discard("error banner height changed");
+                crate::ui::relayout(ui.ctx(), "error banner height changed");
                 ui.ctx().request_repaint();
             }
             bottom = top - PAD_Y;
