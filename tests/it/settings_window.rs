@@ -7,7 +7,7 @@ use crate::common;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::accesskit::{Role, Toggled};
-use eframe::egui::{self, Key, Rect};
+use eframe::egui::{self, Key, Rect, Shape};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
@@ -1799,4 +1799,38 @@ fn asking_again_keeps_the_question() {
     assert!(request_close(&mut h).is_empty());
     run(&mut h);
     assert!(has_label(&h, &tr("dialog.discard_changes")));
+}
+
+/// 頁面有沒有捲軸，卡片右緣都和〔儲存〕切齊、左右空白一樣寬。
+#[test]
+fn cards_line_up_with_the_save_button_with_or_without_a_scrollbar() {
+    for height in [660.0, 360.0] {
+        let h = harness_with(
+            configured_cfg(),
+            FakeEnv::default(),
+            egui::vec2(840.0, height),
+        );
+        let card = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.fill == theme::CARD_BG => Some(r.rect),
+                _ => None,
+            })
+            .expect("a card is drawn");
+        let save = h
+            .get_by_role_and_label(Role::Button, &tr("button.save"))
+            .rect();
+        assert!(
+            (card.right() - save.right()).abs() <= 0.5,
+            "height={height}: {card:?} vs {save:?}"
+        );
+        let content_left = theme::SIDEBAR_WIDTH;
+        let (left_gap, right_gap) = (card.left() - content_left, 840.0 - card.right());
+        assert!(
+            (left_gap - right_gap).abs() <= 0.5,
+            "height={height}: {left_gap} vs {right_gap}"
+        );
+    }
 }

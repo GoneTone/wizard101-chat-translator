@@ -14,7 +14,6 @@ use common::kittest::{themed_harness, tr};
 use common::language_lock;
 use wizard101_chat_translator::config::services::providers;
 use wizard101_chat_translator::i18n::{self, available_languages};
-use wizard101_chat_translator::ui::overlay::scrollbar;
 use wizard101_chat_translator::ui::settings::provider_picker::{CardLayout, provider_cards};
 use wizard101_chat_translator::ui::settings::theme::{self, icon};
 
@@ -32,9 +31,9 @@ fn narrowest_list_width() -> f32 {
         - ScrollStyle::solid().allocated_width()
 }
 
-/// 格狀排法可能拿到的最窄寬度：精靈最小寬扣內距與 `thin_scrollbar` 的佔位（內外距各 2）。
+/// 格狀排法可能拿到的最窄寬度：精靈最小寬扣內距（捲軸浮在內距上、不佔寬度）。
 fn narrowest_grid_width() -> f32 {
-    theme::WIZARD_MIN_SIZE.x - 2.0 * WIZARD_BODY_MARGIN - (scrollbar::WIDTH + 2.0 + 2.0)
+    theme::WIZARD_MIN_SIZE.x - 2.0 * WIZARD_BODY_MARGIN
 }
 
 fn cards_harness(layout: CardLayout, width: f32, language: &'static str) -> Harness<'static, ()> {

@@ -408,7 +408,7 @@ impl SettingsWindow {
             footer_rect.top(),
             Stroke::new(1.0, theme::CARD_BORDER),
         );
-        let (pad_x, pad_y) = (24.0, 14.0);
+        let (pad_x, pad_y) = (f32::from(theme::CONTENT_MARGIN.right), 14.0);
         let row = footer_rect.shrink2(vec2(pad_x, pad_y));
         let used = ui
             .scope_builder(
