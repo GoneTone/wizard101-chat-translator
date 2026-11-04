@@ -24,7 +24,7 @@
   "update.no_verifiable_asset": "Version {version} has no verifiable {asset}",
   "update.title": "{app} — Update",
   "update.heading": "Version {version} is available",
-  "update.subheading": "Current version {current} · {count} new versions",
+  "update.subheading": "Current version {current} · New versions: {count}",
   "update.published": "Released {date}",
   "update.latest_tag": "Latest",
   "update.later": "Later",
