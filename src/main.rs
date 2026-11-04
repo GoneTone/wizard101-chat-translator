@@ -362,6 +362,8 @@ fn start_main(app: &mut App, startup: Startup) {
         on_cancel,
     );
     match std::env::current_exe() {
+        // 除錯建置的 exe 在 target/ 底下，更新會被換成 release 版
+        _ if cfg!(debug_assertions) => log("[update] in-app update disabled in debug builds"),
         Ok(exe) => app.set_update(UpdateHost::new(
             rt.clone(),
             download_client("https://github.com"),

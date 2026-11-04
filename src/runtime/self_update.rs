@@ -88,7 +88,7 @@ pub fn relaunch_if_requested() {
     };
     match Command::new(&exe).arg(AFTER_UPDATE_ARG).spawn() {
         Ok(child) => log(format!(
-            "[update] relaunched {} pid={}",
+            "[update] relaunched {} arg={AFTER_UPDATE_ARG} pid={}",
             exe.display(),
             child.id()
         )),

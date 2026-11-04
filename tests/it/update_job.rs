@@ -58,6 +58,38 @@ async fn serve(delay: Duration) -> MockServer {
     server
 }
 
+/// 第一個請求回應 30 秒（必定被取消），之後的請求立即回應。
+async fn serve_slow_then_fast() -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/app.exe"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(BODY)
+                .set_delay(Duration::from_secs(30)),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/app.exe"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(BODY))
+        .mount(&server)
+        .await;
+    server
+}
+
+/// 等伺服器收到第一個請求，之後取消才確定打在下載途中。
+async fn wait_for_first_request(server: &MockServer) {
+    while server
+        .received_requests()
+        .await
+        .is_none_or(|r| r.is_empty())
+    {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 fn start(job: &mut UpdateJob, server: &MockServer) -> oneshot::Receiver<(u64, Result<(), String>)> {
     let (tx, rx) = oneshot::channel();
     job.start(
@@ -346,7 +378,7 @@ async fn late_ok_after_cancel_deletes_the_new_file() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn retry_after_cancel_waits_for_the_old_task() {
-    let server = serve(Duration::from_millis(500)).await;
+    let server = serve_slow_then_fast().await;
     let dir = TempDir::new().unwrap();
     let exe = exe_in(&dir);
     let url = format!("{}/app.exe", server.uri());
@@ -354,7 +386,7 @@ async fn retry_after_cancel_waits_for_the_old_task() {
     job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
 
     let old = start(&mut job, &server);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_first_request(&server).await;
     job.cancel();
     let new = start(&mut job, &server);
     assert_eq!(job.phase(), &Phase::Downloading);
@@ -372,7 +404,7 @@ async fn retry_after_cancel_waits_for_the_old_task() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn late_result_after_cancel_and_close_keeps_idle() {
-    let server = serve(Duration::from_millis(500)).await;
+    let server = serve_slow_then_fast().await;
     let dir = TempDir::new().unwrap();
     let exe = exe_in(&dir);
     let url = format!("{}/app.exe", server.uri());
@@ -380,7 +412,7 @@ async fn late_result_after_cancel_and_close_keeps_idle() {
     job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
 
     let done = start(&mut job, &server);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_first_request(&server).await;
     job.cancel();
     job.window_closed();
     assert_eq!(job.phase(), &Phase::Idle);
@@ -393,7 +425,7 @@ async fn late_result_after_cancel_and_close_keeps_idle() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cancel_drops_a_queued_start() {
-    let server = serve(Duration::from_millis(500)).await;
+    let server = serve_slow_then_fast().await;
     let dir = TempDir::new().unwrap();
     let exe = exe_in(&dir);
     let url = format!("{}/app.exe", server.uri());
@@ -401,7 +433,7 @@ async fn cancel_drops_a_queued_start() {
     job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
 
     let old = start(&mut job, &server);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_first_request(&server).await;
     job.cancel();
     let queued = start(&mut job, &server);
     job.cancel();
@@ -416,7 +448,7 @@ async fn cancel_drops_a_queued_start() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn newer_release_during_queued_start_discards_the_queued_download() {
-    let server = serve(Duration::from_millis(300)).await;
+    let server = serve_slow_then_fast().await;
     let dir = TempDir::new().unwrap();
     let exe = exe_in(&dir);
     let url = format!("{}/app.exe", server.uri());
@@ -424,7 +456,7 @@ async fn newer_release_during_queued_start_discards_the_queued_download() {
     job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
 
     let old = start(&mut job, &server);
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_first_request(&server).await;
     job.cancel();
     let queued = start(&mut job, &server);
     job.set_releases(vec![release("1.3.0", &url, sha(BODY))]);
@@ -436,4 +468,19 @@ async fn newer_release_during_queued_start_discards_the_queued_download() {
     assert_eq!(job.releases()[0].version, "1.3.0");
     assert!(!new_path(&exe).exists());
     assert_eq!(job.phase(), &Phase::Idle);
+}
+
+#[test]
+fn newer_release_discards_the_partial_file_of_a_failed_download() {
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    touch(&part_path(&exe));
+    let mut job = UpdateJob::with_phase(exe.clone(), vec![offline_release("1.2.0")], failed(false));
+
+    job.set_releases(vec![offline_release("1.2.0")]);
+    assert!(part_path(&exe).exists());
+    job.set_releases(vec![offline_release("1.3.0"), offline_release("1.2.0")]);
+
+    assert!(!part_path(&exe).exists());
+    assert_eq!(job.phase(), &failed(false));
 }

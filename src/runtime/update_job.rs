@@ -107,7 +107,7 @@ impl UpdateJob {
         )
     }
 
-    /// 換上新清單；下載中先暫存到 `finish`，已下載的 `.new` 比最新版舊就刪掉回 Idle。
+    /// 換上新清單；下載中先暫存到 `finish`，已下載的 `.new` 比最新版舊就刪掉回 Idle，下載失敗留下的 `.new.part` 版本不同也刪。
     pub fn set_releases(&mut self, releases: Vec<Release>) {
         if self.phase == Phase::Downloading {
             self.pending = Some(releases);
@@ -129,6 +129,19 @@ impl UpdateJob {
             ));
             self.remove(&new_path(&self.exe));
             self.phase = Phase::Idle;
+        }
+        let stale_part = matches!(self.phase, Phase::Failed { replace: false, .. })
+            && match (self.releases.first(), &self.target) {
+                (Some(latest), Some(target)) => &latest.version != target,
+                _ => false,
+            };
+        if stale_part {
+            log(format!(
+                "[update] discarding partial download of a superseded version: partial={:?} latest={:?}",
+                self.target,
+                self.releases.first().map(|r| &r.version)
+            ));
+            self.remove(&part_path(&self.exe));
         }
     }
 

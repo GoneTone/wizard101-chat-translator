@@ -26,6 +26,6 @@ Please help us translate this software!
 
 ## Updating 更新
 
-If you are updating from an earlier version, quit the software first (click the ✕ on the overlay's title bar) — while it is running the exe is locked by Windows and still hooked into the game. Then overwrite the old `Wizard101ChatTranslator.exe` in the same folder; your existing `config.json` is kept, so nothing has to be set up again.
+The software can update itself: start the download from this update window, and once it is verified the software restarts into the new version. Your existing `config.json` is kept, so nothing has to be set up again. If the in-app update fails, update by hand: quit the software first (click the ✕ on the overlay's title bar) — while it is running the exe is locked by Windows and still hooked into the game — then overwrite the old `Wizard101ChatTranslator.exe` in the same folder.
 
-若是從舊版更新，請先關閉本軟體（點疊加視窗標題列右上角的 ✕） —— 程式執行中，exe 會被 Windows 鎖住、也還掛在遊戲上。關掉後覆蓋同一個資料夾裡的舊 `Wizard101ChatTranslator.exe` 即可，原本的 `config.json` 會保留，設定不必重填。
+本軟體可以直接在程式內更新：在這個更新視窗開始下載，驗證通過後會自動重新啟動成新版，原本的 `config.json` 會保留，設定不必重填。程式內更新失敗時可手動換檔：請先關閉本軟體（點疊加視窗標題列右上角的 ✕） —— 程式執行中，exe 會被 Windows 鎖住、也還掛在遊戲上 —— 再覆蓋同一個資料夾裡的舊 `Wizard101ChatTranslator.exe` 即可。

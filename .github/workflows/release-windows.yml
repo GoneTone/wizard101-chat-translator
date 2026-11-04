@@ -107,7 +107,7 @@ jobs:
           Write-Host "Release commit SHA: $sha"
 
       # === F. Create or update release draft ========================
-      # 更新檢查看的是 /releases/latest，draft 不算數：維護者在 GitHub 上補完版本說明、
+      # 更新檢查看的是 /releases 清單，draft 與 pre-release 都不算數：維護者在 GitHub 上補完版本說明、
       # 按下 Publish 之後使用者端才會收到更新提醒。
       - name: Create or update release draft
         shell: pwsh
