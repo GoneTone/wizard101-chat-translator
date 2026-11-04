@@ -25,6 +25,7 @@ use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::hook::{self, KeyboardHook};
 use wizard101_chat_translator::local::Local;
 use wizard101_chat_translator::logs::{self, Sink, log};
+use wizard101_chat_translator::net::download_client;
 use wizard101_chat_translator::reader::message_log::SharedWriter;
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
@@ -43,6 +44,7 @@ use wizard101_chat_translator::ui::region::flow::RegionFlow;
 use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
+use wizard101_chat_translator::ui::update_host::UpdateHost;
 use wizard101_chat_translator::ui::win32::cursor_pos;
 use wizard101_chat_translator::util::{Clock, read, sweep_stale_temps, write};
 
@@ -359,6 +361,17 @@ fn start_main(app: &mut App, startup: Startup) {
         on_save,
         on_cancel,
     );
+    match std::env::current_exe() {
+        Ok(exe) => app.set_update(UpdateHost::new(
+            rt.clone(),
+            download_client("https://github.com"),
+            ui.clone(),
+            exe,
+        )),
+        Err(e) => log(format!(
+            "[update] cannot locate own exe, in-app update disabled: {e}"
+        )),
+    }
     schedule_update_checks(
         &rt,
         built.stop.clone(),

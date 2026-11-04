@@ -43,7 +43,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 
 <https://github.com/GoneTone/wizard101-chat-translator/releases/latest>
 
-**Updating**: close the software first — click the ✕ at the top-right of the overlay's title bar — and only then swap the file. While it is running the exe is locked by Windows and it is still hooked into the game. Once it is closed, download the new `Wizard101ChatTranslator.exe` and overwrite the old one in the same folder; your existing `config.json` is used as it is, so the provider, API key and other settings never have to be entered again.
+**Updating**: the software updates itself. Open the release notes from the overlay's update banner or the *About* tab of the settings window and start the download there; once the download is verified, the software restarts into the new version (if the settings window has unsaved changes, it waits until you save or discard them). Your existing `config.json` is used as it is, so the provider, API key and other settings never have to be entered again. If the in-app update fails, you can still update by hand: close the software first — click the ✕ at the top-right of the overlay's title bar — then download the new `Wizard101ChatTranslator.exe` and overwrite the old one in the same folder (while it is running the exe is locked by Windows and it is still hooked into the game).
 
 **Anti-virus false positives**: this software reads the game's chat memory (by hooking into the game process) and listens for a global hotkey. That behavior pattern resembles some malware, so anti-virus programs may flag it or delete/quarantine it outright. This is a false positive; assess the risk yourself and add the program to your anti-virus allowlist.
 
@@ -73,7 +73,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
 7. To change settings (provider, API key, target language, hotkey, glossary, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart.
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
-9. The software checks GitHub for a new version at every launch and every hour after that; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
+9. The software checks GitHub for a new version at every launch and every hour after that; if there is one, a blue banner is added to the overlay (click the banner to see what's new and update from inside the software, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
 ## Features
 

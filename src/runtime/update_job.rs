@@ -90,6 +90,11 @@ impl UpdateJob {
         &self.releases
     }
 
+    /// 要被替換的執行檔。
+    pub fn exe(&self) -> &Path {
+        &self.exe
+    }
+
     pub fn phase(&self) -> &Phase {
         &self.phase
     }

@@ -52,6 +52,11 @@ pub enum UiEvent {
     ConfigSaved,
     /// 自動檢查發現新版；關掉過的版本不會再跳出。
     UpdateFound(Vec<Release>),
+    /// 更新下載任務結束；`run` 是該次下載的編號，晚到的舊結果會被丟掉。
+    UpdateDownloaded {
+        run: u64,
+        result: Result<(), String>,
+    },
     /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。
     ShowInputBox { retarget: Option<isize> },
     /// 遊戲聊天輸入框開了；`anchor` 是它的螢幕矩形。

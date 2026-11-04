@@ -13,6 +13,8 @@ use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
+use crate::runtime::self_update::{replace_exe, request_relaunch};
+use crate::runtime::updater::Release;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::{Rect, pull_onscreen};
 use crate::ui::input_box::InputBox;
@@ -31,6 +33,7 @@ use crate::ui::region_host::RegionHost;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
+use crate::ui::update_host::{HostAction, UpdateHost};
 use crate::ui::{fonts_egui, glass, win32};
 use crate::util::read;
 
@@ -115,7 +118,8 @@ pub struct App {
     ui_language: String,
     settings: Option<SettingsWiring>,
     first_run: Option<FirstRun>,
-    /// overlay 根視窗與泡泡目前的疊放層級；設定視窗開著時降為一般層級。
+    update: Option<UpdateHost>,
+    /// overlay 根視窗與泡泡目前的疊放層級；設定或更新視窗開著時降為一般層級。
     overlay_level: WindowLevel,
 }
 
@@ -156,6 +160,7 @@ impl App {
             ui_language: current_language(),
             settings: None,
             first_run: None,
+            update: None,
             overlay_level: WindowLevel::AlwaysOnTop,
         }
     }
@@ -232,6 +237,11 @@ impl App {
         });
     }
 
+    /// 接上更新視窗：橫幅與「關於」頁的新版連結開它，下載驗證完由它要求重新啟動。
+    pub fn set_update(&mut self, host: UpdateHost) {
+        self.update = Some(host);
+    }
+
     /// 首次設定模式：精靈（呼叫端先 `open`）開著時根視窗藏著；完成時關掉精靈、呼叫 `start`，再顯示根視窗。
     pub fn with_first_run(mut self, wizard: WizardHost, start: OnStart) -> Self {
         if !wizard.is_open() {
@@ -252,6 +262,28 @@ impl App {
                 wiring.host.open(&cfg);
             }
             None => log("[ui] settings button clicked but no settings window is wired"),
+        }
+    }
+
+    /// 開更新視窗；已開著就叫到前景。
+    fn open_update(&mut self) {
+        match &mut self.update {
+            Some(update) => update.open(),
+            None => log("[update] update window requested but no updater is wired"),
+        }
+    }
+
+    /// 新版清單：橫幅提示最新那筆（`offer` 為自動檢查：關掉過的版本不再跳出），清單交給更新視窗。
+    fn update_found(&mut self, releases: Vec<Release>, offer: bool) {
+        if let Some(latest) = releases.first().cloned() {
+            if offer {
+                self.banners.offer_update(latest);
+            } else {
+                self.banners.set_update(latest);
+            }
+        }
+        if let Some(update) = &mut self.update {
+            update.set_releases(releases);
         }
     }
 
@@ -338,9 +370,10 @@ impl App {
         self.overlay_level
     }
 
-    /// 設定視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它；關窗（儲存、取消、✕）後恢復置頂。
+    /// 設定或更新視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
     fn sync_overlay_level(&mut self, ctx: &egui::Context) {
-        let open = self.settings.as_ref().is_some_and(|w| w.host.is_open());
+        let open = self.settings.as_ref().is_some_and(|w| w.host.is_open())
+            || self.update.as_ref().is_some_and(UpdateHost::is_open);
         let level = if open {
             WindowLevel::Normal
         } else {
@@ -352,7 +385,7 @@ impl App {
         self.overlay_level = level;
         ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(level));
         log(format!(
-            "[ui] overlay window level set to {level:?} (settings window open={open})"
+            "[ui] overlay window level set to {level:?} (settings or update window open={open})"
         ));
     }
 
@@ -461,9 +494,10 @@ impl App {
             UiEvent::HotkeysUnavailable => self.banners.set_hotkeys_unavailable(),
             UiEvent::ConfigSaveFailed => self.banners.set_config_unsaved(true),
             UiEvent::ConfigSaved => self.banners.set_config_unsaved(false),
-            UiEvent::UpdateFound(releases) => {
-                if let Some(latest) = releases.into_iter().next() {
-                    self.banners.offer_update(latest);
+            UiEvent::UpdateFound(releases) => self.update_found(releases, true),
+            UiEvent::UpdateDownloaded { run, result } => {
+                if let Some(update) = &mut self.update {
+                    update.downloaded(run, result);
                 }
             }
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
@@ -529,16 +563,17 @@ impl App {
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
         let settings = self.settings.as_ref().map_or(0, |s| s.host.hwnd());
         let wizard = self.first_run.as_ref().map_or(0, |w| w.host.hwnd());
+        let update = self.update.as_ref().map_or(0, UpdateHost::hwnd);
         [self.hwnd, input]
             .into_iter()
             .chain(region)
-            .chain([settings, wizard])
+            .chain([settings, wizard, update])
             .filter(|&h| h != 0)
             .collect()
     }
@@ -621,11 +656,8 @@ impl App {
         match action {
             SettingsAction::PreviewAlpha(alpha) => self.frame.set_alpha(alpha),
             SettingsAction::PreviewLanguage => self.relabel(ctx),
-            SettingsAction::UpdateFound(releases) => {
-                if let Some(latest) = releases.into_iter().next() {
-                    self.banners.set_update(latest);
-                }
-            }
+            SettingsAction::UpdateFound(releases) => self.update_found(releases, false),
+            SettingsAction::OpenUpdate => self.open_update(),
             SettingsAction::Save(cfg) => {
                 let Some(wiring) = &mut self.settings else {
                     return;
@@ -644,6 +676,27 @@ impl App {
                     (wiring.on_cancel)();
                 }
                 self.close_settings();
+            }
+        }
+    }
+
+    /// 每幀畫出開著的更新視窗；它要求重新啟動時換上新版執行檔並關閉程式，新版等關閉流程跑完才啟動。
+    fn show_update(&mut self, ctx: &egui::Context) {
+        let known = self.viewport_hwnds();
+        let Some(update) = &mut self.update else {
+            return;
+        };
+        let unsaved =
+            update.is_open() && self.settings.as_ref().is_some_and(|w| w.host.has_unsaved());
+        for action in update.show(ctx, &known, unsaved) {
+            match action {
+                HostAction::Restart => match replace_exe(update.exe()) {
+                    Ok(()) => {
+                        request_relaunch(update.exe().to_path_buf());
+                        ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
+                    }
+                    Err(e) => update.restart_failed(e.to_string()),
+                },
             }
         }
     }
@@ -715,6 +768,9 @@ impl App {
             None => {}
         }
         self.content(ui);
+        if self.banners.take_update_click() {
+            self.open_update();
+        }
         // 最後畫：疊在分頁列與橫幅之上，邊框才繞得完整一圈
         glass::rim(ui.painter(), ui.max_rect(), glass::WINDOW_RADIUS, 1.0);
     }
@@ -794,6 +850,7 @@ impl eframe::App for App {
             host.show(&ctx, self.hwnd, &known);
         }
         self.show_settings(&ctx);
+        self.show_update(&ctx);
         self.sync_overlay_level(&ctx);
         if let Some(rect) = place {
             // 上一幀的全透明畫面要先真的上螢幕才能搬，否則 DWM 會把更早的內容帶到新位置
@@ -1967,5 +2024,51 @@ mod tests {
         let _app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
         poster.post(UiEvent::ClearError);
         assert!(hits.load(std::sync::atomic::Ordering::SeqCst) > 0);
+    }
+
+    /// 接上不碰真視窗的更新視窗；回傳的 runtime 要留到測試結束。
+    fn wire_update(harness: &mut Harness<App>) -> tokio::runtime::Runtime {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (poster, _) = UiPoster::for_test();
+        let exe = std::env::temp_dir().join("w101-update-host-test.exe");
+        let http = crate::net::download_client("http://127.0.0.1");
+        let mut host = UpdateHost::new(rt.handle().clone(), http, poster, exe);
+        host.set_window_ops(crate::ui::settings_host::WindowOps::offscreen());
+        harness.state_mut().set_update(host);
+        rt
+    }
+
+    fn new_version() -> Vec<Release> {
+        vec![Release {
+            version: "9.9.9".into(),
+            ..Default::default()
+        }]
+    }
+
+    #[test]
+    fn clicking_the_update_banner_opens_the_update_window() {
+        let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_update(&mut harness);
+        poster.post(UiEvent::UpdateFound(new_version()));
+        harness.step();
+        harness
+            .get_by_label(&crate::i18n::t("update.available", &[("version", "9.9.9")]))
+            .click();
+        harness.step();
+        assert!(harness.state().update.as_ref().unwrap().is_open());
+    }
+
+    #[test]
+    fn an_open_update_window_drops_the_overlay_to_the_normal_level() {
+        let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_update(&mut harness);
+        poster.post(UiEvent::UpdateFound(new_version()));
+        harness.step();
+        assert_eq!(harness.state().overlay_level(), WindowLevel::AlwaysOnTop);
+        harness.state_mut().open_update();
+        harness.step();
+        assert_eq!(harness.state().overlay_level(), WindowLevel::Normal);
     }
 }

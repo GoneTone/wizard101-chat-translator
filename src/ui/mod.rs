@@ -20,5 +20,6 @@ pub mod run;
 pub mod settings;
 pub mod settings_host;
 pub mod text_select;
+pub mod update_host;
 pub mod viewport;
 pub mod win32;

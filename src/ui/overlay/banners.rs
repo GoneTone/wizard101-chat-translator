@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    CursorIcon, FontId, Galley, Id, OpenUrl, Painter, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo,
-    pos2, vec2,
+    CursorIcon, FontId, Galley, Id, Painter, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo, pos2,
+    vec2,
 };
 
 use crate::i18n::t;
@@ -37,6 +37,8 @@ pub struct Banners {
     /// 最近一次存設定失敗；下一次存檔成功才清掉。
     config_unsaved: bool,
     update: Option<Release>,
+    /// 更新橫幅被點了、App 還沒取走。
+    update_clicked: bool,
     /// 正在載入的本地模型顯示名稱；有值時顯示資訊列。
     local_loading: Option<String>,
     dismissed: Option<String>,
@@ -122,6 +124,11 @@ impl Banners {
     pub fn update_text(&self) -> Option<String> {
         let release = self.update.as_ref()?;
         Some(t("update.available", &[("version", &release.version)]))
+    }
+
+    /// 更新橫幅被點過就回 true，取走後歸零。
+    pub fn take_update_click(&mut self) -> bool {
+        std::mem::take(&mut self.update_clicked)
     }
 
     /// 在 `rect` 底部由下往上畫出更新與錯誤橫幅，回傳留給清單的上半部。
@@ -255,7 +262,7 @@ impl Banners {
                 "[update] banner clicked version={}",
                 release.version
             ));
-            ui.ctx().open_url(OpenUrl::new_tab(&release.url));
+            self.update_clicked = true;
         }
         row_rect.min.y - PAD_Y
     }
@@ -471,17 +478,16 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_update_row_opens_the_release_page() {
+    fn clicking_the_update_row_is_reported_once_without_opening_a_page() {
         let mut banners = Banners::default();
         banners.set_update(release("0.2.0"));
         let mut harness = harness(banners);
         let label = t("update.available", &[("version", "0.2.0")]);
         harness.get_by_label(&label).click();
         harness.step();
-        assert_eq!(
-            opened_urls(&harness.output().platform_output),
-            ["https://example.invalid/rel"]
-        );
+        assert!(opened_urls(&harness.output().platform_output).is_empty());
+        assert!(harness.state_mut().banners.take_update_click());
+        assert!(!harness.state_mut().banners.take_update_click());
         assert!(harness.state().banners.update_text().is_some());
     }
 

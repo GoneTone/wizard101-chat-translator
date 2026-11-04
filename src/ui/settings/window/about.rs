@@ -2,8 +2,8 @@
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Role, Sense, Ui, Vec2,
-    WidgetInfo, pos2,
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense, Ui,
+    Vec2, WidgetInfo, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -223,7 +223,7 @@ impl SettingsWindow {
         ));
     }
 
-    fn update_result(&self, ui: &mut Ui) {
+    fn update_result(&mut self, ui: &mut Ui) {
         match &self.about.result {
             None => {}
             Some(Ok(releases)) if releases.is_empty() => {
@@ -231,17 +231,14 @@ impl SettingsWindow {
             }
             Some(Err(error)) => outcome(ui, false, &t("update.failed", &[("error", error)])),
             Some(Ok(releases)) => {
-                let release = &releases[0];
-                // 有新版：整行文字是連結，用連結藍、不加成功／失敗圖示
-                let text = t("update.available", &[("version", &release.version)]);
+                // 有新版：整行文字是連結樣式的按鈕，用連結藍、不加成功／失敗圖示
+                let text = t("update.available", &[("version", &releases[0].version)]);
                 let text = RichText::new(text)
                     .size(theme::CONTROL_TEXT_SIZE)
                     .color(theme::LINK);
-                if ui
-                    .add(Hyperlink::from_label_and_url(text, &release.url))
-                    .clicked()
-                {
-                    log(format!("[update] opening release page: {}", release.url));
+                if ui.add(Link::new(text)).clicked() {
+                    log("[update] update window requested from the about tab");
+                    self.pending.push(SettingsAction::OpenUpdate);
                 }
             }
         }

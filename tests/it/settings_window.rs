@@ -1188,11 +1188,13 @@ fn manual_check_hands_a_new_version_to_update_found() {
 }
 
 #[test]
-fn manual_check_reports_a_new_version() {
+fn clicking_the_new_version_opens_the_update_window() {
     let mut h = harness(configured_cfg());
     check_update(&mut h, Ok(vec![release()]));
+    h.state_mut().actions.clear();
     let text = t("update.available", &[("version", "9.9.9")]);
-    assert_eq!(click_link(&mut h, &text), ["https://example.invalid/rel"]);
+    assert!(click_link(&mut h, &text).is_empty());
+    assert_eq!(h.state().actions, [SettingsAction::OpenUpdate]);
 }
 
 #[test]
