@@ -28,8 +28,8 @@ Please help us translate this software!
 
 To update from an earlier version, click the update banner on the overlay: the new version downloads inside the software, and you restart to start using it. Your `config.json` is kept, so nothing has to be set up again.
 
-If the banner only opens this page (older versions) or the in-app update fails, update by hand: quit the software (click the ✕ on the overlay's title bar), then overwrite `Wizard101ChatTranslator.exe` in the same folder with the new one.
+If the banner only opens the GitHub page (older versions) or the in-app update fails, update by hand: quit the software (click the ✕ on the overlay's title bar), then overwrite `Wizard101ChatTranslator.exe` in the same folder with the new one.
 
-從舊版更新：點疊加視窗上的更新橫幅，就能在程式內下載新版，下載完重新啟動即可使用。原本的 `config.json` 會保留，設定不必重填。
+從舊版更新：點疊加視窗上的更新橫幅，就能在軟體內下載新版，下載完重新啟動即可使用。原本的 `config.json` 會保留，設定不必重填。
 
-如果點了橫幅只會開啟這個網頁（較舊的版本），或程式內更新失敗，請手動更新：先關閉本軟體（點疊加視窗標題列右上角的 ✕），再用新版覆蓋同一個資料夾裡的 `Wizard101ChatTranslator.exe`。
+如果點了橫幅只會開啟 GitHub 網頁（較舊的版本），或軟體內更新失敗，請手動更新：先關閉軟體（點疊加視窗標題列右上角的 ✕），再用新版覆蓋同一個資料夾裡的 `Wizard101ChatTranslator.exe`。
