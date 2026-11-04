@@ -22,8 +22,13 @@ use crate::runtime::updater::Release;
 const MARKDOWN_HEADING_SIZE: f32 = 15.0;
 /// 更新下載在 `Rates` 裡的鍵。
 const RATE_KEY: &str = "update";
-/// 標題區下方固定的空白：捲動中的內容在副標下方這麼遠處被切掉，不會貼著文字。
-const HEADER_GAP: i8 = 12;
+/// 標題區內距：字型行高在字形上方多留約 5 px、下方約 2 px，上方少給，字形上下到邊界看起來才一樣寬。
+const HEADER_MARGIN: Margin = Margin {
+    left: 20,
+    right: 20,
+    top: 13,
+    bottom: 16,
+};
 /// 卡片清單頭尾的留白：第一張卡片離標題區的分隔線、最後一張卡片離底部列的距離。
 const LIST_PADDING: i8 = 16;
 
@@ -81,14 +86,8 @@ impl UpdateView {
                 footer(ui, phase, progress, speed, unsaved, &mut actions);
             });
         if let Some(latest) = releases.first() {
-            let margin = Margin {
-                left: 20,
-                right: 20,
-                top: 18,
-                bottom: HEADER_GAP,
-            };
             Panel::top("update_header")
-                .frame(Frame::new().inner_margin(margin))
+                .frame(Frame::new().inner_margin(HEADER_MARGIN))
                 .show(ui, |ui| header(ui, latest, releases.len()));
         }
         let margin = Margin::symmetric(20, LIST_PADDING);

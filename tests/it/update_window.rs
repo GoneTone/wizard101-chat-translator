@@ -112,7 +112,51 @@ fn header_stays_put_while_the_cards_scroll() {
     assert!(h.get_by_label("v1.1.0").rect().top() > heading_top);
 }
 
-/// 清單頭尾各留 16 px（頂端從標題區的分隔線起算），標題區下方另留 12 px，捲動時內容不貼著副標。
+/// 畫面上文字為 `text` 的字形實際筆畫的上下緣，與該文字所在區塊（剪裁範圍）。
+fn ink_span<S>(h: &Harness<'static, S>, text: &str) -> (f32, f32, Rect) {
+    let (pos, galley, clip) = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == text => {
+                Some((t.pos, t.galley.clone(), c.clip_rect))
+            }
+            _ => None,
+        })
+        .expect("the text is drawn");
+    let (top, bottom) = galley
+        .rows
+        .iter()
+        .flat_map(|row| row.glyphs.iter().map(move |g| (row.pos.y, g)))
+        .filter(|(_, g)| g.uv_rect.size.y > 0.0)
+        .map(|(row_y, g)| {
+            let top = pos.y + row_y + g.pos.y + g.uv_rect.offset.y;
+            (top, top + g.uv_rect.size.y)
+        })
+        .fold((f32::MAX, f32::MIN), |(a, b), (t, bt)| {
+            (a.min(t), b.max(bt))
+        });
+    (top, bottom, clip)
+}
+
+/// 標題區裡，標題字形上方與副標字形下方到分隔線的空白看起來一樣寬。
+#[test]
+fn header_text_has_even_space_above_and_below() {
+    let releases = vec![release("1.2.0", "Notes")];
+    let h = window_with(releases, Phase::Idle, (0, 0), false);
+    let heading = t("update.heading", &[("version", "1.2.0")]);
+    let sub = t(
+        "update.subheading",
+        &[("current", env!("CARGO_PKG_VERSION")), ("count", "1")],
+    );
+    let (heading_top, _, header) = ink_span(&h, &heading);
+    let (_, sub_bottom, _) = ink_span(&h, &sub);
+    let (above, below) = (heading_top - header.top(), header.bottom() - sub_bottom);
+    assert!((above - below).abs() <= 1.5, "{above} vs {below}");
+}
+
+/// 清單頭尾各留 16 px（頂端從標題區的分隔線起算），標題區下方另有留白，捲動時內容不貼著副標。
 #[test]
 fn card_list_has_padding_at_both_ends() {
     let long = "A long paragraph of release notes.\n\n".repeat(80);
