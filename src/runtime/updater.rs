@@ -145,9 +145,10 @@ fn parse_asset(release: &Value) -> Option<Asset> {
 
 /// 從 `/releases` 清單挑出比 `current` 新的正式 release，由新到舊；草稿與 pre-release 不算。
 pub fn parse_releases(json: &Value, current: &str) -> Result<Vec<Release>, UpdateCheckError> {
-    let items = json
-        .as_array()
-        .ok_or_else(|| UpdateCheckError(format!("unexpected response: {json:.80}")))?;
+    let items = json.as_array().ok_or_else(|| {
+        let shown: String = json.to_string().chars().take(80).collect();
+        UpdateCheckError(format!("unexpected response: {shown}"))
+    })?;
     let mut releases = Vec::new();
     for item in items {
         if item["draft"] == true || item["prerelease"] == true {

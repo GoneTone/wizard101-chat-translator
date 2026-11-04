@@ -330,7 +330,7 @@ fn start_main(app: &mut App, startup: Startup) {
         built.stop.clone(),
         RELEASES_API.to_owned(),
         UPDATE_CHECK_INTERVAL,
-        Arc::new(move |release| ui.post(UiEvent::UpdateFound(release))),
+        Arc::new(move |releases| ui.post(UiEvent::UpdateFound(releases))),
     );
     let closing = Rc::clone(&running);
     app.set_on_close(move || {

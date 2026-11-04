@@ -72,7 +72,7 @@ pub enum SettingsEvent {
         round: u64,
         result: Result<Vec<ModelInfo>, TranslateError>,
     },
-    /// `Ok(None)` 是已是最新版；`Err` 是失敗原因。
+    /// `Ok` 空清單是已是最新版；`Err` 是失敗原因。
     UpdateChecked {
         round: u64,
         result: Result<Vec<Release>, String>,

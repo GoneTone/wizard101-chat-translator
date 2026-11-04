@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::runtime::updater::{
-    EXE_ASSET, Release, UpdateCheckError, check_for_update, is_newer, parse_releases,
+    EXE_ASSET, RELEASES_URL, Release, UpdateCheckError, check_for_update, is_newer, parse_releases,
     schedule_update_checks, update_client,
 };
 
@@ -160,6 +160,20 @@ fn parse_releases_is_empty_when_current_is_latest() {
 fn parse_releases_rejects_a_non_array() {
     let err = parse_releases(&json!({}), "1.0.0").unwrap_err();
     assert!(err.0.contains("unexpected response"), "{err}");
+    let long = json!({"message": "x".repeat(500)});
+    let err = parse_releases(&long, "1.0.0").unwrap_err();
+    assert!(
+        err.0.chars().count() <= "unexpected response: ".len() + 80,
+        "{err}"
+    );
+}
+
+#[test]
+fn parse_releases_falls_back_to_releases_page_without_html_url() {
+    let mut item = release_item("v1.2.0", json!({}));
+    item.as_object_mut().unwrap().remove("html_url");
+    let list = parse_releases(&json!([item]), "1.0.0").unwrap();
+    assert_eq!(list[0].url, RELEASES_URL);
 }
 
 #[test]
