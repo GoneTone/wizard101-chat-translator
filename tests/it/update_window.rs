@@ -11,6 +11,7 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::runtime::update_job::Phase;
 use wizard101_chat_translator::runtime::updater::Release;
+use wizard101_chat_translator::ui::overlay::scrollbar::THUMB;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::update_window::{UpdateAction, UpdateView, can_close};
 
@@ -202,6 +203,107 @@ fn cards_line_up_with_the_heading_and_buttons_on_both_sides() {
     assert!(
         (card.right() - button_right).abs() <= 1.0,
         "{card:?} vs {button_right}"
+    );
+}
+
+/// 中文字型下內文排版的捨入誤差不會把卡片撐寬：取自真實版本說明、會多出 0.5 px 的兩段。
+#[test]
+fn rounding_in_the_notes_does_not_widen_the_card() {
+    let body = concat!(
+        "The model list now loads by itself as soon as you open a service in the settings or the ",
+        "first-run wizard, so you no longer have to press the refresh button (it is still there). ",
+        "While the list loads, the form shows grey placeholders in place of its fields, so nothing ",
+        "jumps around when the list arrives. The model and target language dropdowns now always ",
+        "list everything, highlight the part that matches what you typed, and scroll to the best ",
+        "match. The model dropdown used to hide every model that didn't match\n\n",
+        "**_Because it reads game memory and listens for a global hotkey, antivirus software may ",
+        "flag or quarantine it. This is a false positive; add it to your allowlist if you decide to ",
+        "use it. This software is guaranteed to be virus-free._**",
+    );
+    let state = Window {
+        view: UpdateView::new(),
+        releases: vec![release("1.1.0", body)],
+        phase: Phase::Idle,
+        progress: (0, 0),
+        unsaved: false,
+        actions: Vec::new(),
+    };
+    let width = 620.0;
+    let h = themed_harness(
+        vec2(width, 600.0),
+        "zh-TW",
+        |ui, w: &mut Window| {
+            let actions = w.view.ui(ui, &w.releases, &w.phase, w.progress, w.unsaved);
+            w.actions.extend(actions);
+        },
+        state,
+    );
+    let card = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == theme::CARD_BG => Some(r.rect),
+            _ => None,
+        })
+        .expect("a card is drawn");
+    let button_right = h
+        .get_by_role_and_label(Role::Button, &tr("update.now"))
+        .rect()
+        .right();
+    assert!(
+        (card.right() - button_right).abs() <= 0.01,
+        "{card:?} vs {button_right}"
+    );
+    assert!(
+        (card.left() - (width - card.right())).abs() <= 0.01,
+        "{card:?}"
+    );
+}
+
+/// 捲軸滑塊捲到最頂、最底時，離捲動區上下緣各留 6 px，不壓在分隔線與底部列的線上。
+#[test]
+fn scrollbar_thumb_stays_off_the_edges() {
+    let long = "A long paragraph of release notes.\n\n".repeat(80);
+    let mut h = window_with(vec![release("1.2.0", &long)], Phase::Idle, (0, 0), false);
+    let thumb_and_viewport = |h: &Harness<'static, Window>| {
+        let shapes = &h.output().shapes;
+        let thumb = shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.fill == THUMB => Some(r.rect),
+                _ => None,
+            })
+            .expect("the scrollbar thumb is drawn");
+        let viewport = shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.fill == theme::CARD_BG => Some(c.clip_rect),
+                _ => None,
+            })
+            .expect("a card is drawn");
+        (thumb, viewport)
+    };
+    let (thumb, viewport) = thumb_and_viewport(&h);
+    assert!(
+        thumb.top() - viewport.top() >= 5.5,
+        "{thumb:?} vs {viewport:?}"
+    );
+
+    h.event(Event::PointerMoved(pos2(300.0, 300.0)));
+    run(&mut h);
+    h.event(Event::MouseWheel {
+        unit: MouseWheelUnit::Point,
+        delta: vec2(0.0, -100_000.0),
+        phase: TouchPhase::Move,
+        source: MouseWheelSource::Unknown,
+        modifiers: Modifiers::NONE,
+    });
+    run(&mut h);
+    let (thumb, viewport) = thumb_and_viewport(&h);
+    assert!(
+        viewport.bottom() - thumb.bottom() >= 5.5,
+        "{thumb:?} vs {viewport:?}"
     );
 }
 

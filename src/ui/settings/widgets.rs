@@ -8,8 +8,8 @@ use eframe::egui::style::{ScrollStyle, StyleModifier, WidgetVisuals};
 use eframe::egui::{
     Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, FontSelection, Frame, Galley,
     Id, Label, Layout, Margin, Pos2, Rect, Response, RichText, Role, ScrollArea, Sense, Shape,
-    Stroke, StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2,
-    WidgetInfo, WidgetText, lerp, pos2, text::LayoutJob, vec2,
+    Stroke, StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiKind,
+    UiStackInfo, Vec2, WidgetInfo, WidgetText, lerp, pos2, text::LayoutJob, vec2,
 };
 
 use crate::i18n::t;
@@ -43,6 +43,9 @@ pub(super) fn overlay_scroll_page<R>(
     scroll_page_with(ui, salt, margin, gap, true, add)
 }
 
+/// 浮動捲軸的軌道上下各縮進的距離。
+const OVERLAY_BAR_INSET: f32 = 6.0;
+
 fn scroll_page_with<R>(
     ui: &mut Ui,
     salt: impl AsIdSalt,
@@ -53,21 +56,28 @@ fn scroll_page_with<R>(
 ) -> R {
     let style = ui.style().clone();
     thin_scrollbar(ui, floating);
-    ScrollArea::vertical()
+    let mut area = ScrollArea::vertical()
         .id_salt(salt)
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.set_style(style);
-            Frame::new()
-                .inner_margin(margin)
-                .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = gap;
-                    add(ui)
-                })
-                .inner
-        })
-        .inner
+        .auto_shrink([false, false]);
+    if floating {
+        // 浮動捲軸貼齊上下邊時，滑塊捲到頭會壓在旁邊的分隔線上
+        let bar = ui
+            .available_rect_before_wrap()
+            .shrink2(vec2(0.0, OVERLAY_BAR_INSET));
+        area = area.scroll_bar_rect(bar);
+    }
+    area.show(ui, |ui| {
+        ui.set_style(style);
+        Frame::new()
+            .inner_margin(margin)
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = gap;
+                add(ui)
+            })
+            .inner
+    })
+    .inner
 }
 
 /// 列裡固定寬 `width`、一行控制項高的格子，內容垂直置中；內容比較窄也佔滿，同一欄的各列才對得齊。
@@ -434,16 +444,26 @@ pub(super) fn right_aligned_width(ui: &Ui, id: Id) -> f32 {
 
 /// 卡片：圓角深底加外框，內容占滿可用寬度，內部列與列之間不留空。
 pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
-    Frame::new()
+    let frame = Frame::new()
         .fill(theme::CARD_BG)
         .stroke(Stroke::new(1.0, theme::CARD_BORDER))
-        .corner_radius(theme::CARD_RADIUS)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.spacing_mut().item_spacing.y = 0.0;
-            add_contents(ui)
-        })
-        .inner
+        .corner_radius(theme::CARD_RADIUS);
+    let background = ui.painter().add(Shape::Noop);
+    let max = ui.available_rect_before_wrap() - frame.total_margin();
+    let mut content = ui.new_child(
+        UiBuilder::new()
+            .ui_stack_info(UiStackInfo::new(UiKind::Frame).with_frame(frame))
+            .max_rect(max),
+    );
+    content.set_width(max.width());
+    content.spacing_mut().item_spacing.y = 0.0;
+    let inner = add_contents(&mut content);
+    // 內文排版的捨入誤差會把內容撐寬零點幾 px，外框寬固定取可用寬，不跟著變寬
+    let mut rect = content.min_rect();
+    rect.max.x = max.max.x;
+    ui.painter().set(background, frame.paint(rect));
+    ui.allocate_rect(frame.outer_rect(rect), Sense::hover());
+    inner
 }
 
 /// 清單卡片的無障礙名稱：名稱後接標記，以 ` · ` 分隔。
