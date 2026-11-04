@@ -1,6 +1,6 @@
 //! 更新內容視窗：卡片清單、各下載階段的底部列與按鈕、Markdown 內文。
 
-use crate::common::kittest::{click, themed_harness, tr};
+use crate::common::kittest::{click, run, themed_harness, tr};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{Color32, FontFamily, Shape, vec2};
 use egui_kittest::Harness;
@@ -88,6 +88,24 @@ fn idle_lists_every_release_newest_first() {
     h.get_by_label(&tr("update.latest_tag"));
     assert_eq!(press(&mut h, "update.now"), [UpdateAction::Start]);
     assert_eq!(press(&mut h, "update.later"), [UpdateAction::Close]);
+}
+
+/// 捲到最後一張卡片時，標題與副標固定在原位，只有卡片跟著捲動。
+#[test]
+fn header_stays_put_while_the_cards_scroll() {
+    let long = "A long paragraph of release notes.\n\n".repeat(80);
+    let releases = vec![release("1.2.0", &long), release("1.1.0", "Older notes")];
+    let mut h = window_with(releases, Phase::Idle, (0, 0), false);
+    let heading = t("update.heading", &[("version", "1.2.0")]);
+    let heading_top = h.get_by_label(&heading).rect().top();
+    let newest_top = h.get_by_label("v1.2.0").rect().top();
+
+    h.get_by_label("v1.1.0").scroll_to_me();
+    run(&mut h);
+
+    assert_eq!(h.get_by_label(&heading).rect().top(), heading_top);
+    assert!(h.get_by_label("v1.2.0").rect().top() < newest_top - 100.0);
+    assert!(h.get_by_label("v1.1.0").rect().top() > heading_top);
 }
 
 /// 下載中有進度條與 MB 進度文字，只剩〔取消下載〕可按。

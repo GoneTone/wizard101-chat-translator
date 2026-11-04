@@ -76,10 +76,21 @@ impl UpdateView {
             .show(ui, |ui| {
                 footer(ui, phase, progress, speed, unsaved, &mut actions);
             });
+        if let Some(latest) = releases.first() {
+            let margin = Margin {
+                left: 20,
+                right: 20,
+                top: 18,
+                bottom: 10,
+            };
+            Panel::top("update_header")
+                .frame(Frame::new().inner_margin(margin))
+                .show(ui, |ui| header(ui, latest, releases.len()));
+        }
         let margin = Margin {
             left: 20,
             right: 20,
-            top: 18,
+            top: 0,
             bottom: 16,
         };
         scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
@@ -88,22 +99,8 @@ impl UpdateView {
         actions
     }
 
-    /// 標題、副標與每一版的卡片。
+    /// 每一版的卡片。
     fn releases(&mut self, ui: &mut Ui, releases: &[Release]) {
-        let Some(latest) = releases.first() else {
-            return;
-        };
-        ui.vertical(|ui| {
-            ui.spacing_mut().item_spacing.y = 4.0;
-            let heading = t("update.heading", &[("version", &latest.version)]);
-            ui.add(Label::new(RichText::new(heading).font(theme::bold(20.0))));
-            let count = releases.len().to_string();
-            let sub = t(
-                "update.subheading",
-                &[("current", env!("CARGO_PKG_VERSION")), ("count", &count)],
-            );
-            hint(ui, &sub, theme::TEXT_SECONDARY);
-        });
         for (i, release) in releases.iter().enumerate() {
             ui.push_id(i, |ui| self.release_card(ui, release, i == 0));
         }
@@ -183,6 +180,19 @@ fn local_date(release: &Release) -> String {
                 .to_string()
         },
     )
+}
+
+/// 固定在上方的標題與副標：最新版號、目前版號與新版本數。
+fn header(ui: &mut Ui, latest: &Release, count: usize) {
+    ui.spacing_mut().item_spacing.y = 4.0;
+    let heading = t("update.heading", &[("version", &latest.version)]);
+    ui.add(Label::new(RichText::new(heading).font(theme::bold(20.0))));
+    let count = count.to_string();
+    let sub = t(
+        "update.subheading",
+        &[("current", env!("CARGO_PKG_VERSION")), ("count", &count)],
+    );
+    hint(ui, &sub, theme::TEXT_SECONDARY);
 }
 
 /// 底部列：左側狀態（進度條、文字），右側按鈕。
