@@ -81,11 +81,16 @@ async fn serve_slow_then_fast() -> MockServer {
 
 /// 等伺服器收到第一個請求，之後取消才確定打在下載途中。
 async fn wait_for_first_request(server: &MockServer) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     while server
         .received_requests()
         .await
         .is_none_or(|r| r.is_empty())
     {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no download request reached the server within 10 s"
+        );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
@@ -336,12 +341,13 @@ async fn closing_while_downloading_is_a_no_op() {
     let url = format!("{}/app.exe", server.uri());
     let mut job = UpdateJob::new(exe_in(&dir));
     job.set_releases(vec![release("1.2.0", &url, sha(BODY))]);
-    let _done = start(&mut job, &server);
+    let done = start(&mut job, &server);
 
     job.window_closed();
 
     assert_eq!(job.phase(), &Phase::Downloading);
     job.cancel();
+    let _ = done.await;
 }
 
 #[test]
