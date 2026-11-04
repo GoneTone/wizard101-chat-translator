@@ -47,6 +47,7 @@ use crate::region::capture::{self, CaptureError, Frame};
 use crate::region::pipeline::{RegionError, RegionPipeline, describe_error};
 use crate::runtime::is_elevated;
 use crate::runtime::self_update::relaunch_if_requested;
+use crate::runtime::single_instance::InstanceLock;
 use crate::translation::cache::{TranslationCache, fingerprint_of, translate_and_cache};
 use crate::translation::context::{ClientContexts, ContextMap};
 use crate::translation::errors::TranslateError;
@@ -737,6 +738,8 @@ pub struct Running {
     pub config_path: PathBuf,
     /// 本地模型 hub；測試不建時為 `None`。
     pub local: Option<Arc<Local>>,
+    /// 單一實例鎖；關閉時先放掉才啟動新版，否則不會等鎖的舊版新程式搶不到鎖就直接結束。
+    pub instance_lock: Option<InstanceLock>,
 }
 
 /// 正式的本地模型 hub：資料夾在 `app_dir`，連 Hugging Face 與 GitHub，通知轉成 UI 事件。
@@ -873,6 +876,7 @@ pub fn build_app(
         dispatcher,
         config_path: crate::config::config_path(),
         local: Some(local),
+        instance_lock: None,
     }
 }
 
@@ -923,6 +927,7 @@ pub fn shutdown(running: Running) -> ! {
         supervisor,
         keyboard,
         local,
+        instance_lock,
         ..
     } = running;
     shutdown_steps(
@@ -937,6 +942,7 @@ pub fn shutdown(running: Running) -> ! {
         SUPERVISOR_JOIN_BUDGET,
         || translation.cache.flush(),
     );
+    drop(instance_lock);
     relaunch_if_requested();
     std::process::exit(0)
 }

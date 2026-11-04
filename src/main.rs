@@ -34,7 +34,7 @@ use wizard101_chat_translator::runtime::updater::{
     RELEASES_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
 };
 use wizard101_chat_translator::runtime::{
-    AcquireError, acquire_single_instance, acquire_waiting, focus_running_instance,
+    AcquireError, InstanceLock, acquire_single_instance, acquire_waiting, focus_running_instance,
 };
 use wizard101_chat_translator::ui::app::{self, App, OnCancel, OnSave};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -115,8 +115,8 @@ fn main() {
     // 介面語言要在建立任何視窗之前定案：文案與字型都由它決定
     set_language(&bootstrap_language(&mut cfg, config_existed));
 
-    // 鎖要留到程序結束：一放掉 mutex 就放行下一份
-    let Some(_instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
+    // 鎖跟著主流程走：一放掉 mutex 就放行下一份，關閉流程放掉後才啟動新版
+    let Some(instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
         return;
     };
     match std::env::current_exe() {
@@ -171,6 +171,7 @@ fn main() {
         keyboard: Rc::clone(&keyboard),
         running: Rc::clone(&running),
         local,
+        instance_lock,
     };
     let wizard_rt = rt.handle().clone();
     if !configured {
@@ -251,6 +252,7 @@ struct Startup {
     keyboard: Rc<RefCell<Option<KeyboardHook>>>,
     running: Rc<RefCell<Option<Running>>>,
     local: Arc<Local>,
+    instance_lock: InstanceLock,
 }
 
 /// 依共用設定接上其餘功能並開始執行：翻譯與收訊、輸入框、框選、泡泡、設定視窗、更新檢查與關閉流程。
@@ -264,9 +266,10 @@ fn start_main(app: &mut App, startup: Startup) {
         keyboard,
         running,
         local,
+        instance_lock,
     } = startup;
     log_startup_summary(&read(&shared_cfg));
-    let built = build_app(
+    let mut built = build_app(
         Arc::clone(&shared_cfg),
         &rt,
         ui.clone(),
@@ -395,6 +398,7 @@ fn start_main(app: &mut App, startup: Startup) {
     };
     app.set_limits(settings.max_messages, settings.fade_seconds.into());
     app.set_region_hotkey(&region_hotkey);
+    built.instance_lock = Some(instance_lock);
     *running.borrow_mut() = Some(built);
     log(format!(
         "[app] running; hotkey={hotkey} opens the input box, region_hotkey={region_hotkey} starts region translation; quit via the overlay ✕"
