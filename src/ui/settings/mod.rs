@@ -23,6 +23,7 @@ pub mod service_form;
 pub mod service_list;
 pub mod theme;
 pub mod thinking;
+pub mod update_window;
 pub mod widgets;
 pub mod window;
 pub mod wizard;

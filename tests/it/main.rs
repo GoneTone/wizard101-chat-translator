@@ -62,6 +62,7 @@ mod supervisor;
 mod translator;
 mod ui_probe;
 mod update_job;
+mod update_window;
 mod updater;
 mod updater_golden;
 mod version;

@@ -1,0 +1,274 @@
+//! 更新內容視窗的畫面：由新到舊的 release 卡片（Markdown 內文），底部列依下載階段變化。
+
+use std::collections::BTreeMap;
+use std::time::Instant;
+
+use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, Panel, RichText, Ui, vec2};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+
+use super::local_rate::{MB, Rates, Speed, format_speed};
+use super::theme;
+use super::widgets::{
+    card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
+    right_aligned_width, scroll_page, secondary_button,
+};
+use crate::i18n::t;
+use crate::runtime::update_job::Phase;
+use crate::runtime::updater::Release;
+
+/// 更新下載在 `Rates` 裡的鍵。
+const RATE_KEY: &str = "update";
+
+/// 使用者在更新視窗按下的動作，由 host 轉給 `UpdateJob`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateAction {
+    Start,
+    Cancel,
+    Retry,
+    OpenReleasePage,
+    Close,
+    Restart,
+}
+
+/// 更新視窗的畫面狀態：Markdown 快取與下載速度。
+#[derive(Default)]
+pub struct UpdateView {
+    markdown: CommonMarkCache,
+    rates: Rates,
+}
+
+/// 視窗能不能關：下載中（含驗證）與重新啟動中不能。
+pub fn can_close(phase: &Phase) -> bool {
+    !matches!(phase, Phase::Downloading | Phase::Restarting)
+}
+
+impl UpdateView {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 畫一幀；`unsaved` 是設定視窗有沒有沒儲存的變更（決定 ⑧-1／⑧-2）。
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        releases: &[Release],
+        phase: &Phase,
+        progress: (u64, u64),
+        unsaved: bool,
+    ) -> Vec<UpdateAction> {
+        let running = match phase {
+            Phase::Downloading => BTreeMap::from([(RATE_KEY.to_owned(), progress.0)]),
+            _ => BTreeMap::new(),
+        };
+        self.rates.observe_running(Instant::now(), running);
+        let speed = self.rates.speed(RATE_KEY);
+        let mut actions = Vec::new();
+        Panel::bottom("update_footer")
+            .frame(
+                Frame::new()
+                    .fill(theme::MODAL_FOOT)
+                    .inner_margin(Margin::symmetric(20, 14)),
+            )
+            .show(ui, |ui| {
+                footer(ui, phase, progress, speed, unsaved, &mut actions);
+            });
+        let margin = Margin {
+            left: 20,
+            right: 20,
+            top: 18,
+            bottom: 16,
+        };
+        scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
+            self.releases(ui, releases);
+        });
+        actions
+    }
+
+    /// 標題、副標與每一版的卡片。
+    fn releases(&mut self, ui: &mut Ui, releases: &[Release]) {
+        let Some(latest) = releases.first() else {
+            return;
+        };
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            let heading = t("update.heading", &[("version", &latest.version)]);
+            ui.add(Label::new(RichText::new(heading).font(theme::bold(20.0))));
+            let count = releases.len().to_string();
+            let sub = t(
+                "update.subheading",
+                &[("current", env!("CARGO_PKG_VERSION")), ("count", &count)],
+            );
+            hint(ui, &sub, theme::TEXT_SECONDARY);
+        });
+        for (i, release) in releases.iter().enumerate() {
+            ui.push_id(i, |ui| self.release_card(ui, release, i == 0));
+        }
+    }
+
+    fn release_card(&mut self, ui: &mut Ui, release: &Release, latest: bool) {
+        card(ui, |ui| {
+            Frame::new()
+                .inner_margin(Margin::symmetric(16, 14))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    let font = theme::bold(17.0);
+                    // 列高取版本號字高：用預設的控制項高時「最新」標籤會被撐高
+                    let height = ui.fonts_mut(|f| f.row_height(&font));
+                    let row = vec2(ui.available_width(), height);
+                    ui.allocate_ui_with_layout(row, Layout::left_to_right(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let version = RichText::new(format!("v{}", release.version))
+                            .font(font)
+                            .color(theme::ACCENT);
+                        ui.add(Label::new(version));
+                        let date = t("update.published", &[("date", &local_date(release))]);
+                        hint(ui, &date, theme::TEXT_MUTED);
+                        if latest {
+                            pill(ui, &t("update.latest_tag", &[]));
+                        }
+                    });
+                    ui.separator();
+                    CommonMarkViewer::new().show(ui, &mut self.markdown, &release.body);
+                });
+        });
+    }
+}
+
+/// 發布日期換成本機時區的 `YYYY-MM-DD`；解析不了就原樣顯示。
+fn local_date(release: &Release) -> String {
+    chrono::DateTime::parse_from_rfc3339(&release.published_at).map_or_else(
+        |_| release.published_at.clone(),
+        |at| {
+            at.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d")
+                .to_string()
+        },
+    )
+}
+
+/// 底部列：左側狀態（進度條、文字），右側按鈕。
+fn footer(
+    ui: &mut Ui,
+    phase: &Phase,
+    (done, total): (u64, u64),
+    speed: Option<Speed>,
+    unsaved: bool,
+    actions: &mut Vec<UpdateAction>,
+) {
+    let verifying = matches!(phase, Phase::Downloading) && total > 0 && done == total;
+    let mut press = |clicked: bool, action| {
+        if clicked {
+            actions.push(action);
+        }
+    };
+    let buttons = Id::unique("update_buttons");
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let room = (ui.available_width() - right_aligned_width(ui, buttons) - 16.0).max(120.0);
+        ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            ui.set_width(room);
+            match phase {
+                Phase::Idle => {}
+                Phase::Downloading if !verifying => {
+                    let fraction = if total > 0 {
+                        done as f32 / total as f32
+                    } else {
+                        0.0
+                    };
+                    progress_bar(ui, fraction, room);
+                    hint(
+                        ui,
+                        &transfer_text(done, total, speed),
+                        theme::TEXT_SECONDARY,
+                    );
+                }
+                Phase::Downloading => {
+                    progress_bar(ui, 1.0, room);
+                    hint(ui, &t("update.verifying", &[]), theme::TEXT_SECONDARY);
+                }
+                Phase::Restarting => {
+                    progress_bar(ui, 1.0, room);
+                    hint(ui, &t("update.restarting", &[]), theme::OK);
+                }
+                Phase::Failed { error, .. } => {
+                    let text = t("update.failed_download", &[("error", error)]);
+                    hint(ui, &text, theme::ERROR);
+                }
+                Phase::Cancelled => hint(ui, &t("update.cancelled", &[]), theme::TEXT_SECONDARY),
+                Phase::Ready if unsaved => hint(ui, &t("update.unsaved", &[]), theme::WARN_TEXT),
+                Phase::Ready => hint(ui, &t("update.ready", &[]), theme::OK),
+            }
+        });
+        right_aligned(ui, buttons, |ui| {
+            let label = |key| t(key, &[]);
+            match phase {
+                Phase::Idle => {
+                    press(
+                        secondary_button(ui, &label("update.later")).clicked(),
+                        UpdateAction::Close,
+                    );
+                    press(
+                        primary_button(ui, &label("update.now")).clicked(),
+                        UpdateAction::Start,
+                    );
+                }
+                Phase::Downloading | Phase::Restarting => {
+                    let cancellable = matches!(phase, Phase::Downloading) && !verifying;
+                    let cancel = ui
+                        .add_enabled_ui(cancellable, |ui| {
+                            secondary_button(ui, &label("update.cancel"))
+                        })
+                        .inner;
+                    press(cancel.clicked(), UpdateAction::Cancel);
+                }
+                Phase::Failed { .. } => {
+                    press(
+                        secondary_button(ui, &label("update.open_github")).clicked(),
+                        UpdateAction::OpenReleasePage,
+                    );
+                    press(
+                        primary_button(ui, &label("update.retry")).clicked(),
+                        UpdateAction::Retry,
+                    );
+                }
+                Phase::Cancelled => {
+                    press(
+                        secondary_button(ui, &label("update.close")).clicked(),
+                        UpdateAction::Close,
+                    );
+                    press(
+                        primary_button(ui, &label("update.redownload")).clicked(),
+                        UpdateAction::Start,
+                    );
+                }
+                Phase::Ready => {
+                    press(
+                        secondary_button(ui, &label("update.later")).clicked(),
+                        UpdateAction::Close,
+                    );
+                    let restart = if unsaved {
+                        danger_button(ui, &label("update.discard_restart"))
+                    } else {
+                        primary_button(ui, &label("update.restart"))
+                    };
+                    press(restart.clicked(), UpdateAction::Restart);
+                }
+            }
+        });
+    });
+}
+
+/// 「下載中 X / Y MB」，有速度時接上速度；有速度時已下載量取速度換上當下的值，數字不會一直跳。
+fn transfer_text(done: u64, total: u64, speed: Option<Speed>) -> String {
+    let mb = |bytes: u64| format!("{:.1}", bytes as f64 / MB);
+    let done = speed.map_or(done, |s| s.done);
+    let mut line = t(
+        "update.downloading",
+        &[("done", &mb(done)), ("total", &mb(total))],
+    );
+    if let Some(s) = speed {
+        line += &format!(" · {}", format_speed(s.rate));
+    }
+    line
+}
