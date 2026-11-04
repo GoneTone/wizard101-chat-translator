@@ -171,6 +171,40 @@ fn card_list_has_padding_at_both_ends() {
     );
 }
 
+/// 有捲軸時卡片左右離視窗邊緣一樣寬，左緣對齊標題、右緣對齊底部按鈕：捲軸不佔內容寬度。
+#[test]
+fn cards_line_up_with_the_heading_and_buttons_on_both_sides() {
+    let long = "A long paragraph of release notes.\n\n".repeat(80);
+    let releases = vec![release("1.2.0", &long), release("1.1.0", "Older notes")];
+    let h = window_with(releases, Phase::Idle, (0, 0), false);
+    let card = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == theme::CARD_BG => Some(r.rect),
+            _ => None,
+        })
+        .expect("a card is drawn");
+    let window_width = 620.0;
+    let heading = t("update.heading", &[("version", "1.2.0")]);
+    let heading_left = h.get_by_label(&heading).rect().left();
+    let button_right = h
+        .get_by_role_and_label(Role::Button, &tr("update.now"))
+        .rect()
+        .right();
+    let (left_gap, right_gap) = (card.left(), window_width - card.right());
+    assert!((left_gap - right_gap).abs() <= 1.0, "{card:?}");
+    assert!(
+        (card.left() - heading_left).abs() <= 1.0,
+        "{card:?} vs {heading_left}"
+    );
+    assert!(
+        (card.right() - button_right).abs() <= 1.0,
+        "{card:?} vs {button_right}"
+    );
+}
+
 /// 下載中有進度條與 MB 進度文字，只剩〔取消下載〕可按。
 #[test]
 fn downloading_shows_progress_and_only_cancel() {

@@ -27,8 +27,32 @@ pub(super) fn scroll_page<R>(
     gap: f32,
     add: impl FnOnce(&mut Ui) -> R,
 ) -> R {
+    scroll_page_with(ui, salt, margin, gap, false, add)
+}
+
+/// 同 [`scroll_page`]，但捲軸浮在右側內距上、不佔內容寬度：內容左右的空白才會一樣寬。
+///
+/// 右側內距要比捲軸寬（`scrollbar::WIDTH`），捲軸才不會蓋到內容。
+pub(super) fn overlay_scroll_page<R>(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    margin: Margin,
+    gap: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    scroll_page_with(ui, salt, margin, gap, true, add)
+}
+
+fn scroll_page_with<R>(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    margin: Margin,
+    gap: f32,
+    floating: bool,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
     let style = ui.style().clone();
-    thin_scrollbar(ui);
+    thin_scrollbar(ui, floating);
     ScrollArea::vertical()
         .id_salt(salt)
         .auto_shrink([false, false])
@@ -96,15 +120,28 @@ impl LazyRows {
     }
 }
 
-/// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
-fn thin_scrollbar(ui: &mut Ui) {
+/// 捲軸改成 overlay 那種細滑塊、透明軌道；`floating` 時浮在內容上、不佔寬度。內容要在捲動區裡把樣式換回來。
+fn thin_scrollbar(ui: &mut Ui, floating: bool) {
     let style = ui.style_mut();
-    style.spacing.scroll = ScrollStyle {
+    let solid = ScrollStyle {
         bar_width: scrollbar::WIDTH,
         handle_min_length: scrollbar::MIN_THUMB as f32,
         bar_inner_margin: 2.0,
         bar_outer_margin: 2.0,
         ..ScrollStyle::solid()
+    };
+    // 浮動捲軸預設閒置時隱形、滑過才變寬；這裡維持跟實心的一樣常駐、同寬
+    style.spacing.scroll = if floating {
+        ScrollStyle {
+            floating: true,
+            floating_width: scrollbar::WIDTH,
+            dormant_handle_opacity: 1.0,
+            active_handle_opacity: 1.0,
+            interact_handle_opacity: 1.0,
+            ..solid
+        }
+    } else {
+        solid
     };
     let visuals = &mut style.visuals;
     visuals.extreme_bg_color = Color32::TRANSPARENT;

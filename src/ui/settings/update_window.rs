@@ -11,8 +11,8 @@ use super::quant_table::fraction;
 use super::release_links::linkify_github;
 use super::theme;
 use super::widgets::{
-    card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
-    right_aligned_width, scroll_page, secondary_button,
+    card, danger_button, hint, overlay_scroll_page, pill, primary_button, progress_bar,
+    right_aligned, right_aligned_width, secondary_button,
 };
 use crate::i18n::t;
 use crate::runtime::update_job::Phase;
@@ -92,7 +92,7 @@ impl UpdateView {
                 .show(ui, |ui| header(ui, latest, releases.len()));
         }
         let margin = Margin::symmetric(20, LIST_PADDING);
-        scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
+        overlay_scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
             self.releases(ui, releases);
         });
         actions
