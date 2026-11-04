@@ -224,6 +224,64 @@ plain
     assert!(code);
 }
 
+/// 畫面上第一個含 `needle` 的文字：依各列首字的字型量出的字列上緣 y 與字高。
+fn text_rows(h: &Harness<'static, Window>, needle: &str) -> Vec<(f32, f32)> {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text().contains(needle) => Some(
+                t.galley
+                    .rows
+                    .iter()
+                    .filter_map(|r| {
+                        let g = r.row.glyphs.first()?;
+                        Some((t.pos.y + r.pos.y + g.pos.y - g.font_ascent, g.font_height))
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{needle:?} not painted"))
+}
+
+/// 清單項目裡的連結與前後文字同一條基線；項目符號落在第一行中央；項目內換行行距同段落。
+#[test]
+fn list_items_line_up_with_their_text() {
+    let long = "word ".repeat(40);
+    let body = format!(
+        "* New Crowdin updates by [@GoneTone](https://github.com/GoneTone) in [#72](https://x.com/72)\n\
+         * listed {long}\n\nplain {long}"
+    );
+    let h = window_with(vec![release("1.2.0", &body)], Phase::Idle, (0, 0), false);
+
+    let text = text_rows(&h, "New Crowdin")[0];
+    for link in ["@GoneTone", "#72"] {
+        let y = text_rows(&h, link)[0].0;
+        assert!((y - text.0).abs() <= 1.0, "{link}: {y} vs {}", text.0);
+    }
+
+    let bullet = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Circle(c) => Some(c.center.y),
+            _ => None,
+        })
+        .expect("bullet painted");
+    let middle = text.0 + text.1 / 2.0;
+    assert!((bullet - middle).abs() <= 1.0, "{bullet} vs {middle}");
+
+    let gap = |rows: &[(f32, f32)]| rows[1].0 - rows[0].0;
+    let listed = text_rows(&h, "listed");
+    let plain = text_rows(&h, "plain");
+    assert!(
+        (gap(&listed) - gap(&plain)).abs() <= 1.0,
+        "{listed:?} vs {plain:?}"
+    );
+}
+
 /// 發布日期換成本機時區的日期；解析不了就顯示原字串。
 #[test]
 fn published_date_is_local_or_raw() {

@@ -139,6 +139,8 @@ impl UpdateView {
                     let visuals = ui.visuals_mut();
                     visuals.override_text_color = None;
                     visuals.widgets.noninteractive.fg_stroke.color = theme::TEXT;
+                    // 清單項目用 horizontal_wrapped，首列高取 interact_size.y：控制項高會讓連結與項目符號浮在內文上方
+                    ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Body);
                     let body = linkify_github(&flatten_headings(&release.body));
                     CommonMarkViewer::new().show(ui, &mut self.markdown, &body);
                 });
