@@ -2,15 +2,15 @@
 
 use eframe::egui::layers::ShapeIdx;
 use eframe::egui::{
-    self, Align, Align2, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response,
-    RichText, Role, Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui,
-    UiBuilder, Vec2, WidgetInfo, WidgetText,
+    self, Align, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response, RichText, Role,
+    Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui, UiBuilder, Vec2,
+    WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
 use crate::i18n::t;
 use crate::logs::log;
-use crate::ui::fonts_egui::tk_pt;
+use crate::ui::fonts_egui::{paint_symbol, symbols, tk_pt};
 use crate::ui::geometry::{
     EDGE, Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen,
     resized_edge,
@@ -527,11 +527,19 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
     } else {
         FG_BAR
     };
-    ui.painter().text(
-        square.center(),
-        Align2::CENTER_CENTER,
-        glyph,
-        FontId::proportional(tk_pt(10.0)),
+    let galley = ui
+        .painter()
+        .layout_no_wrap(glyph.to_owned(), symbols(tk_pt(10.0)), fg);
+    // ─ 的筆畫只有一列實像素、下面一列是淡淡的反鋸齒，依範圍置中會比旁邊 ✕⚙ 的中心高一列
+    let nudge = if glyph == "─" {
+        1.0 / ui.ctx().pixels_per_point()
+    } else {
+        0.0
+    };
+    paint_symbol(
+        ui.painter(),
+        square.center() + Vec2::new(0.0, nudge),
+        galley,
         fg,
     );
     button
@@ -730,6 +738,17 @@ pub(crate) mod tests {
             walk(&c.shape, &mut out);
         }
         out
+    }
+
+    /// 標題列按鈕用符號字族：⚙ 不會被彩色 emoji 換掉，滑過時才跟著換色。
+    #[test]
+    fn title_buttons_use_the_symbol_font() {
+        let (harness, _) = setup("Title", Vec2::new(640.0, 420.0), 1.0);
+        for glyph in ["✕", "─", "⚙", "⛶"] {
+            let shape = find_text_shape(&harness.output().shapes, glyph).unwrap();
+            let family = &shape.galley.job.sections[0].format.font_id.family;
+            assert_eq!(family, &symbols(1.0).family, "{glyph}");
+        }
     }
 
     #[test]

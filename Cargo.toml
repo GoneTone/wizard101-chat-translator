@@ -17,6 +17,8 @@ arboard = { version = "3.7", default-features = false }
 caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit", "links", "clipboard"] }
+# eframe 沒轉出 epaint 的 color_fonts；開了才畫得出 Segoe UI Emoji 的彩色字形
+epaint = { version = "0.37.0", default-features = false, features = ["color_fonts"] }
 egui_commonmark = { version = "0.26", default-features = false, features = ["pulldown_cmark"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 futures-util = "0.3.34"

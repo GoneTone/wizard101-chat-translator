@@ -1,4 +1,4 @@
-//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型與符號字型當 fallback；另有粗體與圖示字族。
+//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型、彩色 emoji 與符號字型當 fallback；另有粗體、圖示與符號字族。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use eframe::egui::{Context, FontData, FontDefinitions, FontFamily};
+use eframe::egui::emath::GuiRounding as _;
+use eframe::egui::{
+    Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Galley, Painter, Pos2, Rect,
+};
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_READ, MapViewOfFile, PAGE_READONLY,
@@ -21,6 +24,12 @@ use crate::ui::fonts::font_family;
 const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf"];
 /// 泰文的 fallback：翻譯目標語言的說明以「ภาษาไทย」舉例，Tk 靠系統字型連結畫得出來。
 const THAI_FILE: &str = "LeelawUI.ttf";
+/// 彩色 emoji；要排在符號字型前面，Segoe UI Symbol 也收了單色的 emoji。
+const EMOJI_FILE: &str = "seguiemj.ttf";
+/// emoji 縮放比例：Segoe UI Emoji 比中文字高約 2 px，只能落在偏上或偏下的整像素；縮成 90% 跟字一樣高，上下才切得齊。
+const EMOJI_SCALE: f32 = 0.9;
+/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中而不是對齊基線，emoji 會比文字高。
+const EMOJI_Y_OFFSET: f32 = 0.15;
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
@@ -30,6 +39,8 @@ const ICON_FILES: [&str; 2] = ["SegoeIcons.ttf", "segmdl2.ttf"];
 pub const BOLD: &str = "bold";
 /// 圖示字族（`FontFamily::Name`）；字型檔讀不到時與一般字型相同。
 pub const ICONS: &str = "icons";
+/// 符號字族：符號字型排在彩色 emoji 前面，⚙ 之類才是吃文字顏色的單色符號；字型檔讀不到時與一般字型相同。
+pub const SYMBOLS: &str = "symbols";
 
 fn primary_file(family: &str) -> &'static str {
     match family {
@@ -63,6 +74,7 @@ pub fn font_files(language_code: &str) -> Vec<&'static str> {
     let mut files = vec![primary];
     files.extend(CJK_FILES.iter().filter(|f| **f != primary));
     files.push(THAI_FILE);
+    files.push(EMOJI_FILE);
     files.push(SYMBOL_FILE);
     files
 }
@@ -73,6 +85,31 @@ fn fonts_dir(windir: Option<OsString>) -> PathBuf {
         .filter(|dir| !dir.is_empty())
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join("Fonts")
+}
+
+/// 符號字族的字型（`SYMBOLS`）：✕⚙ 之類介面符號用這個，才不會被彩色 emoji 字型裡同碼的字形換掉。
+pub fn symbols(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(SYMBOLS.into()))
+}
+
+/// galley 字形筆畫實際涵蓋的範圍（相對 galley 左上角）。
+pub fn ink_rect(galley: &Galley) -> Rect {
+    galley
+        .rows
+        .iter()
+        .flat_map(|row| {
+            row.row.glyphs.iter().map(move |g| {
+                Rect::from_min_size(row.pos + g.pos.to_vec2() + g.uv_rect.offset, g.uv_rect.size)
+            })
+        })
+        .fold(Rect::NOTHING, Rect::union)
+}
+
+/// 以筆畫範圍把符號畫在 `center`：符號字型的字形框比筆畫高、筆畫偏下，照字形框置中看起來會往下掉。
+pub fn paint_symbol(painter: &Painter, center: Pos2, galley: Arc<Galley>, color: Color32) {
+    let pos =
+        (center - ink_rect(&galley).center().to_vec2()).round_to_pixels(painter.pixels_per_point());
+    painter.galley(pos, galley, color);
 }
 
 /// Tk 的字級（pt）換成 egui 的 point（DIP）。
@@ -125,6 +162,10 @@ fn load(defs: &mut FontDefinitions, dir: &Path, file: &str) -> bool {
         Ok(bytes) => {
             let mut data = FontData::from_static(bytes);
             data.index = face_index(file);
+            if file == EMOJI_FILE {
+                data.tweak.scale = EMOJI_SCALE;
+                data.tweak.y_offset_factor = EMOJI_Y_OFFSET;
+            }
             defs.font_data.insert(file.to_owned(), Arc::new(data));
             true
         }
@@ -156,7 +197,11 @@ fn install_from(ctx: &Context, dir: &Path, language_code: &str) {
     let icons = ICON_FILES
         .into_iter()
         .find(|file| load(&mut defs, dir, file));
-    for (name, file) in [(BOLD, bold), (ICONS, icons)] {
+    let symbols = loaded
+        .iter()
+        .any(|file| file == SYMBOL_FILE)
+        .then_some(SYMBOL_FILE);
+    for (name, file) in [(BOLD, bold), (ICONS, icons), (SYMBOLS, symbols)] {
         if file.is_none() {
             log(format!(
                 "[ui] {name} font unavailable; using the regular font"
@@ -174,7 +219,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primary_font_first_then_other_cjk_then_thai_and_symbols() {
+    fn primary_font_first_then_other_cjk_then_thai_emoji_and_symbols() {
         assert_eq!(
             font_files("zh-TW"),
             [
@@ -183,6 +228,7 @@ mod tests {
                 "YuGothM.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -194,6 +240,7 @@ mod tests {
                 "msyh.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -206,6 +253,7 @@ mod tests {
                 "YuGothM.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -280,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_bold_and_icon_fonts_fall_back_to_the_regular_family() {
+    fn missing_bold_icon_and_symbol_fonts_fall_back_to_the_regular_family() {
         let ctx = Context::default();
         let empty = tempfile::tempdir().unwrap();
         install_from(&ctx, empty.path(), "zh-TW");
@@ -288,7 +336,7 @@ mod tests {
             .textures_delta
             .clear();
         let families = ctx.fonts(|f| f.definitions().families.clone());
-        for name in [BOLD, ICONS] {
+        for name in [BOLD, ICONS, SYMBOLS] {
             assert_eq!(
                 families[&FontFamily::Name(name.into())],
                 families[&FontFamily::Proportional]
@@ -297,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn system_fonts_put_bold_and_icon_files_first() {
+    fn system_fonts_put_bold_icon_and_symbol_files_first() {
         let ctx = Context::default();
         install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "zh-TW");
         ctx.run_ui(Default::default(), |_| {})
@@ -307,5 +355,106 @@ mod tests {
         assert_eq!(families[&FontFamily::Name(BOLD.into())][0], "msjhbd.ttc");
         assert_eq!(families[&FontFamily::Name(BOLD.into())][1], "msjh.ttc");
         assert!(ICON_FILES.contains(&families[&FontFamily::Name(ICONS.into())][0].as_str()));
+        assert_eq!(families[&FontFamily::Name(SYMBOLS.into())][0], SYMBOL_FILE);
+    }
+
+    /// galley 第一行第 `index` 個字形筆畫的上下緣中點（point）。
+    fn ink_center(galley: &eframe::egui::Galley, index: usize) -> f32 {
+        let row = &galley.rows[0];
+        let glyph = &row.row.glyphs[index];
+        row.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y / 2.0
+    }
+
+    /// 各介面語言、介面用到的字級下，emoji 跟中文字差不多高、上下置中（取整前的差距不超過 2 px）。
+    #[test]
+    fn emoji_sit_level_with_the_text() {
+        for language in ["zh-TW", "zh-CN", "ja", "ko", "en-US"] {
+            let ctx = Context::default();
+            install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), language);
+            let mut gaps = Vec::new();
+            for _ in 0..2 {
+                gaps.clear();
+                let mut output = ctx.run_ui(Default::default(), |ui| {
+                    for size in [tk_pt(8.0), 12.0, 12.5, 14.0, tk_pt(11.0)] {
+                        let galley = ui.painter().layout_no_wrap(
+                            "中\u{1F600}".to_owned(),
+                            eframe::egui::FontId::proportional(size),
+                            eframe::egui::Color32::WHITE,
+                        );
+                        let height = |i: usize| galley.rows[0].row.glyphs[i].uv_rect.size.y;
+                        gaps.push((
+                            size,
+                            ink_center(&galley, 1) - ink_center(&galley, 0),
+                            height(1) - height(0),
+                        ));
+                    }
+                });
+                output.textures_delta.clear();
+            }
+            for (size, gap, taller) in gaps {
+                assert!(gap.abs() <= 2.0, "{language} {size}: emoji off by {gap}");
+                assert!(taller <= 1.0, "{language} {size}: emoji {taller} px taller");
+            }
+        }
+    }
+
+    /// 介面符號依筆畫範圍置中：畫出來的筆畫中心落在指定點的半個像素內。
+    #[test]
+    fn symbols_are_centred_by_their_ink() {
+        let ctx = Context::default();
+        install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "zh-TW");
+        let center = Pos2::new(50.0, 40.0);
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                for glyph in ["✕", "─", "⚙", "⛶"] {
+                    for size in [tk_pt(9.0), tk_pt(10.0)] {
+                        let galley = ui.painter().layout_no_wrap(
+                            glyph.to_owned(),
+                            symbols(size),
+                            Color32::WHITE,
+                        );
+                        paint_symbol(ui.painter(), center, galley, Color32::WHITE);
+                    }
+                }
+            });
+            let shapes = std::mem::take(&mut output.shapes);
+            output.textures_delta.clear();
+            for clipped in shapes {
+                if let eframe::egui::Shape::Text(text) = clipped.shape {
+                    let ink = ink_rect(&text.galley).translate(text.pos.to_vec2());
+                    let off = ink.center() - center;
+                    assert!(
+                        off.x.abs() <= 0.5 && off.y.abs() <= 0.5,
+                        "{} off by {off:?}",
+                        text.galley.text()
+                    );
+                }
+            }
+        }
+    }
+
+    /// 開了 epaint 的 color_fonts，emoji 進字形圖集時是彩色的，不是單色灰階。
+    #[test]
+    fn emoji_are_rasterized_in_color() {
+        use eframe::egui::ImageData;
+
+        let ctx = Context::default();
+        install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "en-US");
+        let mut images = Vec::new();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                ui.label("\u{1F3AF}");
+            });
+            let set = std::mem::take(&mut output.textures_delta.set);
+            output.textures_delta.clear();
+            images.extend(set.into_values().flatten().map(|d| d.image));
+        }
+        let colorful = images.iter().any(|ImageData::Color(image)| {
+            image.pixels.iter().any(|p| {
+                let [r, g, b, _] = p.to_array();
+                r.max(g).max(b) - r.min(g).min(b) > 80
+            })
+        });
+        assert!(colorful, "no saturated pixel in the glyph atlas");
     }
 }

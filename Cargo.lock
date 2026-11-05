@@ -1646,6 +1646,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "log",
  "peniko",
+ "png",
  "skrifa",
  "smallvec",
  "vello_common",
@@ -4672,6 +4673,7 @@ dependencies = [
  "guillotiere",
  "log",
  "peniko",
+ "png",
  "smallvec",
  "thiserror 2.0.21",
 ]
@@ -4685,6 +4687,7 @@ dependencies = [
  "bytemuck",
  "glifo",
  "hashbrown 0.17.1",
+ "png",
  "vello_common",
 ]
 
@@ -5538,6 +5541,7 @@ dependencies = [
  "egui_commonmark",
  "egui_kittest",
  "embed-resource",
+ "epaint",
  "futures-util",
  "ggus",
  "icu_locale",

@@ -15,7 +15,7 @@ use eframe::egui::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::ui::copy_menu::CopyMenu;
-use crate::ui::fonts_egui::tk_pt;
+use crate::ui::fonts_egui::{paint_symbol, symbols, tk_pt};
 use crate::ui::geometry::{Placement, Rect, Side, anchored_geometry, beside_geometry, is_click};
 use crate::ui::glass;
 use crate::ui::overlay::frame::flat_tooltip;
@@ -159,7 +159,7 @@ struct Chrome {
 impl Chrome {
     fn new(ctx: &Context) -> Self {
         ctx.fonts_mut(|f| Self {
-            close: f.layout_no_wrap("✕".into(), font(10.0), FG_BAR),
+            close: f.layout_no_wrap("✕".into(), symbols(tk_pt(10.0)), FG_BAR),
             hint: f.layout_no_wrap(t("region.close_hint", &[]), font(8.0), FG_PENDING),
         })
     }
@@ -510,11 +510,7 @@ impl Card {
                 ui.label(egui::RichText::new(t("tooltip.close", &[])).color(FG_TRANSLATED));
             });
         }
-        painter.galley(
-            close_rect.min + vec2(CLOSE_PAD_X, CLOSE_PAD_Y),
-            chrome.close,
-            FG_BAR,
-        );
+        paint_symbol(&painter, close_rect.center(), chrome.close, FG_BAR);
         painter.galley(hint_pos, chrome.hint, FG_PENDING);
         let text_painter = painter.with_clip_rect(text_rect);
         if let Some((lo, hi)) = self.span() {
