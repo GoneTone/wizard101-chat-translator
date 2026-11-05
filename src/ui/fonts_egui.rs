@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use eframe::egui::{Context, FontData, FontDefinitions, FontFamily};
+use eframe::egui::emath::GuiRounding as _;
+use eframe::egui::{
+    Color32, Context, FontData, FontDefinitions, FontFamily, FontId, Galley, Painter, Pos2, Rect,
+};
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Memory::{
     CreateFileMappingW, FILE_MAP_READ, MapViewOfFile, PAGE_READONLY,
@@ -82,6 +85,31 @@ fn fonts_dir(windir: Option<OsString>) -> PathBuf {
         .filter(|dir| !dir.is_empty())
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join("Fonts")
+}
+
+/// 符號字族的字型（`SYMBOLS`）：✕⚙ 之類介面符號用這個，才不會被彩色 emoji 字型裡同碼的字形換掉。
+pub fn symbols(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(SYMBOLS.into()))
+}
+
+/// galley 字形筆畫實際涵蓋的範圍（相對 galley 左上角）。
+pub fn ink_rect(galley: &Galley) -> Rect {
+    galley
+        .rows
+        .iter()
+        .flat_map(|row| {
+            row.row.glyphs.iter().map(move |g| {
+                Rect::from_min_size(row.pos + g.pos.to_vec2() + g.uv_rect.offset, g.uv_rect.size)
+            })
+        })
+        .fold(Rect::NOTHING, Rect::union)
+}
+
+/// 以筆畫範圍把符號畫在 `center`：符號字型的字形框比筆畫高、筆畫偏下，照字形框置中看起來會往下掉。
+pub fn paint_symbol(painter: &Painter, center: Pos2, galley: Arc<Galley>, color: Color32) {
+    let pos =
+        (center - ink_rect(&galley).center().to_vec2()).round_to_pixels(painter.pixels_per_point());
+    painter.galley(pos, galley, color);
 }
 
 /// Tk 的字級（pt）換成 egui 的 point（DIP）。
@@ -366,6 +394,41 @@ mod tests {
             for (size, gap, taller) in gaps {
                 assert!(gap.abs() <= 2.0, "{language} {size}: emoji off by {gap}");
                 assert!(taller <= 1.0, "{language} {size}: emoji {taller} px taller");
+            }
+        }
+    }
+
+    /// 介面符號依筆畫範圍置中：畫出來的筆畫中心落在指定點的半個像素內。
+    #[test]
+    fn symbols_are_centred_by_their_ink() {
+        let ctx = Context::default();
+        install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "zh-TW");
+        let center = Pos2::new(50.0, 40.0);
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                for glyph in ["✕", "─", "⚙", "⛶"] {
+                    for size in [tk_pt(9.0), tk_pt(10.0)] {
+                        let galley = ui.painter().layout_no_wrap(
+                            glyph.to_owned(),
+                            symbols(size),
+                            Color32::WHITE,
+                        );
+                        paint_symbol(ui.painter(), center, galley, Color32::WHITE);
+                    }
+                }
+            });
+            let shapes = std::mem::take(&mut output.shapes);
+            output.textures_delta.clear();
+            for clipped in shapes {
+                if let eframe::egui::Shape::Text(text) = clipped.shape {
+                    let ink = ink_rect(&text.galley).translate(text.pos.to_vec2());
+                    let off = ink.center() - center;
+                    assert!(
+                        off.x.abs() <= 0.5 && off.y.abs() <= 0.5,
+                        "{} off by {off:?}",
+                        text.galley.text()
+                    );
+                }
             }
         }
     }

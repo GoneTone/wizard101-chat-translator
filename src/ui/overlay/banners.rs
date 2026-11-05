@@ -16,7 +16,7 @@ pub use crate::runtime::updater::Release;
 use crate::runtime::updater::is_newer;
 use crate::translation::errors::localized;
 use crate::ui::copy_menu::CopyMenu;
-use crate::ui::fonts_egui::tk_pt;
+use crate::ui::fonts_egui::{paint_symbol, symbols, tk_pt};
 use crate::ui::glass;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::overlay::message_list::TEXT_MARGIN;
@@ -210,8 +210,7 @@ impl Banners {
     ) -> f32 {
         let text = &self.update_text().unwrap_or_default();
         let painter = ui.painter_at(clip);
-        let close =
-            painter.layout_no_wrap("✕".into(), FontId::proportional(tk_pt(CLOSE_PT)), FG_UPDATE);
+        let close = painter.layout_no_wrap("✕".into(), symbols(tk_pt(CLOSE_PT)), FG_UPDATE);
         // 右側讓出縮放把手：把手疊在橫幅上會蓋掉半個 ✕
         let width = rect.width() - GRIP_SIZE;
         let close_w = CLOSE_PAD.0 + close.size().x + CLOSE_PAD.1;
@@ -245,7 +244,7 @@ impl Banners {
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
         paint_strip(ui, &painter, row_rect, galley, alpha);
         self.body_hole = Some(row_rect.intersect(clip));
-        painter.galley(close_rect.min, close, FG_UPDATE);
+        paint_symbol(&painter, close_rect.center(), close, FG_UPDATE);
 
         if on_band {
             return row_rect.min.y - PAD_Y;

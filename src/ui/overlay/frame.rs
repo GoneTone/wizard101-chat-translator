@@ -2,15 +2,15 @@
 
 use eframe::egui::layers::ShapeIdx;
 use eframe::egui::{
-    self, Align, Align2, Color32, CursorIcon, FontFamily, FontId, Image, Label, Layout, Pos2,
-    Response, RichText, Role, Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip,
-    Ui, UiBuilder, Vec2, WidgetInfo, WidgetText,
+    self, Align, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response, RichText, Role,
+    Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui, UiBuilder, Vec2,
+    WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
 use crate::i18n::t;
 use crate::logs::log;
-use crate::ui::fonts_egui::{SYMBOLS, tk_pt};
+use crate::ui::fonts_egui::{paint_symbol, symbols, tk_pt};
 use crate::ui::geometry::{
     EDGE, Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen,
     resized_edge,
@@ -527,13 +527,10 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
     } else {
         FG_BAR
     };
-    ui.painter().text(
-        square.center(),
-        Align2::CENTER_CENTER,
-        glyph,
-        FontId::new(tk_pt(10.0), FontFamily::Name(SYMBOLS.into())),
-        fg,
-    );
+    let galley = ui
+        .painter()
+        .layout_no_wrap(glyph.to_owned(), symbols(tk_pt(10.0)), fg);
+    paint_symbol(ui.painter(), square.center(), galley, fg);
     button
 }
 
@@ -739,7 +736,7 @@ pub(crate) mod tests {
         for glyph in ["✕", "─", "⚙", "⛶"] {
             let shape = find_text_shape(&harness.output().shapes, glyph).unwrap();
             let family = &shape.galley.job.sections[0].format.font_id.family;
-            assert_eq!(family, &FontFamily::Name(SYMBOLS.into()), "{glyph}");
+            assert_eq!(family, &symbols(1.0).family, "{glyph}");
         }
     }
 
