@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use eframe::egui::epaint::text::PlacedRow;
 use eframe::egui::{Color32, Galley, Painter, Pos2, Vec2};
 
 use crate::ui::palette::OUTLINE;
@@ -23,10 +24,26 @@ pub const OUTLINE_OFFSETS: [(f32, f32); 8] = [
 /// 以 `pos` 為行原點畫一行描邊文字；`galley` 用 `Color32::PLACEHOLDER` 排版，顏色在這裡給。
 pub fn paint(painter: &Painter, pos: Pos2, galley: &Arc<Galley>, color: Color32) {
     let text = pos + Vec2::splat(TEXT_ORIGIN);
+    let outline = outline_galley(galley);
     for (dx, dy) in OUTLINE_OFFSETS {
-        painter.galley(text + Vec2::new(dx, dy), Arc::clone(galley), OUTLINE);
+        painter.galley(text + Vec2::new(dx, dy), Arc::clone(&outline), OUTLINE);
     }
     painter.galley(text, Arc::clone(galley), color);
+}
+
+/// 描邊副本用的 galley：彩色字形（emoji）不吃文字顏色，照原樣會疊出八份彩色 emoji 糊在一起；改當一般字形，副本才是描邊色的剪影。
+fn outline_galley(galley: &Arc<Galley>) -> Arc<Galley> {
+    let has_color = |row: &PlacedRow| row.row.glyphs.iter().any(|g| g.is_color);
+    if !galley.rows.iter().any(has_color) {
+        return Arc::clone(galley);
+    }
+    let mut outline = (**galley).clone();
+    for placed in &mut outline.rows {
+        for glyph in &mut Arc::make_mut(&mut placed.row).glyphs {
+            glyph.is_color = false;
+        }
+    }
+    Arc::new(outline)
 }
 
 /// 一行（換行後）佔的高度：文字高加上原點偏移、描邊往下的 1px 與底部 2px 餘裕。
@@ -89,6 +106,38 @@ mod tests {
             );
         }
         assert_eq!(drawn[8], (Pos2::new(2.0, 52.0), color, "hello".to_owned()));
+    }
+
+    /// 描邊副本裡的 emoji 改當一般字形（套描邊色），只有最上層那份保留彩色。
+    #[test]
+    fn only_the_fill_copy_keeps_color_emoji() {
+        let mut harness = Harness::builder()
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "zh-TW"))
+            .build_ui(|ui| {
+                let galley = ui.painter().layout(
+                    "gg \u{1F600}".to_owned(),
+                    FontId::proportional(tk_pt(11.0)),
+                    Color32::PLACEHOLDER,
+                    250.0,
+                );
+                paint(ui.painter(), Pos2::ZERO, &galley, Color32::WHITE);
+            });
+        harness.step();
+        let has_color: Vec<bool> = harness
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Text(t) => Some(
+                    t.galley
+                        .rows
+                        .iter()
+                        .any(|r| r.row.glyphs.iter().any(|g| g.is_color)),
+                ),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(has_color, [[false; 8].as_slice(), &[true]].concat());
     }
 
     #[test]

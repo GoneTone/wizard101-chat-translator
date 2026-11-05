@@ -1,4 +1,4 @@
-//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型與符號字型當 fallback；另有粗體與圖示字族。
+//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型、彩色 emoji 與符號字型當 fallback；另有粗體、圖示與符號字族。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -21,6 +21,8 @@ use crate::ui::fonts::font_family;
 const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf"];
 /// 泰文的 fallback：翻譯目標語言的說明以「ภาษาไทย」舉例，Tk 靠系統字型連結畫得出來。
 const THAI_FILE: &str = "LeelawUI.ttf";
+/// 彩色 emoji；要排在符號字型前面，Segoe UI Symbol 也收了單色的 emoji。
+const EMOJI_FILE: &str = "seguiemj.ttf";
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
@@ -30,6 +32,8 @@ const ICON_FILES: [&str; 2] = ["SegoeIcons.ttf", "segmdl2.ttf"];
 pub const BOLD: &str = "bold";
 /// 圖示字族（`FontFamily::Name`）；字型檔讀不到時與一般字型相同。
 pub const ICONS: &str = "icons";
+/// 符號字族：符號字型排在彩色 emoji 前面，⚙ 之類才是吃文字顏色的單色符號；字型檔讀不到時與一般字型相同。
+pub const SYMBOLS: &str = "symbols";
 
 fn primary_file(family: &str) -> &'static str {
     match family {
@@ -63,6 +67,7 @@ pub fn font_files(language_code: &str) -> Vec<&'static str> {
     let mut files = vec![primary];
     files.extend(CJK_FILES.iter().filter(|f| **f != primary));
     files.push(THAI_FILE);
+    files.push(EMOJI_FILE);
     files.push(SYMBOL_FILE);
     files
 }
@@ -156,7 +161,11 @@ fn install_from(ctx: &Context, dir: &Path, language_code: &str) {
     let icons = ICON_FILES
         .into_iter()
         .find(|file| load(&mut defs, dir, file));
-    for (name, file) in [(BOLD, bold), (ICONS, icons)] {
+    let symbols = loaded
+        .iter()
+        .any(|file| file == SYMBOL_FILE)
+        .then_some(SYMBOL_FILE);
+    for (name, file) in [(BOLD, bold), (ICONS, icons), (SYMBOLS, symbols)] {
         if file.is_none() {
             log(format!(
                 "[ui] {name} font unavailable; using the regular font"
@@ -174,7 +183,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primary_font_first_then_other_cjk_then_thai_and_symbols() {
+    fn primary_font_first_then_other_cjk_then_thai_emoji_and_symbols() {
         assert_eq!(
             font_files("zh-TW"),
             [
@@ -183,6 +192,7 @@ mod tests {
                 "YuGothM.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -194,6 +204,7 @@ mod tests {
                 "msyh.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -206,6 +217,7 @@ mod tests {
                 "YuGothM.ttc",
                 "malgun.ttf",
                 "LeelawUI.ttf",
+                "seguiemj.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -280,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_bold_and_icon_fonts_fall_back_to_the_regular_family() {
+    fn missing_bold_icon_and_symbol_fonts_fall_back_to_the_regular_family() {
         let ctx = Context::default();
         let empty = tempfile::tempdir().unwrap();
         install_from(&ctx, empty.path(), "zh-TW");
@@ -288,7 +300,7 @@ mod tests {
             .textures_delta
             .clear();
         let families = ctx.fonts(|f| f.definitions().families.clone());
-        for name in [BOLD, ICONS] {
+        for name in [BOLD, ICONS, SYMBOLS] {
             assert_eq!(
                 families[&FontFamily::Name(name.into())],
                 families[&FontFamily::Proportional]
@@ -297,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn system_fonts_put_bold_and_icon_files_first() {
+    fn system_fonts_put_bold_icon_and_symbol_files_first() {
         let ctx = Context::default();
         install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "zh-TW");
         ctx.run_ui(Default::default(), |_| {})
@@ -307,5 +319,31 @@ mod tests {
         assert_eq!(families[&FontFamily::Name(BOLD.into())][0], "msjhbd.ttc");
         assert_eq!(families[&FontFamily::Name(BOLD.into())][1], "msjh.ttc");
         assert!(ICON_FILES.contains(&families[&FontFamily::Name(ICONS.into())][0].as_str()));
+        assert_eq!(families[&FontFamily::Name(SYMBOLS.into())][0], SYMBOL_FILE);
+    }
+
+    /// 開了 epaint 的 color_fonts，emoji 進字形圖集時是彩色的，不是單色灰階。
+    #[test]
+    fn emoji_are_rasterized_in_color() {
+        use eframe::egui::ImageData;
+
+        let ctx = Context::default();
+        install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "en-US");
+        let mut images = Vec::new();
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                ui.label("\u{1F3AF}");
+            });
+            let set = std::mem::take(&mut output.textures_delta.set);
+            output.textures_delta.clear();
+            images.extend(set.into_values().flatten().map(|d| d.image));
+        }
+        let colorful = images.iter().any(|ImageData::Color(image)| {
+            image.pixels.iter().any(|p| {
+                let [r, g, b, _] = p.to_array();
+                r.max(g).max(b) - r.min(g).min(b) > 80
+            })
+        });
+        assert!(colorful, "no saturated pixel in the glyph atlas");
     }
 }
