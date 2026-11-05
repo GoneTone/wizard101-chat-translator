@@ -23,7 +23,9 @@ const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf
 const THAI_FILE: &str = "LeelawUI.ttf";
 /// 彩色 emoji；要排在符號字型前面，Segoe UI Symbol 也收了單色的 emoji。
 const EMOJI_FILE: &str = "seguiemj.ttf";
-/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中，Segoe UI Emoji 會高出文字約 0.19；emoji 比字大、底部垂得低，對齊基線看起來偏下，所以少移一點。
+/// emoji 縮放比例：Segoe UI Emoji 比中文字高約 2 px，只能落在偏上或偏下的整像素；縮成 90% 跟字一樣高，上下才切得齊。
+const EMOJI_SCALE: f32 = 0.9;
+/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中而不是對齊基線，emoji 會比文字高。
 const EMOJI_Y_OFFSET: f32 = 0.15;
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
@@ -133,6 +135,7 @@ fn load(defs: &mut FontDefinitions, dir: &Path, file: &str) -> bool {
             let mut data = FontData::from_static(bytes);
             data.index = face_index(file);
             if file == EMOJI_FILE {
+                data.tweak.scale = EMOJI_SCALE;
                 data.tweak.y_offset_factor = EMOJI_Y_OFFSET;
             }
             defs.font_data.insert(file.to_owned(), Arc::new(data));
@@ -334,7 +337,7 @@ mod tests {
         row.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y / 2.0
     }
 
-    /// 各介面語言、各字級下，emoji 的筆畫中心不低於中文字（容許取整 0.5 px），也只略高一點。
+    /// 各介面語言、介面用到的字級下，emoji 跟中文字差不多高、上下置中（取整前的差距不超過 2 px）。
     #[test]
     fn emoji_sit_level_with_the_text() {
         for language in ["zh-TW", "zh-CN", "ja", "ko", "en-US"] {
@@ -344,22 +347,25 @@ mod tests {
             for _ in 0..2 {
                 gaps.clear();
                 let mut output = ctx.run_ui(Default::default(), |ui| {
-                    for size in [tk_pt(8.0), tk_pt(11.0), tk_pt(14.0)] {
+                    for size in [tk_pt(8.0), 12.0, 12.5, 14.0, tk_pt(11.0)] {
                         let galley = ui.painter().layout_no_wrap(
                             "中\u{1F600}".to_owned(),
                             eframe::egui::FontId::proportional(size),
                             eframe::egui::Color32::WHITE,
                         );
-                        gaps.push((size, ink_center(&galley, 1) - ink_center(&galley, 0)));
+                        let height = |i: usize| galley.rows[0].row.glyphs[i].uv_rect.size.y;
+                        gaps.push((
+                            size,
+                            ink_center(&galley, 1) - ink_center(&galley, 0),
+                            height(1) - height(0),
+                        ));
                     }
                 });
                 output.textures_delta.clear();
             }
-            for (size, gap) in gaps {
-                assert!(
-                    (-2.0..=0.5).contains(&gap),
-                    "{language} {size}: emoji off by {gap}"
-                );
+            for (size, gap, taller) in gaps {
+                assert!(gap.abs() <= 2.0, "{language} {size}: emoji off by {gap}");
+                assert!(taller <= 1.0, "{language} {size}: emoji {taller} px taller");
             }
         }
     }
