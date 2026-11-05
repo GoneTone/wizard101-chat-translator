@@ -23,6 +23,8 @@ const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf
 const THAI_FILE: &str = "LeelawUI.ttf";
 /// 彩色 emoji；要排在符號字型前面，Segoe UI Symbol 也收了單色的 emoji。
 const EMOJI_FILE: &str = "seguiemj.ttf";
+/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中而不是對齊基線，Segoe UI Emoji 會比文字高出約這麼多。
+const EMOJI_Y_OFFSET: f32 = 0.19;
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
@@ -130,6 +132,9 @@ fn load(defs: &mut FontDefinitions, dir: &Path, file: &str) -> bool {
         Ok(bytes) => {
             let mut data = FontData::from_static(bytes);
             data.index = face_index(file);
+            if file == EMOJI_FILE {
+                data.tweak.y_offset_factor = EMOJI_Y_OFFSET;
+            }
             defs.font_data.insert(file.to_owned(), Arc::new(data));
             true
         }
@@ -320,6 +325,40 @@ mod tests {
         assert_eq!(families[&FontFamily::Name(BOLD.into())][1], "msjh.ttc");
         assert!(ICON_FILES.contains(&families[&FontFamily::Name(ICONS.into())][0].as_str()));
         assert_eq!(families[&FontFamily::Name(SYMBOLS.into())][0], SYMBOL_FILE);
+    }
+
+    /// galley 第一行第 `index` 個字形筆畫的上下緣中點（point）。
+    fn ink_center(galley: &eframe::egui::Galley, index: usize) -> f32 {
+        let row = &galley.rows[0];
+        let glyph = &row.row.glyphs[index];
+        row.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y / 2.0
+    }
+
+    /// 各介面語言、各字級下，emoji 與中文字的筆畫上下置中（差距在像素取整的 1 px 內）。
+    #[test]
+    fn emoji_are_vertically_centred_on_the_text() {
+        for language in ["zh-TW", "zh-CN", "ja", "ko", "en-US"] {
+            let ctx = Context::default();
+            install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), language);
+            let mut gaps = Vec::new();
+            for _ in 0..2 {
+                gaps.clear();
+                let mut output = ctx.run_ui(Default::default(), |ui| {
+                    for size in [tk_pt(8.0), tk_pt(11.0), tk_pt(14.0)] {
+                        let galley = ui.painter().layout_no_wrap(
+                            "中\u{1F600}".to_owned(),
+                            eframe::egui::FontId::proportional(size),
+                            eframe::egui::Color32::WHITE,
+                        );
+                        gaps.push((size, ink_center(&galley, 1) - ink_center(&galley, 0)));
+                    }
+                });
+                output.textures_delta.clear();
+            }
+            for (size, gap) in gaps {
+                assert!(gap.abs() <= 1.0, "{language} {size}: emoji off by {gap}");
+            }
+        }
     }
 
     /// 開了 epaint 的 color_fonts，emoji 進字形圖集時是彩色的，不是單色灰階。
