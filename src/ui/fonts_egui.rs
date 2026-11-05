@@ -23,8 +23,8 @@ const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf
 const THAI_FILE: &str = "LeelawUI.ttf";
 /// 彩色 emoji；要排在符號字型前面，Segoe UI Symbol 也收了單色的 emoji。
 const EMOJI_FILE: &str = "seguiemj.ttf";
-/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中而不是對齊基線，Segoe UI Emoji 會比文字高出約這麼多。
-const EMOJI_Y_OFFSET: f32 = 0.19;
+/// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中，Segoe UI Emoji 會高出文字約 0.19；emoji 比字大、底部垂得低，對齊基線看起來偏下，所以少移一點。
+const EMOJI_Y_OFFSET: f32 = 0.15;
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
@@ -334,9 +334,9 @@ mod tests {
         row.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y / 2.0
     }
 
-    /// 各介面語言、各字級下，emoji 與中文字的筆畫上下置中（差距在像素取整的 1 px 內）。
+    /// 各介面語言、各字級下，emoji 的筆畫中心不低於中文字（容許取整 0.5 px），也只略高一點。
     #[test]
-    fn emoji_are_vertically_centred_on_the_text() {
+    fn emoji_sit_level_with_the_text() {
         for language in ["zh-TW", "zh-CN", "ja", "ko", "en-US"] {
             let ctx = Context::default();
             install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), language);
@@ -356,7 +356,10 @@ mod tests {
                 output.textures_delta.clear();
             }
             for (size, gap) in gaps {
-                assert!(gap.abs() <= 1.0, "{language} {size}: emoji off by {gap}");
+                assert!(
+                    (-2.0..=0.5).contains(&gap),
+                    "{language} {size}: emoji off by {gap}"
+                );
             }
         }
     }
