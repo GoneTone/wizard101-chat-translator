@@ -1295,6 +1295,7 @@ fn live(tag: &'static str) -> Live {
         dispatcher: Arc::clone(&d),
         config_path: dir.path().join("config.json"),
         local: None,
+        instance_lock: None,
     };
     Live {
         dir,

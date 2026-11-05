@@ -56,6 +56,18 @@ impl WindowOps {
             },
         }
     }
+
+    /// 不碰真視窗的版本（測試用）：不列舉、不搶前景、1920×1080 的假工作區。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn offscreen() -> Self {
+        Self {
+            windows_before: |_| Vec::new(),
+            find_new: |_, _, _| 0,
+            dark_caption: |_| {},
+            force_foreground: |_| true,
+            cursor_work_area: || ((0, 0, 1920, 1080), 1.0),
+        }
+    }
 }
 
 /// 一種托管視窗的固定設定。
@@ -63,11 +75,11 @@ impl WindowOps {
 pub struct Spec {
     /// log 用的名稱。
     pub name: &'static str,
-    title_key: &'static str,
-    size: Vec2,
-    min_size: Vec2,
+    pub(crate) title_key: &'static str,
+    pub(crate) size: Vec2,
+    pub(crate) min_size: Vec2,
     /// 建立時置頂、顯示那一幀放掉（從置頂的 overlay 叫出來才不會被它蓋住）。
-    topmost_once: bool,
+    pub(crate) topmost_once: bool,
 }
 
 const SETTINGS: Spec = Spec {
@@ -87,11 +99,11 @@ const WIZARD: Spec = Spec {
 };
 
 /// 一個托管視窗的 HWND 與顯示狀態；關窗後換下一個 viewport id，重開就是新視窗、重新置中。
-struct HostedWindow {
+pub(crate) struct HostedWindow {
     spec: Spec,
-    ops: WindowOps,
+    pub(crate) ops: WindowOps,
     serial: u64,
-    hwnd: isize,
+    pub(crate) hwnd: isize,
     /// 建立那一幀的編號；還沒建立是 `None`。
     created: Option<u64>,
     shown: bool,
@@ -102,7 +114,7 @@ struct HostedWindow {
 }
 
 impl HostedWindow {
-    fn new(spec: Spec) -> Self {
+    pub(crate) fn new(spec: Spec) -> Self {
         Self {
             spec,
             ops: WindowOps::real(),
@@ -124,7 +136,7 @@ impl HostedWindow {
     }
 
     /// 視窗關了：狀態歸零，下一次開啟用新的 viewport。
-    fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         *self = Self {
             ops: self.ops,
             serial: self.serial + 1,
@@ -133,7 +145,7 @@ impl HostedWindow {
     }
 
     /// 已開著的視窗再叫到前景（最小化了就還原）；還沒顯示就等顯示那一幀。
-    fn bring_to_front(&mut self) {
+    pub(crate) fn bring_to_front(&mut self) {
         self.raise = true;
         self.restore = true;
         if self.shown && self.hwnd != 0 {
@@ -183,7 +195,7 @@ impl HostedWindow {
     ///
     /// 版面重排（`request_discard`）時 `content` 在同一幀跑不只一次，只有第一次收得到輸入，
     /// 所以每次回傳的動作都要收下，不能只留最後一次的。
-    fn show<A>(
+    pub(crate) fn show<A>(
         &mut self,
         ctx: &egui::Context,
         known: &[isize],
@@ -332,6 +344,15 @@ pub type SettingsHost = Host<SettingsWindow>;
 /// 首次設定精靈的托管。
 pub type WizardHost = Host<Wizard>;
 
+impl SettingsHost {
+    /// 設定視窗有沒有尚未存下的變更；沒開窗為 false。
+    pub fn has_unsaved(&self) -> bool {
+        self.content
+            .as_ref()
+            .is_some_and(SettingsWindow::has_unsaved)
+    }
+}
+
 impl<C: HostedContent> Host<C> {
     /// `env` 跑測試連線、抓模型清單、檢查更新與錄熱鍵。
     pub fn new(env: Box<dyn SettingsEnv>) -> Self {
@@ -398,67 +419,23 @@ impl<C: HostedContent> Host<C> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
-
-    use eframe::egui::{Context, RawInput, ViewportEvent, ViewportInfo};
+    use eframe::egui::RawInput;
 
     use super::*;
-
-    thread_local! {
-        static CLOSE_NEXT: Cell<bool> = const { Cell::new(false) };
-    }
-
-    fn offscreen_ops() -> WindowOps {
-        WindowOps {
-            windows_before: |_| Vec::new(),
-            find_new: |_, _, _| 0,
-            dark_caption: |_| {},
-            force_foreground: |_| true,
-            cursor_work_area: || ((0, 0, 1920, 1080), 1.0),
-        }
-    }
-
-    /// 同 eframe：immediate viewport 在自己的 `run_ui` 裡跑，`request_discard` 只重跑這個 viewport。
-    fn native_like_context() -> Context {
-        let ctx = Context::default();
-        ctx.set_embed_viewports(false);
-        Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
-            let mut info = ViewportInfo::default();
-            if CLOSE_NEXT.take() {
-                info.events.push(ViewportEvent::Close);
-            }
-            let mut input = RawInput {
-                viewport_id: viewport.ids.this,
-                ..Default::default()
-            };
-            input.viewports.insert(viewport.ids.this, info);
-            ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui))
-                .textures_delta
-                .clear();
-        });
-        ctx
-    }
+    use crate::ui::viewport::testing::{close_next, input_with_windows, native_like_context};
 
     /// 視窗建好之後跑一幀；`content` 第一個 pass 要求重排，回傳（pass 數，收到的動作，各 pass 收到的關閉要求）。
     fn relaid_frame(close: bool) -> (usize, Vec<&'static str>, Vec<bool>) {
         let ctx = native_like_context();
         let mut win = HostedWindow::new(SETTINGS);
-        win.ops = offscreen_ops();
+        win.ops = WindowOps::offscreen();
         let mut registered = ctx.run_ui(RawInput::default(), |ui| {
             assert!(win.show(ui.ctx(), &[], |_, _| vec![""]).is_empty());
         });
         assert!(registered.viewport_output.contains_key(&win.id()));
         registered.textures_delta.clear();
-        let mut input = RawInput::default();
-        input
-            .viewports
-            .insert(ViewportId::ROOT, ViewportInfo::default());
-        let window = ViewportInfo {
-            native_pixels_per_point: Some(1.0),
-            ..Default::default()
-        };
-        input.viewports.insert(win.id(), window);
-        CLOSE_NEXT.set(close);
+        let input = input_with_windows(&[win.id()]);
+        close_next(close);
         let mut closing = Vec::new();
         let mut got = Vec::new();
         let mut output = ctx.run_ui(input, |ui| {

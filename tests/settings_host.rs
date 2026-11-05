@@ -487,12 +487,13 @@ fn settings_events_reach_the_open_window() {
     let release = Release {
         version: "9.9.9".into(),
         url: "https://example.invalid/rel".into(),
+        ..Default::default()
     };
     wired
         .poster
         .post(UiEvent::Settings(SettingsEvent::UpdateChecked {
             round,
-            result: Ok(Some(release)),
+            result: Ok(vec![release]),
         }));
     run(&mut h);
     let banner = h.state_mut().banners_mut().update_text();

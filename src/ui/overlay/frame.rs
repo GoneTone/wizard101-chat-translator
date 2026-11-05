@@ -1156,6 +1156,7 @@ pub(crate) mod tests {
         banners.set_update(Release {
             version: "0.2.0".into(),
             url: "https://example.invalid/rel".into(),
+            ..Default::default()
         });
         let model = OverlayModel::new(100, 0);
         harness.state_mut().content = Some((banners, MessageList::new(), model));
@@ -1217,6 +1218,7 @@ pub(crate) mod tests {
                 shown.set_update(Release {
                     version: "0.2.0".into(),
                     url: "https://example.invalid/rel".into(),
+                    ..Default::default()
                 });
             }
             harness.state_mut().content = Some((shown, MessageList::new(), model));

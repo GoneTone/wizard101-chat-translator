@@ -20,7 +20,7 @@ use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
 use crate::local;
 use crate::logs::log;
-use crate::runtime::updater::{LATEST_API, Release, check_for_update, update_client};
+use crate::runtime::updater::{RELEASES_API, Release, check_for_update, update_client};
 use crate::translation::cache::TranslationCache;
 use crate::translation::clients::{LocalClient, ModelInfo, cancellable};
 use crate::translation::errors::TranslateError;
@@ -72,10 +72,10 @@ pub enum SettingsEvent {
         round: u64,
         result: Result<Vec<ModelInfo>, TranslateError>,
     },
-    /// `Ok(None)` 是已是最新版；`Err` 是失敗原因。
+    /// `Ok` 空清單是已是最新版；`Err` 是失敗原因。
     UpdateChecked {
         round: u64,
-        result: Result<Option<Release>, String>,
+        result: Result<Vec<Release>, String>,
     },
     /// 錄到的熱鍵；`esc` 表示使用者取消。
     HotkeyRecorded { round: u64, combo: String },
@@ -212,8 +212,8 @@ impl SettingsEnv for RealEnv {
         self.post_later(
             async move {
                 let result = check_for_update(
-                    &update_client(LATEST_API),
-                    LATEST_API,
+                    &update_client(RELEASES_API),
+                    RELEASES_API,
                     env!("CARGO_PKG_VERSION"),
                 )
                 .await

@@ -276,10 +276,8 @@ fn content_range_start(response: &reqwest::Response) -> Option<u64> {
         .ok()
 }
 
-fn part_path(dest: &Path) -> PathBuf {
-    let mut name = dest.as_os_str().to_owned();
-    name.push(".part");
-    PathBuf::from(name)
+pub(crate) fn part_path(dest: &Path) -> PathBuf {
+    crate::util::with_suffix(dest, ".part")
 }
 
 /// 去掉查詢字串（CDN 簽章）後的網址，供 log 用。

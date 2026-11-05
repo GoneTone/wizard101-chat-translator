@@ -94,7 +94,9 @@ pub enum SettingsAction {
     /// 視窗已呼叫 `set_language`，App 只需 relabel 常駐介面。
     PreviewLanguage,
     /// 手動檢查查到新版。
-    UpdateFound(Release),
+    UpdateFound(Vec<Release>),
+    /// 點了「有新版」：開更新視窗。
+    OpenUpdate,
     /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
@@ -406,7 +408,7 @@ impl SettingsWindow {
             footer_rect.top(),
             Stroke::new(1.0, theme::CARD_BORDER),
         );
-        let (pad_x, pad_y) = (24.0, 14.0);
+        let (pad_x, pad_y) = (f32::from(theme::CONTENT_MARGIN.right), 14.0);
         let row = footer_rect.shrink2(vec2(pad_x, pad_y));
         let used = ui
             .scope_builder(
@@ -420,7 +422,7 @@ impl SettingsWindow {
         let needed = (used.height() + 2.0 * pad_y).max(theme::FOOTER_HEIGHT);
         if (needed - footer_height).abs() > 0.5 {
             ui.data_mut(|d| d.insert_temp(id, needed));
-            ui.ctx().request_discard("settings footer resized");
+            crate::ui::relayout(ui.ctx(), "settings footer resized");
         }
     }
 

@@ -82,10 +82,10 @@ pub const WIZARD_MIN_SIZE: Vec2 = vec2(600.0, 380.0);
 pub const SIDEBAR_WIDTH: f32 = 200.0;
 /// 導覽項高。
 pub const NAV_HEIGHT: f32 = 40.0;
-/// 內容區內距。
+/// 內容區內距；左右和底部按鈕列同寬，卡片才會和按鈕切齊。
 pub const CONTENT_MARGIN: Margin = Margin {
     left: 24,
-    right: 28,
+    right: 24,
     top: 20,
     bottom: 16,
 };

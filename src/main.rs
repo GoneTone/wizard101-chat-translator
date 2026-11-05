@@ -4,6 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use serde_json::json;
 use tokio::runtime::Handle;
@@ -24,14 +25,16 @@ use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::hook::{self, KeyboardHook};
 use wizard101_chat_translator::local::Local;
 use wizard101_chat_translator::logs::{self, Sink, log};
+use wizard101_chat_translator::net::download_client;
 use wizard101_chat_translator::reader::message_log::SharedWriter;
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
+use wizard101_chat_translator::runtime::self_update::{AFTER_UPDATE_ARG, remove_leftovers};
 use wizard101_chat_translator::runtime::updater::{
-    LATEST_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
+    RELEASES_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
 };
 use wizard101_chat_translator::runtime::{
-    AcquireError, acquire_single_instance, focus_running_instance,
+    AcquireError, InstanceLock, acquire_single_instance, acquire_waiting, focus_running_instance,
 };
 use wizard101_chat_translator::ui::app::{self, App, OnCancel, OnSave};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -41,8 +44,12 @@ use wizard101_chat_translator::ui::region::flow::RegionFlow;
 use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
+use wizard101_chat_translator::ui::update_host::UpdateHost;
 use wizard101_chat_translator::ui::win32::cursor_pos;
-use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
+use wizard101_chat_translator::util::{Clock, read, sweep_stale_temps, write};
+
+/// 更新後重啟時等舊程序放掉單一實例鎖的上限。
+const AFTER_UPDATE_WAIT: Duration = Duration::from_secs(10);
 
 fn main() {
     // rten 預設用滿實體核心、框選 OCR 時與遊戲搶 CPU；它只在第一次建立執行緒池時讀這個變數
@@ -55,11 +62,34 @@ fn main() {
         unsafe { std::env::set_var("RTEN_NUM_THREADS", threads.to_string()) };
     }
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
-    let lock = acquire_single_instance();
+    let after_update = std::env::args().any(|arg| arg == AFTER_UPDATE_ARG);
+    let waited = after_update.then(Instant::now);
+    let lock = if after_update {
+        acquire_waiting(
+            &Clock::default(),
+            AFTER_UPDATE_WAIT,
+            acquire_single_instance,
+        )
+    } else {
+        acquire_single_instance()
+    };
     if !matches!(lock, Err(AcquireError::AlreadyRunning)) && !cfg!(debug_assertions) {
         match logs::open_session_log(&app_dir().join("app.log"), chrono::Utc::now()) {
             Ok(file) => logs::init(Sink::File(file)),
             Err(e) => log(format!("[log] cannot open app.log: {e}")),
+        }
+    }
+    if let Some(waited) = waited {
+        match &lock {
+            Ok(_) => log(format!(
+                "[update] after-update: instance lock acquired after {} ms",
+                waited.elapsed().as_millis()
+            )),
+            Err(AcquireError::AlreadyRunning) => log(format!(
+                "[update] after-update: instance lock still held after {} s",
+                AFTER_UPDATE_WAIT.as_secs()
+            )),
+            Err(AcquireError::CreateFailed(_)) => {}
         }
     }
     logs::install_panic_hook();
@@ -85,10 +115,16 @@ fn main() {
     // 介面語言要在建立任何視窗之前定案：文案與字型都由它決定
     set_language(&bootstrap_language(&mut cfg, config_existed));
 
-    // 鎖要留到程序結束：一放掉 mutex 就放行下一份
-    let Some(_instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
+    // 鎖跟著主流程走：一放掉 mutex 就放行下一份，關閉流程放掉後才啟動新版
+    let Some(instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
         return;
     };
+    match std::env::current_exe() {
+        Ok(exe) => remove_leftovers(&exe),
+        Err(e) => log(format!(
+            "[update] cannot locate own exe, skipping leftover cleanup: {e}"
+        )),
+    }
     for dir in [app_dir(), local_state_dir()] {
         sweep_stale_temps(&dir, pid_alive);
     }
@@ -135,6 +171,7 @@ fn main() {
         keyboard: Rc::clone(&keyboard),
         running: Rc::clone(&running),
         local,
+        instance_lock,
     };
     let wizard_rt = rt.handle().clone();
     if !configured {
@@ -215,6 +252,7 @@ struct Startup {
     keyboard: Rc<RefCell<Option<KeyboardHook>>>,
     running: Rc<RefCell<Option<Running>>>,
     local: Arc<Local>,
+    instance_lock: InstanceLock,
 }
 
 /// 依共用設定接上其餘功能並開始執行：翻譯與收訊、輸入框、框選、泡泡、設定視窗、更新檢查與關閉流程。
@@ -228,9 +266,10 @@ fn start_main(app: &mut App, startup: Startup) {
         keyboard,
         running,
         local,
+        instance_lock,
     } = startup;
     log_startup_summary(&read(&shared_cfg));
-    let built = build_app(
+    let mut built = build_app(
         Arc::clone(&shared_cfg),
         &rt,
         ui.clone(),
@@ -325,12 +364,25 @@ fn start_main(app: &mut App, startup: Startup) {
         on_save,
         on_cancel,
     );
+    match std::env::current_exe() {
+        // 除錯建置的 exe 在 target/ 底下，更新會被換成 release 版
+        _ if cfg!(debug_assertions) => log("[update] in-app update disabled in debug builds"),
+        Ok(exe) => app.set_update(UpdateHost::new(
+            rt.clone(),
+            download_client("https://github.com"),
+            ui.clone(),
+            exe,
+        )),
+        Err(e) => log(format!(
+            "[update] cannot locate own exe, in-app update disabled: {e}"
+        )),
+    }
     schedule_update_checks(
         &rt,
         built.stop.clone(),
-        LATEST_API.to_owned(),
+        RELEASES_API.to_owned(),
         UPDATE_CHECK_INTERVAL,
-        Arc::new(move |release| ui.post(UiEvent::UpdateFound(release))),
+        Arc::new(move |releases| ui.post(UiEvent::UpdateFound(releases))),
     );
     let closing = Rc::clone(&running);
     app.set_on_close(move || {
@@ -346,6 +398,7 @@ fn start_main(app: &mut App, startup: Startup) {
     };
     app.set_limits(settings.max_messages, settings.fade_seconds.into());
     app.set_region_hotkey(&region_hotkey);
+    built.instance_lock = Some(instance_lock);
     *running.borrow_mut() = Some(built);
     log(format!(
         "[app] running; hotkey={hotkey} opens the input box, region_hotkey={region_hotkey} starts region translation; quit via the overlay ✕"

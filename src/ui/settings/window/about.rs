@@ -2,8 +2,8 @@
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Role, Sense, Ui, Vec2,
-    WidgetInfo, pos2,
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense, Ui,
+    Vec2, WidgetInfo, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -23,8 +23,8 @@ use crate::ui::settings::widgets::{
 /// 關於分頁自己的狀態：檢查更新的輪次與結果與清除快取的結果。
 pub(super) struct AboutState {
     update: Round,
-    /// 最近一次檢查更新的結果：`Ok(None)` 已是最新、`Ok(Some)` 有新版、`Err` 失敗原因。
-    result: Option<Result<Option<Release>, String>>,
+    /// 最近一次檢查更新的結果：空 vec 已是最新、非空有新版、`Err` 失敗原因。
+    result: Option<Result<Vec<Release>, String>>,
     /// 最近一次清除快取的結果：`Some(None)` 是刪檔失敗。
     cache_cleared: Option<Option<usize>>,
 }
@@ -79,19 +79,19 @@ fn bare(url: &str) -> &str {
 
 impl SettingsWindow {
     /// 手動檢查更新的結果；查到新版時另外送出 `UpdateFound`，讓 overlay 也掛橫幅。
-    pub(super) fn apply_update(&mut self, round: u64, result: &Result<Option<Release>, String>) {
+    pub(super) fn apply_update(&mut self, round: u64, result: &Result<Vec<Release>, String>) {
         if !self.about.update.finish(round) {
             return;
         }
         match result {
-            Ok(None) => log("[update] manual check: already up to date"),
-            Ok(Some(release)) => {
+            Ok(releases) if releases.is_empty() => log("[update] manual check: already up to date"),
+            Ok(releases) => {
                 log(format!(
                     "[update] manual check: {} available",
-                    release.version
+                    releases[0].version
                 ));
                 self.pending
-                    .push(SettingsAction::UpdateFound(release.clone()));
+                    .push(SettingsAction::UpdateFound(releases.clone()));
             }
             // 失敗原因已由 env 記過
             Err(_) => {}
@@ -223,22 +223,22 @@ impl SettingsWindow {
         ));
     }
 
-    fn update_result(&self, ui: &mut Ui) {
+    fn update_result(&mut self, ui: &mut Ui) {
         match &self.about.result {
             None => {}
-            Some(Ok(None)) => outcome(ui, true, &t("update.latest", &[])),
+            Some(Ok(releases)) if releases.is_empty() => {
+                outcome(ui, true, &t("update.latest", &[]))
+            }
             Some(Err(error)) => outcome(ui, false, &t("update.failed", &[("error", error)])),
-            Some(Ok(Some(release))) => {
-                // 有新版：整行文字是連結，用連結藍、不加成功／失敗圖示
-                let text = t("update.available", &[("version", &release.version)]);
+            Some(Ok(releases)) => {
+                // 有新版：整行文字是連結樣式的按鈕，用連結藍、不加成功／失敗圖示
+                let text = t("update.available", &[("version", &releases[0].version)]);
                 let text = RichText::new(text)
                     .size(theme::CONTROL_TEXT_SIZE)
                     .color(theme::LINK);
-                if ui
-                    .add(Hyperlink::from_label_and_url(text, &release.url))
-                    .clicked()
-                {
-                    log(format!("[update] opening release page: {}", release.url));
+                if ui.add(Link::new(text)).clicked() {
+                    log("[update] update window requested from the about tab");
+                    self.pending.push(SettingsAction::OpenUpdate);
                 }
             }
         }

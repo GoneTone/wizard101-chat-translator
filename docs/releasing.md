@@ -9,4 +9,4 @@
 3. 下載草稿裡的 exe，用 Windows Defender 掃描（PowerShell 執行 `& "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File <exe>`，或在檔案總管對 exe 按右鍵掃描）。被誤判就到 Microsoft 的[誤判提交頁](https://www.microsoft.com/en-us/wdsi/filesubmission)送審，通過後再發佈。
 4. 到 Releases 頁檢查草稿（可在最上方補一段人寫的版本說明），確認後按 **Publish**。
 
-> 更新檢查看的是 GitHub 的 **Release**（`/releases/latest`），草稿與 pre-release 都不算，要按下 Publish 使用者端才會收到更新提醒。同一個 tag 重跑 workflow：草稿還在的話，只會把它改指向新的 commit 並重傳 exe，版本說明（含你手寫的那段）維持原樣、不會重新產生；若該 tag 的 Release 已經發布，workflow 會直接失敗並拒絕覆蓋它的檔案。
+> 更新檢查看的是 GitHub 的 **Release**（`/releases` 清單），草稿與 pre-release 都不算，要按下 Publish 使用者端才會收到更新提醒。同一個 tag 重跑 workflow：草稿還在的話，只會把它改指向新的 commit 並重傳 exe，版本說明（含你手寫的那段）維持原樣、不會重新產生；若該 tag 的 Release 已經發布，workflow 會直接失敗並拒絕覆蓋它的檔案。

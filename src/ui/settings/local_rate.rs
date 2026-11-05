@@ -10,6 +10,8 @@ use crate::ui::settings::quant_table::gb;
 /// 引擎安裝在 `Rates` 裡的鍵；模型 id 是資料夾名，不會含 `:`。
 pub const ENGINE: &str = ":engine";
 
+/// 速度與下載量文字的 1 MB（1 MiB）。
+pub(super) const MB: f64 = (1u64 << 20) as f64;
 /// 兩次取樣至少相隔這麼久才算一筆（進度條補間時每幀都會繪製）。
 const MIN_INTERVAL: Duration = Duration::from_millis(50);
 /// 速度取最近這段時間的平均：資料分段送達，短時間內量到的忽快忽慢。
@@ -52,6 +54,11 @@ impl Rates {
         if let EngineState::Installing { done, .. } = &snapshot.engine {
             running.insert(ENGINE.to_owned(), *done);
         }
+        self.observe_running(now, running);
+    }
+
+    /// 用 `now` 時各下載（鍵 → 已下載量）更新速度；不在 `running` 裡的記錄會被丟掉。
+    pub fn observe_running(&mut self, now: Instant, running: BTreeMap<String, u64>) {
         self.seen.retain(|id, _| running.contains_key(id));
         for (id, done) in running {
             let track = self.seen.entry(id).or_default();
@@ -161,7 +168,6 @@ fn eta_text(left: Duration) -> String {
 
 /// 速度文字，如 `18.0 MB/s`、`512 KB/s`。
 pub fn format_speed(rate: f64) -> String {
-    const MB: f64 = (1u64 << 20) as f64;
     if rate >= MB {
         format!("{:.1} MB/s", rate / MB)
     } else {

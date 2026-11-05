@@ -1,6 +1,7 @@
 //! 網路層共用工具：HTTPS crypto provider、本機位址不走 proxy、錯誤原因鏈。
 
 use std::error::Error as _;
+use std::time::Duration;
 
 use crate::logs::log;
 use crate::py::pystr;
@@ -9,6 +10,24 @@ use crate::py::pystr;
 pub fn install_crypto_provider() {
     // 用 ring 而非 rustls 預設的 aws-lc-rs（建置要 cmake／NASM）；已裝過時回 Err，忽略即可
     let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 大檔下載用、連往 `base` 的 HTTP client：只限連線與讀取的空檔逾時（不限總時間）、跟隨轉址；`base` 是本機位址時不走 proxy。
+pub fn download_client(base: &str) -> reqwest::Client {
+    install_crypto_provider();
+    let builder = reqwest::Client::builder()
+        .connect_timeout(DOWNLOAD_TIMEOUT)
+        .read_timeout(DOWNLOAD_TIMEOUT)
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .user_agent(format!(
+            "wizard101-chat-translator/{}",
+            env!("CARGO_PKG_VERSION")
+        ));
+    bypass_proxy_for_loopback(builder, base)
+        .build()
+        .expect("build HTTP client")
 }
 
 /// 連往本機（`localhost`、`127.0.0.0/8`、`::1`）時不走任何 proxy（環境變數或系統設定）：本機的 LLM 伺服器繞去 proxy 只會連不到。

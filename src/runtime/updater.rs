@@ -19,15 +19,17 @@ pub const RELEASES_URL: &str =
 pub const ISSUES_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator/issues";
 pub const AUTHOR_URL: &str = "https://github.com/GoneTone";
 pub const CROWDIN_URL: &str = "https://crowdin.com/project/wizard101-chat-translator";
-pub const LATEST_API: &str =
-    "https://api.github.com/repos/GoneTone/wizard101-chat-translator/releases/latest";
+pub const RELEASES_API: &str =
+    "https://api.github.com/repos/GoneTone/wizard101-chat-translator/releases";
+/// release 附的 exe 檔名，更新時就是下載這個 asset。
+pub const EXE_ASSET: &str = "Wizard101ChatTranslator.exe";
 
 /// 自動檢查更新的間隔。
 pub const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(3600);
 /// 單次請求的逾時，免得手動檢查的按鈕卡住不放。
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
-// 只取前三段數字：/releases/latest 已排除 pre-release，容忍後綴只是不讓 tag 寫法害整個解析失敗。
+// 只取前三段數字：pre-release 由 API 的旗標排除，容忍後綴只是不讓 tag 寫法害整個解析失敗。
 static VERSION_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z.-]+))?").expect("version regex")
 });
@@ -46,11 +48,26 @@ enum Stage {
     Release,
 }
 
-/// GitHub 上的一個 release：版本號（已去 `v` 前綴）與該 release 的網頁網址。
+/// release 附的 exe：下載網址、位元組數與 SHA-256（小寫十六進位，已去 `sha256:` 前綴）。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Release {
-    pub version: String,
+pub struct Asset {
     pub url: String,
+    pub size: u64,
+    pub sha256: String,
+}
+
+/// GitHub 上的一個 release；`asset` 為 `None` 代表沒有 exe 或缺 digest，無法驗證下載。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Release {
+    /// 已去 `v` 前綴。
+    pub version: String,
+    /// release 的網頁網址。
+    pub url: String,
+    /// API 原字串（RFC 3339）。
+    pub published_at: String,
+    /// Markdown 版本說明。
+    pub body: String,
+    pub asset: Option<Asset>,
 }
 
 /// 檢查更新失敗（連線不通、配額用盡、回應無法解析）；「沒有新版」不算失敗。
@@ -111,11 +128,64 @@ pub fn update_client(url: &str) -> reqwest::Client {
         .expect("build HTTP client")
 }
 
-/// 取 `url` 上最新的正式 release；尚未發過任何 release（404）時回 `Ok(None)`。
-pub async fn fetch_latest_release(
+fn parse_asset(release: &Value) -> Option<Asset> {
+    let asset = release["assets"]
+        .as_array()?
+        .iter()
+        .find(|a| a["name"] == EXE_ASSET)?;
+    Some(Asset {
+        url: asset["browser_download_url"].as_str()?.to_owned(),
+        size: asset["size"].as_u64()?,
+        sha256: asset["digest"]
+            .as_str()?
+            .strip_prefix("sha256:")?
+            .to_ascii_lowercase(),
+    })
+}
+
+/// 從 `/releases` 清單挑出比 `current` 新的正式 release，由新到舊；草稿與 pre-release 不算。
+pub fn parse_releases(json: &Value, current: &str) -> Result<Vec<Release>, UpdateCheckError> {
+    let items = json.as_array().ok_or_else(|| {
+        let shown: String = json.to_string().chars().take(80).collect();
+        UpdateCheckError(format!("unexpected response: {shown}"))
+    })?;
+    let mut releases = Vec::new();
+    for item in items {
+        if item["draft"] == true || item["prerelease"] == true {
+            continue;
+        }
+        let Some(tag) = item["tag_name"].as_str() else {
+            log("[update] skipped a release without tag_name");
+            continue;
+        };
+        let version = tag.trim_start_matches(['v', 'V']);
+        if !is_newer(version, current) {
+            continue;
+        }
+        let text = |key: &str| item[key].as_str().unwrap_or_default().to_owned();
+        releases.push(Release {
+            version: version.to_owned(),
+            url: item["html_url"]
+                .as_str()
+                .filter(|u| !u.is_empty())
+                .unwrap_or(RELEASES_URL)
+                .to_owned(),
+            published_at: text("published_at"),
+            body: text("body"),
+            asset: parse_asset(item),
+        });
+    }
+    releases.sort_by_key(|r| std::cmp::Reverse(precedence_key(&r.version)));
+    Ok(releases)
+}
+
+/// 取 `url` 上所有比 `current` 新的 release（新到舊）；空 vec 是沒有新版（含尚未發版），查詢失敗回 `Err`。
+pub async fn check_for_update(
     client: &reqwest::Client,
     url: &str,
-) -> Result<Option<Release>, UpdateCheckError> {
+    current: &str,
+) -> Result<Vec<Release>, UpdateCheckError> {
+    log("[update] checking releases");
     // GitHub API 要求帶 User-Agent，缺了會被拒（403）
     let response = client
         .get(url)
@@ -130,7 +200,7 @@ pub async fn fetch_latest_release(
     let status = response.status();
     if status.as_u16() == 404 {
         log("[update] no release published yet (404)");
-        return Ok(None);
+        return Ok(Vec::new());
     }
     if status.as_u16() != 200 {
         return Err(UpdateCheckError(format!("HTTP {}", status.as_u16())));
@@ -139,38 +209,16 @@ pub async fn fetch_latest_release(
         .json()
         .await
         .map_err(|e| UpdateCheckError(format!("unexpected response: {}", error_chain(e))))?;
-    let tag = data["tag_name"]
-        .as_str()
-        .ok_or_else(|| UpdateCheckError("unexpected response: missing tag_name".into()))?;
-    let html_url = data["html_url"]
-        .as_str()
-        .filter(|u| !u.is_empty())
-        .unwrap_or(RELEASES_URL);
-    Ok(Some(Release {
-        version: tag.trim_start_matches(['v', 'V']).to_owned(),
-        url: html_url.to_owned(),
-    }))
-}
-
-/// 回傳「比 `current` 新的 release」；沒有新版（含尚未發版）回 `Ok(None)`，查詢失敗回 `Err`。
-pub async fn check_for_update(
-    client: &reqwest::Client,
-    url: &str,
-    current: &str,
-) -> Result<Option<Release>, UpdateCheckError> {
-    log("[update] checking latest release");
-    let Some(release) = fetch_latest_release(client, url).await? else {
-        return Ok(None);
-    };
-    let newer = is_newer(&release.version, current);
+    let releases = parse_releases(&data, current)?;
     log(format!(
-        "[update] latest={} current={current} newer={newer}",
-        release.version
+        "[update] newer releases: count={} latest={}",
+        releases.len(),
+        releases.first().map_or("-", |r| r.version.as_str())
     ));
-    Ok(newer.then_some(release))
+    Ok(releases)
 }
 
-/// 立刻查一次更新，之後每隔 `interval` 再查，直到 `stop` 觸發；有新版就呼叫 `found`。
+/// 立刻查一次更新，之後每隔 `interval` 再查，直到 `stop` 觸發；有新版就把清單交給 `found`。
 ///
 /// 失敗只留 log：更新檢查是附加功能，不能影響啟動與收訊，下一輪照常再查。
 pub fn schedule_update_checks(
@@ -178,7 +226,7 @@ pub fn schedule_update_checks(
     stop: CancellationToken,
     url: String,
     interval: Duration,
-    found: Arc<dyn Fn(Release) + Send + Sync>,
+    found: Arc<dyn Fn(Vec<Release>) + Send + Sync>,
 ) -> JoinHandle<()> {
     rt.spawn(async move {
         let client = update_client(&url);
@@ -189,8 +237,8 @@ pub fn schedule_update_checks(
                 result = check_for_update(&client, &url, env!("CARGO_PKG_VERSION")) => result,
             };
             match checked {
-                Ok(Some(release)) => {
-                    let announce = std::panic::AssertUnwindSafe(|| found(release));
+                Ok(releases) if !releases.is_empty() => {
+                    let announce = std::panic::AssertUnwindSafe(|| found(releases));
                     if let Err(panic) = std::panic::catch_unwind(announce) {
                         log(format!(
                             "[update] announce callback panicked: {}",
@@ -198,7 +246,7 @@ pub fn schedule_update_checks(
                         ));
                     }
                 }
-                Ok(None) => {}
+                Ok(_) => {}
                 Err(e) => log(format!("[update] check failed: {e}")),
             }
             log(format!(
