@@ -530,7 +530,18 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
     let galley = ui
         .painter()
         .layout_no_wrap(glyph.to_owned(), symbols(tk_pt(10.0)), fg);
-    paint_symbol(ui.painter(), square.center(), galley, fg);
+    // ─ 的筆畫只有一列實像素、下面一列是淡淡的反鋸齒，依範圍置中會比旁邊 ✕⚙ 的中心高一列
+    let nudge = if glyph == "─" {
+        1.0 / ui.ctx().pixels_per_point()
+    } else {
+        0.0
+    };
+    paint_symbol(
+        ui.painter(),
+        square.center() + Vec2::new(0.0, nudge),
+        galley,
+        fg,
+    );
     button
 }
 
