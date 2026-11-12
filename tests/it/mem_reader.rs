@@ -274,7 +274,7 @@ impl Game {
         if addline {
             ops.push(MemOp::Write {
                 addr: ADDLINE_JUMP,
-                bytes: self.addline_bytes[..6].to_vec(),
+                bytes: self.addline_bytes[..8].to_vec(),
             });
         }
         ops.push(MemOp::Free(EXPORT));
@@ -390,7 +390,7 @@ fn connect_order_matches_python() {
             Some(BASE),
             vec![
                 (ROOT_JUMP, g.root_bytes[..7].to_vec()),
-                (ADDLINE_JUMP, g.addline_bytes[..6].to_vec()),
+                (ADDLINE_JUMP, g.addline_bytes[..8].to_vec()),
                 (CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
             ]
         )
@@ -478,7 +478,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
         panic!("{err:?}");
     };
     assert!(
-        msg.starts_with("hook does not match this game build: Pattern b'\\\\x40\\\\x55"),
+        msg.starts_with("hook does not match this game build: Pattern b'\\\\x48\\\\x8D"),
         "{msg}"
     );
     assert!(!r.anchored());

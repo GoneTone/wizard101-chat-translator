@@ -30,7 +30,7 @@ ChatBox 偏移（`+0x7a0` 目前分頁、`+0x7a8`～`+0x848` 分頁緩衝）在�
 
 - `AUTOBOT_PATTERN` 換成 PR #36 版本，`AUTOBOT_SIZE = 3900`；保存的原始位元組數仍是 pattern 字串長度（wizwalker 慣例），相關測試的長度斷言跟著改。
 - `ROOT_WINDOW_PATTERN` 換成寫死暫存器的版本；stub 的兩條指令改為 `49 8B 87 D8 00 00 00`（`mov rax,[r15+D8]`）與 `49 8B 8F D8 00 00 00`（原指令）。
-- AddLine：新 pattern 以 `40 55 56 57 41 54 41 55 41 56 41 57` 開頭；`instruction_length: 6`、`noops: 1`。stub 開頭不再放原指令，改在結尾（回跳之前）執行 `40 55 56 57 41 54` —— 擷取程式碼在函式入口的堆疊狀態下執行，`mov r9,[rsp+38]` 讀回傳位址的偏移不變，其餘位元組照舊。
+- AddLine：跳轉點不放在入口（入口 6 bytes 是 4 條 push，跳轉會一次蓋過多條指令，掛入瞬間若有執行緒停在其間會當掉），改放在 7 個 push 之後、8 bytes 的 `lea rbp,[rsp-130]`（`48 8D AC 24 D0 FE FF FF`），只蓋這一條；新 pattern 從這條指令開始，位元組寫死。`instruction_length: 8`、`noops: 3`。stub 開頭照舊先執行原指令；讀回傳位址的偏移由 `[rsp+38]` 改為 `[rsp+70]`（函式的 7 個 push 加 stub 的 7 個），其餘位元組照舊。rcx／rdx／r8 在此點仍是原參數。
 - 一併更新：`tests/common/fake_game`（`place_cave`／`place_root_window`／`place_addline`）、`tests/golden/hook_stubs.json`（已無 Python 版可重產，依新 stub 手動推導）、過時的註解（「wizwalker 原文」、「與 Python 版逐一相同」、「5 bytes」、「208」、「4100」）。
 
 ## 驗證

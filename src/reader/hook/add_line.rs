@@ -17,10 +17,9 @@ pub const DATA_OFF: u64 = 0x30;
 /// 每則最多複製的 UTF-16 字元數。
 pub const MAX_CHARS: u64 = (SLOT_SIZE - DATA_OFF) / 2;
 
-/// `ChatBox::AddLine` 開頭的 pattern；開頭 6 bytes 是 push rbp,rsi,rdi,r12，stub 搬到擷取之後才執行。
+/// `ChatBox::AddLine` 開頭 7 個 push 之後的 pattern；跳轉點是 8 bytes 的 `lea rbp,[rsp-130]`，只蓋一條指令，掛入時執行緒不會停在被蓋掉的指令中間。
 pub const PATTERN: &str = concat!(
-    r"\x40\x55\x56\x57\x41\x54\x41\x55\x41\x56\x41\x57",
-    r"\x48\x8D\xAC\x24....\x48\x81\xEC....\x48\xC7\x44\x24.\xFE\xFF\xFF\xFF",
+    r"\x48\x8D\xAC\x24\xD0\xFE\xFF\xFF\x48\x81\xEC....\x48\xC7\x44\x24.\xFE\xFF\xFF\xFF",
     r"\x48\x89\x9C\x24....\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85....",
     r"\x4D\x63\xF0\x4C\x8B\xEA\x48\x89\x54\x24.\x48\x8B\xF9\x48\x89\x54\x24.",
     r"\x33\xDB\x89\x5C\x24.\x41\x83\xFE\x05\x7C",
@@ -31,8 +30,10 @@ pub fn stub_bytes(ring: u64) -> Vec<u8> {
     let q = ring.to_le_bytes();
     let d = |v: u64| (v as u32).to_le_bytes();
     [
-        &[0x9C, 0x50, 0x51, 0x56, 0x57, 0x41, 0x51, 0x41, 0x52][..], // pushfq; push rax,rcx,rsi,rdi,r9,r10
-        &[0x4C, 0x8B, 0x4C, 0x24, 0x38], // mov r9,[rsp+38]    return address
+        &[0x48, 0x8D, 0xAC, 0x24, 0xD0, 0xFE, 0xFF, 0xFF][..], // lea rbp,[rsp-130]  (original)
+        &[0x9C, 0x50, 0x51, 0x56, 0x57, 0x41, 0x51, 0x41, 0x52], // pushfq; push rax,rcx,rsi,rdi,r9,r10
+        // 函式的 7 個 push 加上這裡的 7 個，共 0x70
+        &[0x4C, 0x8B, 0x4C, 0x24, 0x70], // mov r9,[rsp+70]    return address
         &[0x48, 0xB8],                   // mov rax,ring       counter
         &q,
         &[0x4C, 0x8B, 0x10], // mov r10,[rax]
@@ -72,16 +73,14 @@ pub fn stub_bytes(ring: u64) -> Vec<u8> {
         &[0x48, 0x01, 0xC7],                                     // add rdi,rax
         &[0x4C, 0x89, 0x17], // mov [rdi],r10      publish seq last
         &[0x41, 0x5A, 0x41, 0x59, 0x5F, 0x5E, 0x59, 0x58, 0x9D], // pop r10,r9,rdi,rsi,rcx,rax; popfq
-        // 原指令放最後：放開頭會先移動 rsp，[rsp+38] 就不是回傳位址
-        &[0x40, 0x55, 0x56, 0x57, 0x41, 0x54], // push rbp,rsi,rdi,r12  (original)
     ]
     .concat()
 }
 
 const ADD_LINE: SimpleHook = SimpleHook {
     pattern: PATTERN,
-    instruction_length: 6,
-    noops: 1,
+    instruction_length: 8,
+    noops: 3,
     // wizwalker 預設 50 bytes 放不下這個 stub
     stub_size: 256,
     export_size: (HEADER + SLOTS * SLOT_SIZE) as usize,
