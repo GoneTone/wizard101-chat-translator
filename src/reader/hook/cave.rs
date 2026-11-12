@@ -11,7 +11,7 @@ use crate::game::pattern::{self, ScanError};
 /// 所有 hook 掃描的模組。
 pub const MODULE: &str = crate::game::process::PROCESS_NAME;
 
-/// autobot 函式的 pattern（取自 Deimos wizwalker PR #36）；pattern 字串長度即要保存的位元組數（沿用 wizwalker 慣例）。
+/// autobot 函式的 pattern；pattern 字串長度即要保存的位元組數（沿用 wizwalker 慣例）。
 pub const AUTOBOT_PATTERN: &str = concat!(
     r"\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x56\x41\x57",
     r"\x48\x8D\xA8\x18\xFE\xFF\xFF\x48\x81\xEC\xC0\x02\x00\x00",

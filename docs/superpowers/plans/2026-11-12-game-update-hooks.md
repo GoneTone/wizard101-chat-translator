@@ -42,7 +42,7 @@
 
 - [ ] **Step 1: 改長度測試**：`cave.rs` 的 `autobot_pattern_is_208_chars` 改名 `autobot_pattern_is_308_chars`，斷言 `AUTOBOT_PATTERN.len() == 308`。
 - [ ] **Step 2: 跑 `cargo test -j 4 --lib autobot_pattern` 確認 FAIL**（目前是 208）。
-- [ ] **Step 3: 換 pattern 與大小**，`AUTOBOT_PATTERN` 改為（PR #36 版本，逐字照抄）：
+- [ ] **Step 3: 換 pattern 與大小**，`AUTOBOT_PATTERN` 改為：
 
 ```rust
 pub const AUTOBOT_PATTERN: &str = concat!(
@@ -55,7 +55,7 @@ pub const AUTOBOT_PATTERN: &str = concat!(
 );
 ```
 
-  `AUTOBOT_SIZE` 改 3900。doc 註解：pattern 的出處改成「Deimos wizwalker PR #36」，「208 bytes」改成「pattern 字串長度」，「4100 個 0」改成「`AUTOBOT_SIZE` 個 0」，以後改版不用再改註解。
+  `AUTOBOT_SIZE` 改 3900。doc 註解：拿掉「wizwalker 原文」，「208 bytes」改成「pattern 字串長度」，「4100 個 0」改成「`AUTOBOT_SIZE` 個 0」，以後改版不用再改註解。
 - [ ] **Step 4: 測試去掉寫死的數字**：`hooks_golden.rs`、`mem_reader.rs` 裡的 `vec![0; 4100]` 改成 `vec![0; AUTOBOT_SIZE]`，`cave_bytes[..208]` 改成 `cave_bytes[..AUTOBOT_PATTERN.len()]`（需要時補 import）；`cave_saves_208_and_zeroes_4100` 改名 `cave_saves_pattern_length_and_zeroes_cave`。`repairs_from_python_written_hookstate` 的 `208` 是舊 hookstate 檔的資料，**不要動**。
 - [ ] **Step 5: 用 scratchpad 的 `scan.py` 確認新 pattern 在新版 exe 唯一命中**（`0x170bf10`），並跑全套檢查。預期全綠。
 - [ ] **Step 6: Commit** `fix(reader): update autobot cave pattern for the 2026-11-12 game build`
