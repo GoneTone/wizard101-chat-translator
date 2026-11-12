@@ -1,6 +1,6 @@
 //! 收訊端：hook 遊戲的 ChatBox::AddLine，把每次呼叫寫進環形緩衝。
 //!
-//! stub 在遊戲執行緒上執行，位元組與 Python 版 `chat_hook.stub_bytes` 逐一相同。
+//! stub 在遊戲執行緒上執行，錯一個位元組就會讓遊戲當掉。
 
 use super::cave::{AutobotCave, HookError, SimpleHook};
 use crate::game::memory::{MemError, ProcessMemory, decode_utf16le};
@@ -17,12 +17,13 @@ pub const DATA_OFF: u64 = 0x30;
 /// 每則最多複製的 UTF-16 字元數。
 pub const MAX_CHARS: u64 = (SLOT_SIZE - DATA_OFF) / 2;
 
-/// `ChatBox::AddLine` 開頭的 pattern；48 89 5C 24 20 = mov [rsp+20],rbx：5 bytes、無 RIP 相對定址，可直接搬進 stub。
+/// `ChatBox::AddLine` 開頭的 pattern；開頭 6 bytes 是 push rbp,rsi,rdi,r12，stub 搬到擷取之後才執行。
 pub const PATTERN: &str = concat!(
-    r"\x48\x89\x5C\x24\x20\x55\x56\x57\x41\x54\x41\x55\x41\x56\x41\x57",
-    r"\x48\x8D\xAC\x24....\x48\x81\xEC....\x48\x8B\x05....\x48\x33\xC4",
-    r"\x48\x89\x85....\x44\x89\x44\x24.\x48\x89\x55.\x48\x8B\xF9",
-    r"\x48\x89\x55.\x41\x83\xF8\x05\x7C",
+    r"\x40\x55\x56\x57\x41\x54\x41\x55\x41\x56\x41\x57",
+    r"\x48\x8D\xAC\x24....\x48\x81\xEC....\x48\xC7\x44\x24.\xFE\xFF\xFF\xFF",
+    r"\x48\x89\x9C\x24....\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85....",
+    r"\x4D\x63\xF0\x4C\x8B\xEA\x48\x89\x54\x24.\x48\x8B\xF9\x48\x89\x54\x24.",
+    r"\x33\xDB\x89\x5C\x24.\x41\x83\xFE\x05\x7C",
 );
 
 /// AddLine hook 的 stub 機器碼（不含回跳）。
@@ -30,8 +31,7 @@ pub fn stub_bytes(ring: u64) -> Vec<u8> {
     let q = ring.to_le_bytes();
     let d = |v: u64| (v as u32).to_le_bytes();
     [
-        &[0x48, 0x89, 0x5C, 0x24, 0x20][..], // mov [rsp+20],rbx   (original)
-        &[0x9C, 0x50, 0x51, 0x56, 0x57, 0x41, 0x51, 0x41, 0x52], // pushfq; push rax,rcx,rsi,rdi,r9,r10
+        &[0x9C, 0x50, 0x51, 0x56, 0x57, 0x41, 0x51, 0x41, 0x52][..], // pushfq; push rax,rcx,rsi,rdi,r9,r10
         &[0x4C, 0x8B, 0x4C, 0x24, 0x38], // mov r9,[rsp+38]    return address
         &[0x48, 0xB8],                   // mov rax,ring       counter
         &q,
@@ -72,14 +72,16 @@ pub fn stub_bytes(ring: u64) -> Vec<u8> {
         &[0x48, 0x01, 0xC7],                                     // add rdi,rax
         &[0x4C, 0x89, 0x17], // mov [rdi],r10      publish seq last
         &[0x41, 0x5A, 0x41, 0x59, 0x5F, 0x5E, 0x59, 0x58, 0x9D], // pop r10,r9,rdi,rsi,rcx,rax; popfq
+        // 原指令放最後：放開頭會先移動 rsp，[rsp+38] 就不是回傳位址
+        &[0x40, 0x55, 0x56, 0x57, 0x41, 0x54], // push rbp,rsi,rdi,r12  (original)
     ]
     .concat()
 }
 
 const ADD_LINE: SimpleHook = SimpleHook {
     pattern: PATTERN,
-    instruction_length: 5,
-    noops: 0,
+    instruction_length: 6,
+    noops: 1,
     // wizwalker 預設 50 bytes 放不下這個 stub
     stub_size: 256,
     export_size: (HEADER + SLOTS * SLOT_SIZE) as usize,

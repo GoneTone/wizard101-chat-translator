@@ -187,7 +187,7 @@ fn uninstall_restores_cave_only_when_different() {
         cave.restore_ops(),
         [
             (g.root_jump, g.root_bytes[..7].to_vec()),
-            (g.addline_jump, g.addline_bytes[..5].to_vec()),
+            (g.addline_jump, g.addline_bytes[..6].to_vec()),
             (g.cave, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
         ]
     );
@@ -211,7 +211,7 @@ fn uninstall_restores_cave_only_when_different() {
             },
             MemOp::Write {
                 addr: g.addline_jump,
-                bytes: g.addline_bytes[..5].to_vec()
+                bytes: g.addline_bytes[..6].to_vec()
             },
             MemOp::Free(export),
             MemOp::Write {
@@ -253,7 +253,7 @@ fn ring_is_never_freed() {
         [
             MemOp::Write {
                 addr: g.addline_jump,
-                bytes: g.addline_bytes[..5].to_vec()
+                bytes: g.addline_bytes[..6].to_vec()
             },
             MemOp::Write {
                 addr: g.cave,
