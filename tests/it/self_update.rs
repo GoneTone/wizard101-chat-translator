@@ -1,16 +1,18 @@
 //! 自我更新：替換 exe、清除殘留、更新後等單一實例鎖。
 
 use std::cell::Cell;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::os::windows::fs::OpenOptionsExt;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
 use wizard101_chat_translator::runtime::self_update::{
     new_path, old_path, part_path, remove_leftovers, replace_exe,
 };
 use wizard101_chat_translator::runtime::{AcquireError, acquire_waiting};
+use wizard101_chat_translator::util::Clock;
 
 use crate::common::reader_fixture::VirtualClock;
 
@@ -73,9 +75,57 @@ fn remove_leftovers_deletes_all_three_and_ignores_missing() {
     let exe = exe_in(&dir);
     fs::write(old_path(&exe), "x").unwrap();
     fs::write(part_path(&exe), "x").unwrap();
-    remove_leftovers(&exe);
+    remove_leftovers(
+        &exe,
+        &VirtualClock::new().clock(Duration::ZERO),
+        Duration::ZERO,
+    );
     assert!(!old_path(&exe).exists() && !new_path(&exe).exists() && !part_path(&exe).exists());
     assert!(exe.exists());
+}
+
+/// 獨占開啟 `path`，模擬還在執行的舊版 exe。
+fn hold(path: &Path) -> File {
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .share_mode(0)
+        .open(path)
+        .unwrap()
+}
+
+#[test]
+fn remove_leftovers_retries_old_until_the_old_process_lets_go() {
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let held = Arc::new(Mutex::new(Some(hold(&old_path(&exe)))));
+    let sleeps = Arc::new(Mutex::new(0));
+    let (release, count) = (held.clone(), sleeps.clone());
+    let clock = Clock {
+        now: Box::new(Instant::now),
+        sleep: Box::new(move |_| {
+            *count.lock().unwrap() += 1;
+            release.lock().unwrap().take();
+        }),
+    };
+    remove_leftovers(&exe, &clock, Duration::from_secs(10));
+    assert!(!old_path(&exe).exists());
+    assert_eq!(*sleeps.lock().unwrap(), 1);
+}
+
+#[test]
+fn remove_leftovers_gives_up_on_old_after_the_wait_but_still_clears_the_rest() {
+    let dir = TempDir::new().unwrap();
+    let exe = exe_in(&dir);
+    let _held = hold(&old_path(&exe));
+    fs::write(new_path(&exe), "x").unwrap();
+    fs::write(part_path(&exe), "x").unwrap();
+    let clock = VirtualClock::new();
+    remove_leftovers(&exe, &clock.clock(Duration::ZERO), Duration::from_secs(1));
+    assert!(old_path(&exe).exists());
+    assert!(!new_path(&exe).exists() && !part_path(&exe).exists());
+    assert!(clock.elapsed() >= Duration::from_secs(1));
 }
 
 #[test]
