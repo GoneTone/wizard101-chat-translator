@@ -4,13 +4,17 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::local::download;
 use crate::logs::log;
-use crate::util::{lock, with_suffix};
+use crate::util::{Clock, lock, poll_until, with_suffix};
 
 /// 新程序帶這個參數啟動，表示是更新後重啟，要等舊程序放掉單一實例鎖。
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
+
+/// 刪不掉 `.old` 時的重試間隔。
+const LEFTOVER_RETRY: Duration = Duration::from_millis(200);
 
 static RELAUNCH: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -62,16 +66,43 @@ pub fn replace_exe(exe: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// 刪掉上次更新留下的 `.old`、`.new`、`.new.part`；不存在略過。
-pub fn remove_leftovers(exe: &Path) {
-    for path in [old_path(exe), new_path(exe), part_path(exe)] {
-        match std::fs::remove_file(&path) {
-            Ok(()) => log(format!("[update] deleted leftover {}", path.display())),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => log(format!(
-                "[update] could not delete leftover {}: {e}",
-                path.display()
+/// 刪掉上次更新留下的 `.new`、`.new.part`、`.old`；不存在略過。
+///
+/// `.old` 刪不掉時每隔 `LEFTOVER_RETRY` 重試到 `old_wait` 用完：更新後重啟時舊程序放掉鎖後才結束，還在跑時它的 exe 刪不掉。
+pub fn remove_leftovers(exe: &Path, clock: &Clock, old_wait: Duration) {
+    for (path, wait) in [
+        (new_path(exe), Duration::ZERO),
+        (part_path(exe), Duration::ZERO),
+        (old_path(exe), old_wait),
+    ] {
+        let started = (clock.now)();
+        let mut last_error = None;
+        let removed =
+            poll_until(
+                clock,
+                started + wait,
+                LEFTOVER_RETRY,
+                || match std::fs::remove_file(&path) {
+                    Ok(()) => Some(true),
+                    Err(e) if e.kind() == io::ErrorKind::NotFound => Some(false),
+                    Err(e) => {
+                        last_error = Some(e);
+                        None
+                    }
+                },
+            );
+        match (removed, last_error) {
+            (Some(true), _) => log(format!(
+                "[update] deleted leftover {} after {} ms",
+                path.display(),
+                (clock.now)().saturating_duration_since(started).as_millis()
             )),
+            (None, Some(e)) => log(format!(
+                "[update] could not delete leftover {} within {} ms: {e}",
+                path.display(),
+                wait.as_millis()
+            )),
+            _ => {}
         }
     }
 }

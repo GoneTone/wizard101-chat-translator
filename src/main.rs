@@ -120,7 +120,13 @@ fn main() {
         return;
     };
     match std::env::current_exe() {
-        Ok(exe) => remove_leftovers(&exe),
+        // 舊程序還在結束中，在背景等它放掉 `.old`，不拖慢啟動
+        Ok(exe) if after_update => {
+            std::thread::spawn(move || {
+                remove_leftovers(&exe, &Clock::default(), AFTER_UPDATE_WAIT)
+            });
+        }
+        Ok(exe) => remove_leftovers(&exe, &Clock::default(), Duration::ZERO),
         Err(e) => log(format!(
             "[update] cannot locate own exe, skipping leftover cleanup: {e}"
         )),
