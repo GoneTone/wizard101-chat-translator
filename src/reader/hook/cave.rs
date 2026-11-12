@@ -27,8 +27,11 @@ pub const AUTOBOT_SIZE: usize = 3900;
 /// 跳轉點寫回原碼後，等遊戲執行點離開 stub 的時間。
 pub const STUB_EXIT_WAIT: Duration = Duration::from_millis(500);
 
-/// root window hook 的跳轉點 pattern（wizwalker `RootWindowHook.pattern` 原文）。
-pub const ROOT_WINDOW_PATTERN: &str = r".......\x48\x8B\x01.......\xFF\x50\x70\x84";
+/// root window hook 的跳轉點 pattern；暫存器寫死，改版換暫存器時比對失敗而不是讓 stub 讀錯暫存器當掉遊戲。
+pub const ROOT_WINDOW_PATTERN: &str = concat!(
+    r"\x49\x8B\x8F\xD8\x00\x00\x00\x48\x8B\x01",
+    r"\x49\x8B\x97\xC8\x00\x00\x00\xFF\x50\x70\x84",
+);
 
 /// hook 掛入錯誤。
 #[derive(Debug)]
@@ -218,11 +221,11 @@ impl RootWindowHook {
         let (_, export) = ROOT_WINDOW.install(mem, cave, |export| {
             [
                 &[0x50][..],                                 // push rax
-                &[0x49, 0x8B, 0x85, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r13+D8]
+                &[0x49, 0x8B, 0x87, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r15+D8]
                 &[0x48, 0xA3],                               // mov [export],rax
                 &export.to_le_bytes(),
                 &[0x58],                                     // pop rax
-                &[0x49, 0x8B, 0x8D, 0xD8, 0x00, 0x00, 0x00], // mov rcx,[r13+D8]（原指令）
+                &[0x49, 0x8B, 0x8F, 0xD8, 0x00, 0x00, 0x00], // mov rcx,[r15+D8]（原指令）
             ]
             .concat()
         })?;
