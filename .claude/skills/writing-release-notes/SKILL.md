@@ -115,12 +115,30 @@ ls docs/superpowers/specs                                   # 設計文件：功
 | 效能或體驗改善 | 最佳化 | Optimized | 講以前慢／卡在哪，現在差多少 |
 | 修 bug | 修正…的問題 | Fixed | **先寫以前的錯誤現象**（標題列是灰的、會蓋住聊天框），再寫現在 |
 | 拿掉設定或功能 | 移除 | Removed | 講為什麼不再需要、舊設定值怎麼處理 |
+| 跟上遊戲改版 | 支援遊戲 W.x.y.z 版 | Added support for game version W.x.y.z | 寫**遊戲版本號**不寫日期（從 `Bin/WizardClient.log` 的 `Wizard Graphical Client version` 取）；用「支援」不用「修正」；再寫舊版在新遊戲上的現象與現在恢復了什麼 |
 
 - **條列一律以類型動詞開頭**；hero 散文也要讓讀者分得出是新功能還是改進（例：「疊加視窗**新增**和遊戲一樣的聊天室分頁」）。
 - **改了做法的功能，要點明舊做法與差別**：「收訊翻譯現在直接從遊戲拿到聊天內容」會讓人以為以前不是從遊戲拿；應寫「以前是比對聊天框前後的內容來找出新訊息，偶爾會重複顯示或漏掉；現在改成 hook 掛入遊戲把訊息加進聊天框的那一步」。
 - **原理只在讀者需要時用一句話帶過，不展開**：說到「怎麼做到的」時，一句講清楚機制就好（hook 掛入哪一步、結果是什麼），不寫序號、緩衝區、記憶體這類細節——講太細玩家讀不下去。句子要順，避免「遊戲每把一行加進聊天框」這種拗口說法。
 - **修正項不能寫成新行為**：「新增服務的視窗開出來就能直接操作」聽起來像新功能；應寫「修正…開啟後沒有被選取的問題（標題列是灰的、按 Esc 沒反應）」。
 - **一個修正套用到多處就都列出來**（例：設定視窗、新增服務的視窗、首次設定精靈），不要只寫被回報的那一處。
+- **只跟上遊戲改版的小版本，一段 hero 加維護條目就夠**。v1.3.1 定稿（使用者校過）：
+
+  ```markdown
+  ## What's New
+
+  Added support for game version W.1.620.0. With that version, the overlay showed "Game version not supported" and incoming translation stopped. The translator now hooks into the updated game client again, and incoming translation and chat tabs work as before 🔧
+
+  On top of that, we also did:
+  - Maintenance: updated dependencies
+
+  ## 此版本重點
+
+  支援遊戲 W.1.620.0 版。遊戲更新到這一版後，疊加視窗會顯示「遊戲版本不相容」，收訊翻譯也跟著停擺。現在翻譯助手能重新 hook 掛入新版的遊戲客戶端，收訊翻譯和聊天室分頁都恢復正常 🔧
+
+  除此之外，我們還做了：
+  - 維護：更新相依套件
+  ```
 
 ## 詞彙對照（中英版本要用同一組講法）
 
