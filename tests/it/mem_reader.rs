@@ -21,7 +21,7 @@ use wizard101_chat_translator::game::process::{
 };
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook::add_line::SLOTS;
-use wizard101_chat_translator::reader::hook::cave::{MODULE, STUB_EXIT_WAIT};
+use wizard101_chat_translator::reader::hook::cave::{AUTOBOT_PATTERN, MODULE, STUB_EXIT_WAIT};
 use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
@@ -274,13 +274,13 @@ impl Game {
         if addline {
             ops.push(MemOp::Write {
                 addr: ADDLINE_JUMP,
-                bytes: self.addline_bytes[..5].to_vec(),
+                bytes: self.addline_bytes[..8].to_vec(),
             });
         }
         ops.push(MemOp::Free(EXPORT));
         ops.push(MemOp::Write {
             addr: CAVE,
-            bytes: self.cave_bytes[..208].to_vec(),
+            bytes: self.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec(),
         });
         ops
     }
@@ -380,7 +380,7 @@ fn connect_order_matches_python() {
         g.state_at_wait.lock().unwrap().clone(),
         Some(vec![
             (ROOT_JUMP, g.root_bytes[..7].to_vec()),
-            (CAVE, g.cave_bytes[..208].to_vec()),
+            (CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
         ]),
         "hookstate must be saved before waiting for the root hook"
     );
@@ -390,8 +390,8 @@ fn connect_order_matches_python() {
             Some(BASE),
             vec![
                 (ROOT_JUMP, g.root_bytes[..7].to_vec()),
-                (ADDLINE_JUMP, g.addline_bytes[..5].to_vec()),
-                (CAVE, g.cave_bytes[..208].to_vec()),
+                (ADDLINE_JUMP, g.addline_bytes[..8].to_vec()),
+                (CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
             ]
         )
     );
@@ -432,7 +432,7 @@ fn hook_state_is_saved_as_soon_as_the_cave_is_cleared() {
     let saved = snapshot.lock().unwrap().clone();
     assert_eq!(
         saved,
-        Some(vec![(CAVE, g.cave_bytes[..208].to_vec())]),
+        Some(vec![(CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec())]),
         "hookstate must exist before the root pattern scan"
     );
 }
@@ -478,7 +478,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
         panic!("{err:?}");
     };
     assert!(
-        msg.starts_with("hook does not match this game build: Pattern b'\\\\x48\\\\x89"),
+        msg.starts_with("hook does not match this game build: Pattern b'\\\\x48\\\\x8D"),
         "{msg}"
     );
     assert!(!r.anchored());
@@ -519,7 +519,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
         ops.last(),
         Some(&MemOp::Write {
             addr: CAVE,
-            bytes: g.cave_bytes[..208].to_vec()
+            bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
         })
     );
     assert!(!g.state_file_exists());

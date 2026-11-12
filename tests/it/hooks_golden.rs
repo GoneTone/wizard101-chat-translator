@@ -9,7 +9,7 @@ use serde_json::Value;
 use wizard101_chat_translator::game::memory::{FakeMemory, MemOp};
 use wizard101_chat_translator::reader::hook::add_line::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook::cave::{
-    AutobotCave, MODULE, RootWindowHook, STUB_EXIT_WAIT,
+    AUTOBOT_PATTERN, AUTOBOT_SIZE, AutobotCave, MODULE, RootWindowHook, STUB_EXIT_WAIT,
 };
 use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::util;
@@ -72,7 +72,7 @@ fn install_case(case: &Value) -> Vec<MemOp> {
 }
 
 #[test]
-fn addline_stub_bytes_match_python() {
+fn addline_stub_bytes_match_golden() {
     let cases = common::golden("hook_stubs");
     assert!(!cases.is_empty());
     for case in &cases {
@@ -105,7 +105,7 @@ fn addline_stub_bytes_match_python() {
 }
 
 #[test]
-fn root_window_stub_and_jump_match_python() {
+fn root_window_stub_and_jump_match_golden() {
     for case in &common::golden("hook_stubs") {
         let input = &case["input"];
         let root = &case["output"]["root"];
@@ -115,7 +115,7 @@ fn root_window_stub_and_jump_match_python() {
             [
                 MemOp::Write {
                     addr: n(&input["cave"]),
-                    bytes: vec![0; 4100]
+                    bytes: vec![0; AUTOBOT_SIZE]
                 },
                 MemOp::Alloc {
                     addr: n(&input["export"]),
@@ -135,17 +135,20 @@ fn root_window_stub_and_jump_match_python() {
 }
 
 #[test]
-fn cave_saves_208_and_zeroes_4100() {
+fn cave_saves_pattern_length_and_zeroes_cave() {
     let g = default_game();
     let mut cave = AutobotCave::install(&g.mem).unwrap();
     assert_eq!(
         g.mem.ops(),
         [MemOp::Write {
             addr: g.cave,
-            bytes: vec![0; 4100]
+            bytes: vec![0; AUTOBOT_SIZE]
         }]
     );
-    assert_eq!(cave.restore_ops(), [(g.cave, g.cave_bytes[..208].to_vec())]);
+    assert_eq!(
+        cave.restore_ops(),
+        [(g.cave, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec())]
+    );
     assert_eq!(cave.alloc_stub(50).unwrap(), g.cave);
     assert_eq!(cave.alloc_stub(256).unwrap(), g.cave + 50);
 }
@@ -173,7 +176,7 @@ fn install_all() -> Installed {
 }
 
 #[test]
-fn uninstall_restores_only_208_when_different() {
+fn uninstall_restores_cave_only_when_different() {
     let Installed {
         g,
         cave,
@@ -184,8 +187,8 @@ fn uninstall_restores_only_208_when_different() {
         cave.restore_ops(),
         [
             (g.root_jump, g.root_bytes[..7].to_vec()),
-            (g.addline_jump, g.addline_bytes[..5].to_vec()),
-            (g.cave, g.cave_bytes[..208].to_vec()),
+            (g.addline_jump, g.addline_bytes[..8].to_vec()),
+            (g.cave, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
         ]
     );
     let before = g.mem.ops().len();
@@ -193,7 +196,8 @@ fn uninstall_restores_only_208_when_different() {
     // 比對內容在等待之前就讀好（同 wizwalker）：等待中被改回也照樣寫回
     cave.uninstall_with(&g.mem, |d| {
         waited = Some((d, g.mem.ops().len()));
-        g.mem.set_bytes(g.cave, &g.cave_bytes[..208]);
+        g.mem
+            .set_bytes(g.cave, &g.cave_bytes[..AUTOBOT_PATTERN.len()]);
     })
     .unwrap();
     // export 要等執行點離開 stub 才釋放（刻意與 wizwalker 不同）
@@ -207,19 +211,20 @@ fn uninstall_restores_only_208_when_different() {
             },
             MemOp::Write {
                 addr: g.addline_jump,
-                bytes: g.addline_bytes[..5].to_vec()
+                bytes: g.addline_bytes[..8].to_vec()
             },
             MemOp::Free(export),
             MemOp::Write {
                 addr: g.cave,
-                bytes: g.cave_bytes[..208].to_vec()
+                bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
             },
         ]
     );
 
     let g = default_game();
     let cave = AutobotCave::install(&g.mem).unwrap();
-    g.mem.set_bytes(g.cave, &g.cave_bytes[..208]);
+    g.mem
+        .set_bytes(g.cave, &g.cave_bytes[..AUTOBOT_PATTERN.len()]);
     let before = g.mem.ops().len();
     cave.uninstall_with(&g.mem, |_| {}).unwrap();
     assert_eq!(g.mem.ops().len(), before);
@@ -248,11 +253,11 @@ fn ring_is_never_freed() {
         [
             MemOp::Write {
                 addr: g.addline_jump,
-                bytes: g.addline_bytes[..5].to_vec()
+                bytes: g.addline_bytes[..8].to_vec()
             },
             MemOp::Write {
                 addr: g.cave,
-                bytes: g.cave_bytes[..208].to_vec()
+                bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
             },
         ]
     );

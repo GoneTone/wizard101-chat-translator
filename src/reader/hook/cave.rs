@@ -11,23 +11,27 @@ use crate::game::pattern::{self, ScanError};
 /// 所有 hook 掃描的模組。
 pub const MODULE: &str = crate::game::process::PROCESS_NAME;
 
-/// autobot 函式的 pattern（wizwalker `HookHandler.AUTOBOT_PATTERN` 原文）；原文長度即要保存的位元組數。
+/// autobot 函式的 pattern；pattern 字串長度即要保存的位元組數（沿用 wizwalker 慣例）。
 pub const AUTOBOT_PATTERN: &str = concat!(
-    r"\x48\x89\x5C\x24.\x48\x89\x74\x24.\x48\x89\x7C\x24.",
-    r"\x55\x41\x54\x41\x55\x41\x56\x41\x57",
-    r"\x48\x8D\xAC\x24....\x48\x81\xEC....",
-    r"\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85....",
-    r"\x4C\x8B\xF1.......\x80......\x0F\x84....",
+    r"\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x56\x41\x57",
+    r"\x48\x8D\xA8\x18\xFE\xFF\xFF\x48\x81\xEC\xC0\x02\x00\x00",
+    r"\x48\xC7\x45\xC8\xFE\xFF\xFF\xFF",
+    r"\x48\x89\x58\x10\x48\x89\x70\x18\x48\x89\x78\x20",
+    r"\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85\xB0\x01\x00\x00",
+    r"\x4C\x8B\xE9\x48\x8B\x05....\x80\xB8\xCE\x1D\x02\x00\x00\x0F\x84....",
 );
 
-/// cave 清成 0 的大小（wizwalker `AUTOBOT_SIZE`）。
-pub const AUTOBOT_SIZE: usize = 4100;
+/// cave 清成 0 的大小；不可超過 autobot 函式本身（改版時以 exe 的 `.pdata` 確認函式長度）。
+pub const AUTOBOT_SIZE: usize = 3900;
 
 /// 跳轉點寫回原碼後，等遊戲執行點離開 stub 的時間。
 pub const STUB_EXIT_WAIT: Duration = Duration::from_millis(500);
 
-/// root window hook 的跳轉點 pattern（wizwalker `RootWindowHook.pattern` 原文）。
-pub const ROOT_WINDOW_PATTERN: &str = r".......\x48\x8B\x01.......\xFF\x50\x70\x84";
+/// root window hook 的跳轉點 pattern；暫存器寫死，改版換暫存器時比對失敗而不是讓 stub 讀錯暫存器當掉遊戲。
+pub const ROOT_WINDOW_PATTERN: &str = concat!(
+    r"\x49\x8B\x8F\xD8\x00\x00\x00\x48\x8B\x01",
+    r"\x49\x8B\x97\xC8\x00\x00\x00\xFF\x50\x70\x84",
+);
 
 /// hook 掛入錯誤。
 #[derive(Debug)]
@@ -136,7 +140,7 @@ pub struct AutobotCave {
 }
 
 impl AutobotCave {
-    /// 掃 autobot 函式，保存開頭 208 bytes 後清成 4100 個 0。
+    /// 掃 autobot 函式，保存開頭（pattern 字串長度）的位元組後清成 `AUTOBOT_SIZE` 個 0。
     pub fn install(mem: &dyn ProcessMemory) -> Result<Self, HookError> {
         let addr = pattern::scan(mem, MODULE, AUTOBOT_PATTERN)?;
         let original = mem.read(addr, AUTOBOT_PATTERN.len())?;
@@ -159,7 +163,7 @@ impl AutobotCave {
         Ok(addr)
     }
 
-    /// hookstate 用的還原操作：各 hook 的跳轉原碼在前、cave 原本的 208 bytes 在最後。
+    /// hookstate 用的還原操作：各 hook 的跳轉原碼在前、cave 原本的位元組在最後。
     ///
     /// 依序寫回：先還原 cave 的話，仍指向它的跳轉點會跑進被改回的原始程式碼。
     pub fn restore_ops(&self) -> Vec<(u64, Vec<u8>)> {
@@ -170,7 +174,7 @@ impl AutobotCave {
             .collect()
     }
 
-    /// 依掛入順序寫回各跳轉點，等 0.5 秒（由 `wait` 執行）後釋放 export、在內容不同時還原 cave 的 208 bytes；唯一的解除途徑。
+    /// 依掛入順序寫回各跳轉點，等 0.5 秒（由 `wait` 執行）後釋放 export、在內容不同時還原 cave 原本的位元組；唯一的解除途徑。
     pub fn uninstall_with(
         self,
         mem: &dyn ProcessMemory,
@@ -217,11 +221,11 @@ impl RootWindowHook {
         let (_, export) = ROOT_WINDOW.install(mem, cave, |export| {
             [
                 &[0x50][..],                                 // push rax
-                &[0x49, 0x8B, 0x85, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r13+D8]
+                &[0x49, 0x8B, 0x87, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r15+D8]
                 &[0x48, 0xA3],                               // mov [export],rax
                 &export.to_le_bytes(),
                 &[0x58],                                     // pop rax
-                &[0x49, 0x8B, 0x8D, 0xD8, 0x00, 0x00, 0x00], // mov rcx,[r13+D8]（原指令）
+                &[0x49, 0x8B, 0x8F, 0xD8, 0x00, 0x00, 0x00], // mov rcx,[r15+D8]（原指令）
             ]
             .concat()
         })?;
@@ -239,8 +243,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn autobot_pattern_is_208_chars() {
-        assert_eq!(AUTOBOT_PATTERN.len(), 208);
+    fn autobot_pattern_is_308_chars() {
+        assert_eq!(AUTOBOT_PATTERN.len(), 308);
     }
 
     #[test]
