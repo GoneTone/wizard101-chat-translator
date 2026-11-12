@@ -21,7 +21,7 @@ pub const AUTOBOT_PATTERN: &str = concat!(
     r"\x4C\x8B\xE9\x48\x8B\x05....\x80\xB8\xCE\x1D\x02\x00\x00\x0F\x84....",
 );
 
-/// cave 清成 0 的大小；不可超過 autobot 函式本身（2026-11-12 版為 3975 bytes）。
+/// cave 清成 0 的大小；不可超過 autobot 函式本身（改版時以 exe 的 `.pdata` 確認函式長度）。
 pub const AUTOBOT_SIZE: usize = 3900;
 
 /// 跳轉點寫回原碼後，等遊戲執行點離開 stub 的時間。
