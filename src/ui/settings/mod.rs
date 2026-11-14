@@ -20,6 +20,7 @@ pub mod provider_picker;
 mod quant_table;
 mod release_card;
 pub mod release_links;
+pub mod release_notes_window;
 pub mod release_table;
 pub mod service_draft;
 pub mod service_form;

@@ -51,6 +51,7 @@ mod reader_loop;
 mod real_fingerprint;
 mod region_flow;
 mod region_pipeline;
+mod release_notes_window;
 mod richtext_golden;
 mod self_update;
 mod service_form;
