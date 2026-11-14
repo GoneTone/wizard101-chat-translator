@@ -13,7 +13,7 @@ use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::settings::update_window::{UpdateAction, UpdateView, can_close};
 use crate::ui::settings_host::{HostedWindow, Spec, WindowOps};
 
-const UPDATE: Spec = Spec {
+pub(crate) const UPDATE: Spec = Spec {
     name: "update window",
     title_key: "update.title",
     size: vec2(620.0, 600.0),

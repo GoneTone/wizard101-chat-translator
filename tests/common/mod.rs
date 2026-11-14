@@ -8,6 +8,7 @@ use wizard101_chat_translator::util::{self, Clock};
 
 pub mod fake_backend;
 pub mod fake_game;
+pub mod frames;
 pub mod kittest;
 pub mod local;
 pub mod log_capture;

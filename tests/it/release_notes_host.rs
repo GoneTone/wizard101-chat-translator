@@ -3,19 +3,16 @@
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
-use eframe::egui::{Context, ViewportId};
+use crate::common::frames::Frames;
+use eframe::egui::Context;
 use tokio::runtime::{Handle, Runtime};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::runtime::updater::{PROJECT_URL, Release};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::release_notes_host::{ReleaseNotesHost, github_url};
 use wizard101_chat_translator::ui::settings::release_notes_window::{NotesAction, NotesState};
 use wizard101_chat_translator::ui::settings_host::WindowOps;
-use wizard101_chat_translator::ui::viewport::testing::{
-    close_next, input_with_windows, native_like_context,
-};
 
 fn tag_path() -> String {
     format!("/tags/v{}", env!("CARGO_PKG_VERSION"))
@@ -38,36 +35,8 @@ fn notes() -> Release {
     }
 }
 
-/// 一連串幀：上一幀登記過的視窗下一幀當成已建好。
-struct Frames {
-    ctx: Context,
-    windows: Vec<ViewportId>,
-}
-
-impl Frames {
-    fn new() -> Self {
-        let ctx = native_like_context();
-        fonts_egui::install(&ctx, "en-US");
-        Self {
-            ctx,
-            windows: Vec::new(),
-        }
-    }
-
-    fn run(&mut self, host: &mut ReleaseNotesHost, close: bool) {
-        close_next(close);
-        let mut output = self.ctx.run_ui(input_with_windows(&self.windows), |ui| {
-            host.show(ui.ctx(), &[]);
-        });
-        close_next(false);
-        output.textures_delta.clear();
-        self.windows = output
-            .viewport_output
-            .keys()
-            .copied()
-            .filter(|id| *id != ViewportId::ROOT)
-            .collect();
-    }
+fn step(frames: &mut Frames, host: &mut ReleaseNotesHost, close: bool) {
+    frames.run(close, |ctx| host.show(ctx, &[]));
 }
 
 fn host_for(rt: Handle, api: &str) -> (ReleaseNotesHost, Receiver<UiEvent>) {
@@ -134,8 +103,8 @@ async fn reopening_uses_the_cache() {
 
     host.open();
     deliver(&mut host, &rx);
-    frames.run(&mut host, false);
-    frames.run(&mut host, true);
+    step(&mut frames, &mut host, false);
+    step(&mut frames, &mut host, true);
     assert!(!host.is_open());
     host.open();
 
@@ -152,8 +121,8 @@ async fn result_after_close_is_cached() {
     let mut frames = Frames::new();
 
     host.open();
-    frames.run(&mut host, false);
-    frames.run(&mut host, true);
+    step(&mut frames, &mut host, false);
+    step(&mut frames, &mut host, true);
     assert!(!host.is_open());
     host.loaded(Ok(Some(notes())));
     host.open();
@@ -171,8 +140,8 @@ async fn reopening_while_loading_does_not_request_again() {
     let mut frames = Frames::new();
 
     host.open();
-    frames.run(&mut host, false);
-    frames.run(&mut host, true);
+    step(&mut frames, &mut host, false);
+    step(&mut frames, &mut host, true);
     assert!(!host.is_open());
     host.open();
     assert_eq!(host.state(), Some(&NotesState::Loading));
@@ -206,8 +175,8 @@ async fn not_found_is_retried_on_next_open() {
     host.open();
     deliver(&mut host, &rx);
     assert_eq!(host.state(), Some(&NotesState::NotFound));
-    frames.run(&mut host, false);
-    frames.run(&mut host, true);
+    step(&mut frames, &mut host, false);
+    step(&mut frames, &mut host, true);
     host.open();
     deliver(&mut host, &rx);
 
@@ -238,6 +207,20 @@ async fn retry_after_failure_shows_the_notes() {
     assert!(matches!(host.state(), Some(NotesState::Loaded(_))));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn retry_while_loading_does_not_request_again() {
+    let server = MockServer::start().await;
+    mock_tag(&server, 200, 1).await;
+    let (mut host, rx) = host_for(Handle::current(), &server.uri());
+    let ctx = Context::default();
+
+    host.open();
+    host.act(&ctx, NotesAction::Retry);
+    deliver(&mut host, &rx);
+
+    assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
+}
+
 #[test]
 fn closing_resets_the_window() {
     let rt = Runtime::new().unwrap();
@@ -245,9 +228,9 @@ fn closing_resets_the_window() {
     let mut frames = Frames::new();
 
     host.open();
-    frames.run(&mut host, false);
+    step(&mut frames, &mut host, false);
     assert!(host.is_open());
-    frames.run(&mut host, true);
+    step(&mut frames, &mut host, true);
 
     assert!(!host.is_open());
 }

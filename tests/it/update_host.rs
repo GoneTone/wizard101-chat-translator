@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use eframe::egui::{Context, FullOutput, ViewportCommand, ViewportId};
+use crate::common::frames::Frames;
+use eframe::egui::ViewportCommand;
 use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio::runtime::{Handle, Runtime};
@@ -15,70 +16,34 @@ use wizard101_chat_translator::runtime::self_update::part_path;
 use wizard101_chat_translator::runtime::update_job::{Phase, UpdateJob};
 use wizard101_chat_translator::runtime::updater::{Asset, Release};
 use wizard101_chat_translator::ui::events::UiPoster;
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::update_window::UpdateAction;
 use wizard101_chat_translator::ui::settings_host::WindowOps;
 use wizard101_chat_translator::ui::update_host::{HostAction, UpdateHost};
-use wizard101_chat_translator::ui::viewport::testing::{
-    close_next, input_with_windows, native_like_context,
-};
 
 const BODY: &[u8] = b"fake exe";
 
-/// 一連串幀：上一幀登記過的視窗下一幀當成已建好。
-struct Frames {
-    ctx: Context,
-    windows: Vec<ViewportId>,
-    /// 最近一幀根 viewport 要求的重繪延遲。
-    root_repaint: Duration,
+/// 跑一幀；回傳 host 的動作與這一幀所有 viewport 收到的指令。
+fn step(
+    frames: &mut Frames,
+    host: &mut UpdateHost,
+    unsaved: bool,
+    close: bool,
+) -> (Vec<HostAction>, Vec<ViewportCommand>) {
+    let mut got = Vec::new();
+    let commands = frames.run(close, |ctx| got = host.show(ctx, &[], unsaved));
+    (got, commands)
 }
 
-impl Frames {
-    fn new() -> Self {
-        let ctx = native_like_context();
-        fonts_egui::install(&ctx, "en-US");
-        Self {
-            ctx,
-            windows: Vec::new(),
-            root_repaint: Duration::MAX,
-        }
-    }
-
-    /// 跑一幀；回傳 host 的動作與這一幀所有 viewport 收到的指令。
-    fn run(
-        &mut self,
-        host: &mut UpdateHost,
-        unsaved: bool,
-        close: bool,
-    ) -> (Vec<HostAction>, Vec<ViewportCommand>) {
-        close_next(close);
-        let mut got = Vec::new();
-        let mut output: FullOutput = self.ctx.run_ui(input_with_windows(&self.windows), |ui| {
-            got = host.show(ui.ctx(), &[], unsaved);
-        });
-        close_next(false);
-        output.textures_delta.clear();
-        self.root_repaint = output.viewport_output[&ViewportId::ROOT].repaint_delay;
-        self.windows = output
-            .viewport_output
-            .keys()
-            .copied()
-            .filter(|id| *id != ViewportId::ROOT)
-            .collect();
-        let commands = output
-            .viewport_output
-            .into_values()
-            .flat_map(|v| v.commands)
-            .collect();
-        (got, commands)
-    }
-
-    /// 跑 `n` 幀，收集 host 交給 App 的所有動作。
-    fn handoffs(&mut self, host: &mut UpdateHost, unsaved: bool, n: usize) -> Vec<HostAction> {
-        (0..n)
-            .flat_map(|_| self.run(host, unsaved, false).0)
-            .collect()
-    }
+/// 跑 `n` 幀，收集 host 交給 App 的所有動作。
+fn handoffs(
+    frames: &mut Frames,
+    host: &mut UpdateHost,
+    unsaved: bool,
+    n: usize,
+) -> Vec<HostAction> {
+    (0..n)
+        .flat_map(|_| step(frames, host, unsaved, false).0)
+        .collect()
 }
 
 fn sha(bytes: &[u8]) -> String {
@@ -163,9 +128,9 @@ fn open_twice_keeps_one_window() {
     let mut frames = Frames::new();
 
     host.open();
-    frames.run(&mut host, false, false);
+    step(&mut frames, &mut host, false, false);
     host.open();
-    frames.run(&mut host, false, false);
+    step(&mut frames, &mut host, false, false);
 
     assert!(host.is_open());
     assert_eq!(host.phase(), &Phase::Restarting);
@@ -179,9 +144,9 @@ fn close_request_is_cancelled_while_downloading() {
     let mut host = host_in(&rt, &dir, Phase::Downloading);
     let mut frames = Frames::new();
     host.open();
-    frames.run(&mut host, false, false);
+    step(&mut frames, &mut host, false, false);
 
-    let (_, commands) = frames.run(&mut host, false, true);
+    let (_, commands) = step(&mut frames, &mut host, false, true);
 
     assert!(host.is_open());
     assert!(
@@ -203,9 +168,9 @@ fn closing_when_failed_deletes_the_partial_file() {
     std::fs::write(part_path(&exe_in(&dir)), b"x").unwrap();
     let mut frames = Frames::new();
     host.open();
-    frames.run(&mut host, false, false);
+    step(&mut frames, &mut host, false, false);
 
-    let (_, commands) = frames.run(&mut host, false, true);
+    let (_, commands) = step(&mut frames, &mut host, false, true);
 
     assert!(!host.is_open());
     assert!(!commands.contains(&ViewportCommand::CancelClose));
@@ -219,14 +184,17 @@ async fn ready_without_unsaved_waits_for_the_user() {
     let mut frames = Frames::new();
 
     for _ in 0..3 {
-        let (got, _) = frames.run(&mut host, false, false);
+        let (got, _) = step(&mut frames, &mut host, false, false);
         assert!(got.is_empty());
     }
     assert_eq!(host.phase(), &Phase::Ready);
 
     host.act(&frames.ctx, UpdateAction::Restart, false);
     assert_eq!(host.phase(), &Phase::Restarting);
-    assert_eq!(frames.handoffs(&mut host, false, 3), [HostAction::Restart]);
+    assert_eq!(
+        handoffs(&mut frames, &mut host, false, 3),
+        [HostAction::Restart]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -236,7 +204,7 @@ async fn ready_with_unsaved_waits_for_the_user() {
     let mut frames = Frames::new();
 
     for _ in 0..3 {
-        let (got, _) = frames.run(&mut host, true, false);
+        let (got, _) = step(&mut frames, &mut host, true, false);
         assert!(got.is_empty());
     }
 
@@ -248,13 +216,13 @@ async fn reopening_when_ready_does_not_auto_restart() {
     let dir = TempDir::new().unwrap();
     let (mut host, _server) = downloaded_host(&dir).await;
     let mut frames = Frames::new();
-    frames.run(&mut host, true, false);
-    frames.run(&mut host, true, true);
+    step(&mut frames, &mut host, true, false);
+    step(&mut frames, &mut host, true, true);
     assert!(!host.is_open());
 
     host.open();
     for _ in 0..2 {
-        let (got, _) = frames.run(&mut host, false, false);
+        let (got, _) = step(&mut frames, &mut host, false, false);
         assert!(got.is_empty());
     }
 
@@ -275,12 +243,15 @@ fn retrying_a_failed_replace_without_unsaved_settings_restarts() {
     let mut host = host_in(&rt, &dir, failed_replace());
     let mut frames = Frames::new();
     host.open();
-    frames.run(&mut host, false, false);
+    step(&mut frames, &mut host, false, false);
 
     host.act(&frames.ctx, UpdateAction::Retry, false);
 
     assert_eq!(host.phase(), &Phase::Restarting);
-    assert_eq!(frames.handoffs(&mut host, false, 3), [HostAction::Restart]);
+    assert_eq!(
+        handoffs(&mut frames, &mut host, false, 3),
+        [HostAction::Restart]
+    );
 }
 
 #[test]
@@ -290,12 +261,12 @@ fn retrying_a_failed_replace_with_unsaved_settings_waits_in_ready() {
     let mut host = host_in(&rt, &dir, failed_replace());
     let mut frames = Frames::new();
     host.open();
-    frames.run(&mut host, true, false);
+    step(&mut frames, &mut host, true, false);
 
     host.act(&frames.ctx, UpdateAction::Retry, true);
 
     assert_eq!(host.phase(), &Phase::Ready);
-    assert!(frames.handoffs(&mut host, true, 3).is_empty());
+    assert!(handoffs(&mut frames, &mut host, true, 3).is_empty());
 }
 
 #[test]
@@ -306,7 +277,7 @@ fn downloading_keeps_the_root_repainting() {
     let mut idle = host_in(&rt, &dir, Phase::Cancelled);
     idle.open();
     // 開窗後頭幾幀本來就會要求立刻重繪，等它停下來才比較
-    frames.handoffs(&mut idle, false, 5);
+    handoffs(&mut frames, &mut idle, false, 5);
     assert!(
         frames.root_repaint > Duration::from_secs(1),
         "{:?}",
@@ -315,7 +286,7 @@ fn downloading_keeps_the_root_repainting() {
 
     let mut downloading = host_in(&rt, &dir, Phase::Downloading);
     downloading.open();
-    frames.handoffs(&mut downloading, false, 5);
+    handoffs(&mut frames, &mut downloading, false, 5);
     assert!(
         !frames.root_repaint.is_zero() && frames.root_repaint <= Duration::from_millis(100),
         "{:?}",

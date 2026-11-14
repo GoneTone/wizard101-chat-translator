@@ -2,7 +2,7 @@
 
 use std::panic::AssertUnwindSafe;
 
-use eframe::egui::{self, OpenUrl, vec2};
+use eframe::egui::{self, OpenUrl};
 use futures_util::FutureExt;
 use tokio::runtime::Handle;
 
@@ -13,14 +13,13 @@ use crate::runtime::updater::{
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::settings::release_notes_window::{NotesAction, NotesState, ReleaseNotesView};
 use crate::ui::settings_host::{HostedWindow, Spec, WindowOps};
+use crate::ui::update_host::UPDATE;
 use crate::util::panic_message;
 
 const RELEASE_NOTES: Spec = Spec {
     name: "release notes window",
     title_key: "release_notes.title",
-    size: vec2(620.0, 600.0),
-    min_size: vec2(480.0, 360.0),
-    topmost_once: true,
+    ..UPDATE
 };
 
 /// 本版說明視窗與它的背景請求；所有方法都在 UI 執行緒呼叫。
@@ -61,6 +60,16 @@ impl ReleaseNotesHost {
             return;
         }
         self.view = Some(ReleaseNotesView::new());
+        let state = match &self.state {
+            None => "none",
+            Some(NotesState::Loading) => "loading",
+            Some(NotesState::Loaded(_)) => "loaded",
+            Some(NotesState::NotFound) => "not_found",
+            Some(NotesState::Failed(_)) => "failed",
+        };
+        log(format!(
+            "[update] release notes window opened: state={state}"
+        ));
         match self.state {
             Some(NotesState::Loaded(_)) => log("[update] using cached release notes"),
             Some(NotesState::Loading) => {}
