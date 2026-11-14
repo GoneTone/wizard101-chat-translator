@@ -18,6 +18,7 @@ pub mod local_rate;
 mod local_rows;
 pub mod provider_picker;
 mod quant_table;
+mod release_card;
 pub mod release_links;
 pub mod release_table;
 pub mod service_draft;
