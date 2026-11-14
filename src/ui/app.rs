@@ -2153,6 +2153,24 @@ mod tests {
     }
 
     #[test]
+    fn release_notes_result_event_reaches_the_host() {
+        let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_release_notes(&mut harness);
+        let ctx = harness.ctx.clone();
+        harness
+            .state_mut()
+            .settings_action(&ctx, SettingsAction::OpenReleaseNotes);
+        poster.post(UiEvent::ReleaseNotesLoaded(Ok(None)));
+        harness.step();
+        let host = harness.state_mut().release_notes_mut().unwrap();
+        assert_eq!(
+            host.state(),
+            Some(&crate::ui::settings::release_notes_window::NotesState::NotFound)
+        );
+    }
+
+    #[test]
     fn a_failed_replace_is_reported_back_to_the_update_window() {
         let (_poster, inbox) = channel();
         let mut harness = app_harness(inbox);
