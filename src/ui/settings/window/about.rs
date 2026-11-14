@@ -2,8 +2,8 @@
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense, Ui,
-    Vec2, WidgetInfo, pos2,
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense,
+    TextWrapMode, Ui, Vec2, WidgetInfo, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -220,6 +220,7 @@ impl SettingsWindow {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.spacing_mut().interact_size.y = 0.0;
+            ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
             ui.horizontal_wrapped(|ui| {
                 ui.add(Label::new(small(version).color(theme::TEXT_SECONDARY)));
                 ui.add(Label::new(small(" · ".into()).color(theme::TEXT_SECONDARY)));

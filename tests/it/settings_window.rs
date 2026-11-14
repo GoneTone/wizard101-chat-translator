@@ -1205,6 +1205,36 @@ fn release_notes_link_opens_the_window() {
     assert_eq!(h.state().actions, [SettingsAction::OpenReleaseNotes]);
 }
 
+/// 版本與本版說明連結的矩形；視窗寬度由 `size` 決定。
+fn version_and_notes_rects(size: egui::Vec2) -> (Rect, Rect) {
+    let mut h = harness_with(configured_cfg(), FakeEnv::default(), size);
+    go(&mut h, "settings.tab.about");
+    run(&mut h);
+    let version = format!("{} v{}", tr("about.version"), env!("CARGO_PKG_VERSION"));
+    let version = h.get_by_label(&version).rect();
+    (version, h.get_by_label(&tr("about.release_notes")).rect())
+}
+
+#[test]
+fn release_notes_link_shares_the_version_row_at_the_default_width() {
+    let (version, link) = version_and_notes_rects(theme::SETTINGS_SIZE + egui::vec2(0.0, 1000.0));
+    assert!(
+        (version.center().y - link.center().y).abs() <= 1.0,
+        "version {version:?} vs link {link:?}"
+    );
+}
+
+#[test]
+fn release_notes_link_is_never_split_at_the_minimum_width() {
+    // 最窄時整欄只剩約 90 pt（名稱都折成三行），連結改排到下一行，但不可在字中間折斷
+    let (version, link) =
+        version_and_notes_rects(theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    assert!(
+        (link.height() - version.height()).abs() <= 1.0,
+        "version {version:?} vs link {link:?}"
+    );
+}
+
 #[test]
 fn update_result_is_only_clickable_over_its_text() {
     // 「有新版」整行是連結，但只到文字為止；不可撐滿整列讓空白也可點

@@ -29,7 +29,9 @@ use wizard101_chat_translator::ui::app::{App, Inbox, channel};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
+use wizard101_chat_translator::ui::release_notes_host::ReleaseNotesHost;
 use wizard101_chat_translator::ui::settings::env::{SettingsEnv, SettingsEvent};
+use wizard101_chat_translator::ui::settings::release_notes_window::NotesAction;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::{
     SettingsHost, WindowOps, WizardHost, initial_size,
@@ -498,6 +500,32 @@ fn settings_events_reach_the_open_window() {
     run(&mut h);
     let banner = h.state_mut().banners_mut().update_text();
     assert!(banner.is_some_and(|b| b.contains("9.9.9")));
+}
+
+#[test]
+fn release_notes_window_outlives_the_settings_window() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, _wired) = settings_app(settings_cfg());
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (poster, _) = UiPoster::for_test();
+    let mut notes = ReleaseNotesHost::new(rt.handle().clone(), poster, "http://127.0.0.1:1".into());
+    notes.set_window_ops(WindowOps::offscreen());
+    notes.open();
+    h.state_mut().set_release_notes(notes);
+    open_settings(&mut h);
+    click(&mut h, Role::Button, &tr("button.cancel"));
+    h.step();
+    let open = |h: &mut Harness<'_, App>| h.state_mut().release_notes_mut().unwrap().is_open();
+    assert!(open(&mut h));
+    assert_eq!(h.state().overlay_level(), WindowLevel::Normal);
+    let ctx = h.ctx.clone();
+    h.state_mut()
+        .release_notes_mut()
+        .unwrap()
+        .act(&ctx, NotesAction::Close);
+    h.step();
+    assert_eq!(h.state().overlay_level(), WindowLevel::AlwaysOnTop);
 }
 
 #[test]

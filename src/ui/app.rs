@@ -258,6 +258,11 @@ impl App {
         self.release_notes = Some(host);
     }
 
+    /// 本版說明視窗（測試用）。
+    pub fn release_notes_mut(&mut self) -> Option<&mut ReleaseNotesHost> {
+        self.release_notes.as_mut()
+    }
+
     /// 首次設定模式：精靈（呼叫端先 `open`）開著時根視窗藏著；完成時關掉精靈、呼叫 `start`，再顯示根視窗。
     pub fn with_first_run(mut self, wizard: WizardHost, start: OnStart) -> Self {
         if !wizard.is_open() {
@@ -2144,20 +2149,6 @@ mod tests {
         harness
             .state_mut()
             .settings_action(&ctx, SettingsAction::OpenReleaseNotes);
-        assert!(harness.state().release_notes.as_ref().unwrap().is_open());
-    }
-
-    #[test]
-    fn release_notes_window_keeps_the_overlay_at_normal_level() {
-        let (_poster, inbox) = channel();
-        let mut harness = app_harness(inbox);
-        let _rt = wire_release_notes(&mut harness);
-        let ctx = harness.ctx.clone();
-        harness
-            .state_mut()
-            .settings_action(&ctx, SettingsAction::OpenReleaseNotes);
-        harness.step();
-        assert_eq!(harness.state().overlay_level(), WindowLevel::Normal);
         assert!(harness.state().release_notes.as_ref().unwrap().is_open());
     }
 
