@@ -146,19 +146,19 @@ impl Launcher for FakeLauncher {
         }))
     }
 
-    fn detect_gpu(&self) -> Option<Gpu> {
+    fn detect_gpus(&self) -> Vec<Gpu> {
         *self.shared.gpu_detections.lock().unwrap() += 1;
-        Some(Gpu {
+        vec![Gpu {
             name: "Fake GPU".into(),
             vendor: 0x10de,
             kind: GpuKind::Discrete,
             nvidia_driver: None,
             device: 0,
-        })
+        }]
     }
 
-    fn adapter_memory(&self, _gpu: &Gpu) -> Option<(u64, u64)> {
-        *self.shared.counters.lock().unwrap()
+    fn adapter_memory(&self, gpus: &[Gpu]) -> Vec<Option<(u64, u64)>> {
+        vec![*self.shared.counters.lock().unwrap(); gpus.len()]
     }
 
     fn list_devices(&self, exe: &Path) -> Result<String, String> {

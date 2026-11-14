@@ -665,6 +665,7 @@ mod local_install {
                 ram_total: 32 * G,
                 ram_free: 32 * G,
                 measured: true,
+                vram_cards: Vec::new(),
                 own: Default::default(),
             },
             ..Default::default()

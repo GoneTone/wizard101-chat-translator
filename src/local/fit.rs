@@ -386,6 +386,7 @@ mod tests {
             ram_total: ram,
             ram_free: ram,
             measured: true,
+            vram_cards: Vec::new(),
             own: Default::default(),
         }
     }
@@ -398,6 +399,7 @@ mod tests {
             ram_total: ram,
             ram_free: ram,
             measured: true,
+            vram_cards: Vec::new(),
             own: Default::default(),
         }
     }
