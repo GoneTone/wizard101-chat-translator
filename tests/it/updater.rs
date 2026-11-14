@@ -13,8 +13,8 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::runtime::updater::{
-    EXE_ASSET, RELEASES_URL, Release, UpdateCheckError, check_for_update, is_newer, parse_releases,
-    schedule_update_checks, update_client,
+    EXE_ASSET, RELEASES_URL, Release, UpdateCheckError, check_for_update, fetch_release, is_newer,
+    parse_releases, release_tag_url, schedule_update_checks, update_client,
 };
 
 const SHA256: &str = "be76267b7f18060bab1fe7ca9d63822c84974f5aed16e4688b1c0de575e84d79";
@@ -203,6 +203,78 @@ async fn check_for_update_reads_the_list() {
         .unwrap();
     assert_eq!(list.len(), 2);
     assert!(log_text().contains("[update] newer releases: count=2 latest=1.2.0"));
+}
+
+#[test]
+fn release_tag_url_appends_the_v_tag() {
+    assert_eq!(
+        release_tag_url("https://x/releases", "1.3.1"),
+        "https://x/releases/tags/v1.3.1"
+    );
+}
+
+async fn tag_server_with(response: ResponseTemplate) -> (MockServer, String) {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/releases/tags/v1.2.0"))
+        .respond_with(response)
+        .mount(&server)
+        .await;
+    let url = format!("{}/releases/tags/v1.2.0", server.uri());
+    (server, url)
+}
+
+#[tokio::test]
+async fn fetch_release_reads_one_release() {
+    capture_logs();
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/releases/tags/v1.2.0"))
+        .and(header("Accept", "application/vnd.github+json"))
+        .and(header(
+            "User-Agent",
+            format!("wizard101-chat-translator/{}", env!("CARGO_PKG_VERSION")).as_str(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(release_item("v1.2.0", json!({}))))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = update_client("http://127.0.0.1");
+    let url = format!("{}/releases/tags/v1.2.0", server.uri());
+    let release = fetch_release(&client, &url).await.unwrap().unwrap();
+    assert_eq!(release.version, "1.2.0");
+    assert_eq!(release.body, "notes for v1.2.0");
+    assert_eq!(release.published_at, "2026-11-03T11:58:24Z");
+    assert!(release.url.ends_with("/releases/tag/v1.2.0"));
+    assert!(log_text().contains("[update] release notes loaded: version=1.2.0"));
+}
+
+#[tokio::test]
+async fn fetch_release_is_none_on_404() {
+    let (_server, url) = tag_server_with(ResponseTemplate::new(404)).await;
+    let client = update_client("http://127.0.0.1");
+    assert_eq!(fetch_release(&client, &url).await, Ok(None));
+}
+
+#[tokio::test]
+async fn fetch_release_errors_on_other_status_codes() {
+    let client = update_client("http://127.0.0.1");
+    for status in [403, 429, 500] {
+        let (_server, url) = tag_server_with(ResponseTemplate::new(status)).await;
+        assert_eq!(
+            fetch_release(&client, &url).await,
+            Err(UpdateCheckError(format!("HTTP {status}")))
+        );
+    }
+}
+
+#[tokio::test]
+async fn fetch_release_errors_on_a_body_without_tag_name() {
+    let (_server, url) =
+        tag_server_with(ResponseTemplate::new(200).set_body_json(json!({"body": "x"}))).await;
+    let client = update_client("http://127.0.0.1");
+    let err = fetch_release(&client, &url).await.unwrap_err();
+    assert!(err.0.starts_with("unexpected response"), "{err}");
 }
 
 #[tokio::test]
