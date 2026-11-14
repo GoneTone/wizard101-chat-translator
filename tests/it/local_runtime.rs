@@ -110,8 +110,10 @@ struct Shared {
     unloaded: Arc<Mutex<bool>>,
     /// GPU 計數器讀不到。
     gpu_unreadable: Arc<Mutex<bool>>,
-    /// 系統計數器讀到的顯示卡（總量, 可用量）；`None` 是讀不到。
+    /// 系統計數器讀到的顯示卡（總量, 可用量），每張都一樣；`None` 是讀不到。
     counters: Arc<Mutex<Option<(u64, u64)>>>,
+    /// 除了第一張以外，再多偵測到幾張同型號的卡。
+    extra_gpus: Arc<Mutex<usize>>,
 }
 
 struct FakeLauncher {
@@ -146,19 +148,20 @@ impl Launcher for FakeLauncher {
         }))
     }
 
-    fn detect_gpu(&self) -> Option<Gpu> {
+    fn detect_gpus(&self) -> Vec<Gpu> {
         *self.shared.gpu_detections.lock().unwrap() += 1;
-        Some(Gpu {
+        let gpu = Gpu {
             name: "Fake GPU".into(),
             vendor: 0x10de,
             kind: GpuKind::Discrete,
             nvidia_driver: None,
             device: 0,
-        })
+        };
+        vec![gpu; 1 + *self.shared.extra_gpus.lock().unwrap()]
     }
 
-    fn adapter_memory(&self, _gpu: &Gpu) -> Option<(u64, u64)> {
-        *self.shared.counters.lock().unwrap()
+    fn adapter_memory(&self, gpus: &[Gpu]) -> Vec<Option<(u64, u64)>> {
+        vec![*self.shared.counters.lock().unwrap(); gpus.len()]
     }
 
     fn list_devices(&self, exe: &Path) -> Result<String, String> {
@@ -1294,6 +1297,20 @@ async fn vram_is_measured_without_an_engine() {
     assert!(hw.measured);
     assert_eq!((hw.vram_total, hw.vram_free), (8 * G, 6 * G));
     assert!(f.shared.measured.lock().unwrap().is_empty());
+}
+
+/// 多張卡：VRAM 加總、卡名逐張記下。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn vram_sums_every_detected_card() {
+    const G: u64 = 1 << 30;
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.counters.lock().unwrap() = Some((8 * G, 6 * G));
+    *f.shared.extra_gpus.lock().unwrap() = 1;
+    f.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !f.local.snapshot().detecting).await;
+    let hw = f.local.snapshot().hardware;
+    assert_eq!((hw.vram_total, hw.vram_free), (16 * G, 12 * G));
+    assert_eq!(hw.vram_cards, vec!["Fake GPU", "Fake GPU"]);
 }
 
 /// 裝了引擎：數字以系統計數器為準；引擎沒列出任何 GPU（CPU 版）時沒有 VRAM。

@@ -97,6 +97,7 @@ fn snapshot(ready: &[(usize, RepoInfo)]) -> Snapshot {
             ram_total: 16 * G,
             ram_free: 16 * G,
             measured: true,
+            vram_cards: Vec::new(),
             own: Default::default(),
         },
         ..Default::default()
@@ -1186,6 +1187,7 @@ mod page {
             ram_total: 16 * G,
             ram_free: 16 * G,
             measured: true,
+            vram_cards: Vec::new(),
             own: Usage::default(),
         };
         let h = pane_harness(snap, vec![]);

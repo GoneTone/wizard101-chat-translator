@@ -370,10 +370,13 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         let line = |ui: &mut Ui, text: String| {
             ui.label(RichText::new(text).color(theme::TEXT_SECONDARY));
         };
-        let name = hw
-            .gpu
-            .as_ref()
-            .map_or_else(|| t("local.hw.none", &[]), |g| g.name.clone());
+        let name = if hw.vram_cards.is_empty() {
+            hw.gpu
+                .as_ref()
+                .map_or_else(|| t("local.hw.none", &[]), |g| g.name.clone())
+        } else {
+            card_names(&hw.vram_cards)
+        };
         line(ui, t("local.hw.gpu", &[("name", &name)]));
         // 內顯的 VRAM 是共用的系統記憶體，相容判斷也只算 RAM，不另列
         let integrated = hw
@@ -416,4 +419,37 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
             env.local_command(Command::RefreshHardware { redetect_gpu: true });
         }
     });
+}
+
+/// 卡名合併成一行：同型號寫成「名稱 ×N」、不同型號用「 + 」連接，依第一次出現的順序。
+fn card_names(names: &[String]) -> String {
+    let mut groups: Vec<(&str, usize)> = Vec::new();
+    for name in names {
+        match groups.iter_mut().find(|g| g.0 == name) {
+            Some(g) => g.1 += 1,
+            None => groups.push((name, 1)),
+        }
+    }
+    groups
+        .iter()
+        .map(|&(name, n)| match n {
+            1 => name.to_string(),
+            n => format!("{name} ×{n}"),
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 同型號合併成 ×N，不同型號用 + 連接，保留第一次出現的順序。
+    #[test]
+    fn card_names_group_identical_cards() {
+        let n = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(card_names(&n(&["RTX 4060"])), "RTX 4060");
+        assert_eq!(card_names(&n(&["RTX 4060", "RTX 4060"])), "RTX 4060 ×2");
+        assert_eq!(card_names(&n(&["A", "B", "A"])), "A ×2 + B");
+    }
 }

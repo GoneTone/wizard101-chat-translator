@@ -201,8 +201,8 @@ pub struct Local {
     pub(super) hf_http: reqwest::Client,
     gh_http: reqwest::Client,
     pub(super) state: Mutex<Snapshot>,
-    /// 偵測過的 GPU（外層 `None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
-    gpu: Mutex<Option<Option<Gpu>>>,
+    /// 偵測過的 GPU（`None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
+    gpus: Mutex<Option<Vec<Gpu>>>,
     /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
     first_measure: OnceCell<()>,
     /// 進行中的硬體偵測數；啟動後第一次量測從建立起就算一筆，量完（或中途失敗）才扣掉。
@@ -255,7 +255,7 @@ impl Local {
             servers: Servers::default(),
             endpoints,
             state: Mutex::new(snapshot),
-            gpu: Mutex::default(),
+            gpus: Mutex::default(),
             first_measure: OnceCell::new(),
             refreshing: AtomicUsize::new(1),
             first_pending: AtomicBool::new(true),
@@ -423,20 +423,20 @@ impl Local {
     }
 
     /// 偵測 GPU；偵測過且不要求 `redetect` 時沿用上次的結果。
-    fn gpu(&self, redetect: bool) -> Option<Gpu> {
-        let mut cached = lock(&self.gpu);
+    fn gpus(&self, redetect: bool) -> Vec<Gpu> {
+        let mut cached = lock(&self.gpus);
         if redetect || cached.is_none() {
-            *cached = Some(tokio::task::block_in_place(|| self.launcher.detect_gpu()));
+            *cached = Some(tokio::task::block_in_place(|| self.launcher.detect_gpus()));
         }
-        cached.clone().flatten()
+        cached.clone().unwrap_or_default()
     }
 
     /// 偵測過的 GPU 是不是內顯（共享系統記憶體）；還沒偵測過為 `None`（不會為此去偵測）。
     pub(super) fn integrated_gpu(&self) -> Option<bool> {
-        let gpu = lock(&self.gpu);
-        let gpu = gpu.as_ref()?;
+        let gpus = lock(&self.gpus);
+        let gpus = gpus.as_ref()?;
         Some(
-            gpu.as_ref()
+            gpus.first()
                 .is_some_and(|g| g.kind == hardware::GpuKind::Integrated),
         )
     }
@@ -445,22 +445,19 @@ impl Local {
     /// VRAM 不必等引擎，見 [`hardware::vram`]。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
         let _detecting = self.detecting();
-        let gpu = self.gpu(redetect_gpu);
+        let gpus = self.gpus(redetect_gpu);
         // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
         let files = self.engine_files.read().await;
         let exe = current_exe(&self.root);
         let mut hw = tokio::task::block_in_place(|| {
             let (ram_total, ram_free) = hardware::system_memory();
             let mut hw = Hardware {
-                gpu,
+                gpu: gpus.first().cloned(),
                 ram_total,
                 ram_free,
                 ..Hardware::default()
             };
-            let counters = hw
-                .gpu
-                .as_ref()
-                .and_then(|g| self.launcher.adapter_memory(g));
+            let counters = self.launcher.adapter_memory(&gpus);
             let devices = exe.and_then(|exe| match self.launcher.list_devices(&exe) {
                 Ok(out) => Some(hardware::parse_list_devices(&out)),
                 Err(e) => {
@@ -471,8 +468,8 @@ impl Local {
             log(format!(
                 "[local] VRAM sources: adapter counters={counters:?} engine devices={devices:?}"
             ));
-            if let Some((total, free)) = hardware::vram(hw.gpu.as_ref(), counters, devices) {
-                (hw.vram_total, hw.vram_free) = (total, free);
+            if let Some(v) = hardware::vram(&gpus, &counters, devices) {
+                (hw.vram_total, hw.vram_free, hw.vram_cards) = (v.total, v.free, v.cards);
                 hw.measured = true;
             }
             hw
@@ -480,8 +477,9 @@ impl Local {
         drop(files);
         hw.own = self.measure_running();
         log(format!(
-            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_vram={} own_ram={}",
-            hw.gpu,
+            "[local] hardware: gpus={:?} vram_cards={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_vram={} own_ram={}",
+            gpus,
+            hw.vram_cards,
             hw.vram_total,
             hw.vram_free,
             hw.ram_total,
@@ -535,7 +533,7 @@ impl Local {
             )
         })?;
         let variant =
-            variant.unwrap_or_else(|| engine::auto_variant(self.gpu(false).as_ref(), Some(build)));
+            variant.unwrap_or_else(|| engine::auto_variant(self.gpus(false).first(), Some(build)));
         let total = build
             .variants
             .iter()

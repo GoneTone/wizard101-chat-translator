@@ -39,12 +39,14 @@ pub struct Hardware {
     pub ram_free: u64,
     /// 量到 VRAM 了（系統計數器或引擎的 `--list-devices`，見 [`vram`]）；沒量過時相容等級未知。量到 0（只有 CPU）也算量過。
     pub measured: bool,
+    /// 算進 VRAM 的卡名，長度即卡數；沒量到或 VRAM 為 0 時為空。
+    pub vram_cards: Vec<String>,
     /// 量測當下本程式自己的 llama-server 實際佔用；可用量照實記，相容判斷（`effective`）才加回去。
     pub own: Usage,
 }
 
-/// 列舉 DX12 adapter，取第一個獨顯，沒有就取內顯；列舉失敗回 `None`。
-pub fn detect_gpu() -> Option<Gpu> {
+/// 列舉 DX12 adapter，回傳所有獨顯（列舉順序）；沒有獨顯時只回第一張內顯，都沒有或列舉失敗回空。
+pub fn detect_gpus() -> Vec<Gpu> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     // 原生後端的列舉是立即完成的 future
     let Some(adapters) = instance
@@ -52,28 +54,32 @@ pub fn detect_gpu() -> Option<Gpu> {
         .now_or_never()
     else {
         log("[local] gpu detection: adapter enumeration did not complete");
-        return None;
+        return Vec::new();
     };
-    let pick = |wanted: wgpu::DeviceType, kind: GpuKind| {
-        adapters.iter().map(|a| a.get_info()).find_map(|info| {
-            (info.device_type == wanted).then(|| Gpu {
+    let of = |wanted: wgpu::DeviceType, kind: GpuKind| {
+        adapters
+            .iter()
+            .map(|a| a.get_info())
+            .filter(move |info| info.device_type == wanted)
+            .map(move |info| Gpu {
                 nvidia_driver: nvidia_driver(info.vendor, &info.driver),
                 name: info.name,
                 vendor: info.vendor,
                 device: info.device,
                 kind,
             })
-        })
     };
-    let gpu = pick(wgpu::DeviceType::DiscreteGpu, GpuKind::Discrete)
-        .or_else(|| pick(wgpu::DeviceType::IntegratedGpu, GpuKind::Integrated));
-    if gpu.is_none() {
+    let mut gpus: Vec<Gpu> = of(wgpu::DeviceType::DiscreteGpu, GpuKind::Discrete).collect();
+    if gpus.is_empty() {
+        gpus.extend(of(wgpu::DeviceType::IntegratedGpu, GpuKind::Integrated).take(1));
+    }
+    if gpus.is_empty() {
         log(format!(
             "[local] gpu detection: no usable adapter among {}",
             adapters.len()
         ));
     }
-    gpu
+    gpus
 }
 
 /// PCI 廠商代碼：NVIDIA。
@@ -108,61 +114,126 @@ pub fn system_memory() -> (u64, u64) {
     (status.ullTotalPhys, status.ullAvailPhys)
 }
 
-/// `gpu` 的專用記憶體 `(總量, 可用量)`：可用量是總量減去所有程序合計的用量（同工作管理員）；
-/// 找不到 adapter 或讀不到計數器回 `None`。
+/// 每張 `gpus` 的專用記憶體 `(總量, 可用量)`，與 `gpus` 等長：可用量是總量減去所有程序合計的用量（同工作管理員）；
+/// 找不到 adapter 或讀不到計數器的那張為 `None`。
 ///
 /// llama.cpp CUDA 版的 `--list-devices` 在 Windows 回報固定的預算，不扣遊戲等其他程式的佔用，所以改讀系統計數器。
-pub fn adapter_memory(gpu: &Gpu) -> Option<(u64, u64)> {
+pub fn adapter_memory(gpus: &[Gpu]) -> Vec<Option<(u64, u64)>> {
     // SAFETY: 只建立 DXGI factory 並查詢 adapter 描述，介面的參考計數由 windows crate 管理
     let factory: IDXGIFactory1 = match unsafe { CreateDXGIFactory1() } {
         Ok(f) => f,
         Err(e) => {
             log(format!("[local] CreateDXGIFactory1 failed: {e}"));
-            return None;
+            return vec![None; gpus.len()];
         }
     };
-    let desc = (0..)
+    let descs: Vec<_> = (0..)
         .map_while(|i| unsafe { factory.EnumAdapters1(i) }.ok())
         .filter_map(|a| unsafe { a.GetDesc1() }.ok())
-        .find(|d| d.VendorId == gpu.vendor && d.DeviceId == gpu.device);
-    let Some(desc) = desc else {
-        log(format!(
-            "[local] no DXGI adapter matches {} ({:04x}:{:04x})",
-            gpu.name, gpu.vendor, gpu.device
-        ));
-        return None;
-    };
-    let total = desc.DedicatedVideoMemory as u64;
-    let luid = (desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart);
-    match usage::adapter_dedicated_usage(luid) {
-        Ok(used) => Some((total, total.saturating_sub(used))),
-        Err(e) => {
-            log(format!(
-                "[local] reading adapter memory of {} failed: {e}",
-                gpu.name
-            ));
-            None
-        }
-    }
+        .collect();
+    let ids: Vec<_> = descs.iter().map(|d| (d.VendorId, d.DeviceId)).collect();
+    gpus.iter()
+        .zip(pair_adapters(gpus, &ids))
+        .map(|(gpu, paired)| {
+            let Some(desc) = paired.map(|i| &descs[i]) else {
+                log(format!(
+                    "[local] no DXGI adapter matches {} ({:04x}:{:04x})",
+                    gpu.name, gpu.vendor, gpu.device
+                ));
+                return None;
+            };
+            let total = desc.DedicatedVideoMemory as u64;
+            let luid = (desc.AdapterLuid.HighPart as u32, desc.AdapterLuid.LowPart);
+            match usage::adapter_dedicated_usage(luid) {
+                Ok(used) => Some((total, total.saturating_sub(used))),
+                Err(e) => {
+                    log(format!(
+                        "[local] reading adapter memory of {} failed: {e}",
+                        gpu.name
+                    ));
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
-/// 決定 VRAM `(總量, 可用量)`；`None` 表示還量不到，要等引擎。
+/// 每張 gpu 配對 `adapters`（DXGI 列舉順序的 `(VendorId, DeviceId)`）裡第一個還沒用過、型號相同的索引；
+/// 同型號多張才不會讀到同一張。
+fn pair_adapters(gpus: &[Gpu], adapters: &[(u32, u32)]) -> Vec<Option<usize>> {
+    let mut used = vec![false; adapters.len()];
+    gpus.iter()
+        .map(|g| {
+            let i =
+                (0..adapters.len()).find(|&i| !used[i] && adapters[i] == (g.vendor, g.device))?;
+            used[i] = true;
+            Some(i)
+        })
+        .collect()
+}
+
+/// 算進相容判斷的 VRAM：總量與可用量（位元組），以及算進去的卡名。
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct Vram {
+    pub total: u64,
+    pub free: u64,
+    pub cards: Vec<String>,
+}
+
+/// 加總引擎會用到的卡的 VRAM；`None` 表示還量不到，要等引擎。
 ///
-/// `devices` 是引擎 `--list-devices` 列出的裝置，沒裝引擎或執行失敗為 `None`。引擎沒列出任何裝置（CPU 版）時為 0；
-/// 其他情況以系統計數器（`counters`）為準，讀不到才用引擎回報的數字。沒裝引擎時沒有 GPU 或是內顯也量得出來：
-/// 相容判斷不算內顯的 VRAM，當 0。
+/// `counters` 與 `gpus` 等長（[`adapter_memory`]）；`devices` 是引擎 `--list-devices` 列出的裝置，沒裝引擎或執行失敗為 `None`。
+/// 引擎沒列出任何裝置（CPU 版）時為 0；否則只算名稱對得上的獨顯，全部讀得到系統計數器才用計數器，不然用引擎的數字；
+/// 一張都對不上時退回單一裝置。沒裝引擎時算所有獨顯；沒有 GPU 或是內顯不必等引擎：相容判斷不算內顯的 VRAM，當 0。
 pub fn vram(
-    gpu: Option<&Gpu>,
-    counters: Option<(u64, u64)>,
+    gpus: &[Gpu],
+    counters: &[Option<(u64, u64)>],
     devices: Option<Vec<(String, u64, u64)>>,
-) -> Option<(u64, u64)> {
+) -> Option<Vram> {
+    let sum = |sizes: Vec<(u64, u64)>, cards: Vec<String>| Vram {
+        total: sizes.iter().map(|s| s.0).sum(),
+        free: sizes.iter().map(|s| s.1).sum(),
+        cards,
+    };
+    let counted = |indices: &[usize]| -> Option<Vec<(u64, u64)>> {
+        indices
+            .iter()
+            .map(|&i| counters.get(i).copied().flatten())
+            .collect()
+    };
+    let names = |indices: &[usize]| indices.iter().map(|&i| gpus[i].name.clone()).collect();
     match devices {
-        Some(d) if d.is_empty() => Some((0, 0)),
-        Some(d) => counters.or_else(|| pick_device(d, gpu).map(|(_, total, free)| (total, free))),
-        None => match gpu {
-            None => Some((0, 0)),
-            Some(g) if g.kind == GpuKind::Integrated => Some((0, 0)),
-            Some(_) => counters,
+        Some(d) if d.is_empty() => Some(Vram::default()),
+        Some(d) => {
+            let mut paired = Vec::new();
+            let mut listed = Vec::new();
+            for (name, total, free) in &d {
+                let found = (0..gpus.len()).find(|&i| {
+                    let g = &gpus[i];
+                    g.kind == GpuKind::Discrete && g.name == *name && !paired.contains(&i)
+                });
+                if let Some(i) = found {
+                    paired.push(i);
+                    listed.push((*total, *free));
+                }
+            }
+            if paired.is_empty() {
+                return match gpus.first().zip(counters.first().copied().flatten()) {
+                    Some((g, c)) => Some(sum(vec![c], vec![g.name.clone()])),
+                    None => pick_device(d, gpus.first())
+                        .map(|(name, total, free)| sum(vec![(total, free)], vec![name])),
+                };
+            }
+            let sizes = counted(&paired).unwrap_or(listed);
+            Some(sum(sizes, names(&paired)))
+        }
+        None => match gpus.first() {
+            None => Some(Vram::default()),
+            Some(g) if g.kind == GpuKind::Integrated => Some(Vram::default()),
+            Some(_) => {
+                let all: Vec<usize> = (0..gpus.len()).collect();
+                counted(&all).map(|sizes| sum(sizes, names(&all)))
+            }
         },
     }
 }
@@ -279,29 +350,169 @@ mod tests {
             kind,
             nvidia_driver: None,
         };
-        let discrete = gpu(GpuKind::Discrete);
+        let discrete = [gpu(GpuKind::Discrete)];
         let listed = || Some(vec![("GPU".to_string(), 8 * G, 7 * G)]);
-        let counters = Some((8 * G, 3 * G));
-        assert_eq!(vram(Some(&discrete), counters, listed()), counters);
-        assert_eq!(vram(Some(&discrete), None, listed()), Some((8 * G, 7 * G)));
-        assert_eq!(vram(Some(&discrete), counters, Some(vec![])), Some((0, 0)));
-        assert_eq!(vram(Some(&discrete), counters, None), counters);
-        assert_eq!(vram(Some(&discrete), None, None), None);
+        let counters = [Some((8 * G, 3 * G))];
+        let sizes = |v: Option<Vram>| v.map(|v| (v.total, v.free));
         assert_eq!(
-            vram(Some(&gpu(GpuKind::Integrated)), None, None),
-            Some((0, 0))
+            sizes(vram(&discrete, &counters, listed())),
+            Some((8 * G, 3 * G))
         );
-        assert_eq!(vram(None, None, None), Some((0, 0)));
+        assert_eq!(
+            sizes(vram(&discrete, &[None], listed())),
+            Some((8 * G, 7 * G))
+        );
+        assert_eq!(
+            vram(&discrete, &counters, Some(vec![])),
+            Some(Vram::default())
+        );
+        assert_eq!(
+            sizes(vram(&discrete, &counters, None)),
+            Some((8 * G, 3 * G))
+        );
+        assert_eq!(vram(&discrete, &[None], None), None);
+        assert_eq!(
+            vram(&[gpu(GpuKind::Integrated)], &[None], None),
+            Some(Vram::default())
+        );
+        assert_eq!(vram(&[], &[], None), Some(Vram::default()));
     }
 
-    /// 偵測到 GPU 時讀得到它的專用記憶體，可用量不超過總量；沒有 GPU 的機器略過。
+    const G: u64 = 1 << 30;
+
+    fn card(name: &str, vendor: u32, device: u32) -> Gpu {
+        Gpu {
+            name: name.into(),
+            vendor,
+            device,
+            kind: GpuKind::Discrete,
+            nvidia_driver: None,
+        }
+    }
+
+    fn rtx() -> Gpu {
+        card("RTX 4060", NVIDIA, 1)
+    }
+
+    /// 同型號兩張各自對到不同的 adapter。
+    #[test]
+    fn identical_cards_pair_with_distinct_adapters() {
+        assert_eq!(
+            pair_adapters(&[rtx(), rtx()], &[(NVIDIA, 1), (0x8086, 9), (NVIDIA, 1)]),
+            vec![Some(0), Some(2)]
+        );
+        assert_eq!(pair_adapters(&[rtx()], &[]), vec![None]);
+    }
+
+    fn two_rtx_listed() -> Option<Vec<(String, u64, u64)>> {
+        Some(vec![
+            ("RTX 4060".into(), 8 * G, 7 * G),
+            ("RTX 4060".into(), 8 * G, 7 * G),
+        ])
+    }
+
+    /// 兩張同型號：引擎列出兩張、計數器都讀得到，加總計數器。
+    #[test]
+    fn two_listed_cards_sum_their_counters() {
+        let v = vram(
+            &[rtx(), rtx()],
+            &[Some((8 * G, 5 * G)), Some((8 * G, 6 * G))],
+            two_rtx_listed(),
+        )
+        .unwrap();
+        assert_eq!((v.total, v.free), (16 * G, 11 * G));
+        assert_eq!(v.cards, vec!["RTX 4060", "RTX 4060"]);
+    }
+
+    /// 一張計數器讀不到：整組用引擎數字。
+    #[test]
+    fn one_missing_counter_uses_engine_numbers_for_all() {
+        let v = vram(
+            &[rtx(), rtx()],
+            &[Some((8 * G, 5 * G)), None],
+            two_rtx_listed(),
+        )
+        .unwrap();
+        assert_eq!((v.total, v.free, v.cards.len()), (16 * G, 14 * G, 2));
+    }
+
+    /// Vulkan 列出內顯、CUDA 不列 AMD：只算對得上的獨顯。
+    #[test]
+    fn only_listed_discrete_cards_count() {
+        let gpus = [rtx(), card("RX 7600", 0x1002, 2)];
+        let devices = Some(vec![
+            ("RTX 4060".into(), 8 * G, 7 * G),
+            ("Intel(R) Graphics".into(), 16 * G, 16 * G),
+        ]);
+        let v = vram(
+            &gpus,
+            &[Some((8 * G, 6 * G)), Some((8 * G, 8 * G))],
+            devices,
+        )
+        .unwrap();
+        assert_eq!((v.total, v.free), (8 * G, 6 * G));
+        assert_eq!(v.cards, vec!["RTX 4060"]);
+    }
+
+    /// 沒有任何名稱對得上：退回第一張的計數器，再不行取最大的裝置。
+    #[test]
+    fn unmatched_names_fall_back_to_a_single_device() {
+        let devices = || {
+            Some(vec![
+                ("Other".to_string(), 4 * G, 3 * G),
+                ("Bigger".to_string(), 6 * G, 5 * G),
+            ])
+        };
+        let v = vram(&[rtx()], &[Some((8 * G, 2 * G))], devices()).unwrap();
+        assert_eq!(
+            (v.total, v.free, v.cards),
+            (8 * G, 2 * G, vec!["RTX 4060".into()])
+        );
+        let v = vram(&[rtx()], &[None], devices()).unwrap();
+        assert_eq!(
+            (v.total, v.free, v.cards),
+            (6 * G, 5 * G, vec!["Bigger".into()])
+        );
+    }
+
+    /// 計數器比偵測到的卡多（不等長）時不會 panic，退回最大的裝置。
+    #[test]
+    fn unmatched_names_without_gpus_ignore_stray_counters() {
+        let v = vram(
+            &[],
+            &[Some((8 * G, 2 * G))],
+            Some(vec![("Other".into(), 4 * G, 3 * G)]),
+        );
+        assert_eq!(
+            v,
+            Some(Vram {
+                total: 4 * G,
+                free: 3 * G,
+                cards: vec!["Other".into()]
+            })
+        );
+    }
+
+    /// 沒裝引擎：所有獨顯的計數器加總；有一張讀不到就還量不到。
+    #[test]
+    fn without_engine_all_discrete_cards_sum() {
+        let gpus = [rtx(), card("RTX 3060", NVIDIA, 3)];
+        let v = vram(&gpus, &[Some((8 * G, 5 * G)), Some((12 * G, 10 * G))], None).unwrap();
+        assert_eq!((v.total, v.free), (20 * G, 15 * G));
+        assert_eq!(v.cards, vec!["RTX 4060", "RTX 3060"]);
+        assert_eq!(vram(&gpus, &[Some((8 * G, 5 * G)), None], None), None);
+    }
+
+    /// 偵測到的每張 GPU 都讀得到專用記憶體，可用量不超過總量；沒有 GPU 的機器略過。
     #[test]
     fn reads_the_detected_adapter_memory() {
-        let Some(gpu) = detect_gpu() else {
-            return;
-        };
-        let (total, free) = adapter_memory(&gpu).expect("adapter memory");
-        assert!(total > 0 && free <= total, "total={total} free={free}");
+        let gpus = detect_gpus();
+        let memory = adapter_memory(&gpus);
+        assert_eq!(memory.len(), gpus.len());
+        for m in memory {
+            let (total, free) = m.expect("adapter memory");
+            assert!(total > 0 && free <= total, "total={total} free={free}");
+        }
     }
 
     /// 內顯的記憶體只算一次、當成 RAM。
@@ -320,6 +531,7 @@ mod tests {
             ram_total: 16 << 30,
             ram_free: 10 << 30,
             measured: true,
+            vram_cards: Vec::new(),
             own: Default::default(),
         };
         assert_eq!(effective(&hw), (0, 10 << 30));
@@ -336,6 +548,7 @@ mod tests {
             ram_total: 16 * G,
             ram_free: 15 * G,
             measured: true,
+            vram_cards: Vec::new(),
             own: Usage {
                 vram: 3 * G,
                 ram: 4 * G,

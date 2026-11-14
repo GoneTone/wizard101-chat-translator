@@ -115,8 +115,8 @@ data: [DONE]
         Ok(Box::new(FakeProcess { exit: None, kills }))
     }
 
-    fn detect_gpu(&self) -> Option<Gpu> {
-        None
+    fn detect_gpus(&self) -> Vec<Gpu> {
+        Vec::new()
     }
 
     fn list_devices(&self, _exe: &Path) -> Result<String, String> {
