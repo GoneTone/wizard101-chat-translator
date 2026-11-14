@@ -7,10 +7,10 @@ use eframe::egui::{Context, ViewportId};
 use tokio::runtime::{Handle, Runtime};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wizard101_chat_translator::runtime::updater::Release;
+use wizard101_chat_translator::runtime::updater::{PROJECT_URL, Release};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
-use wizard101_chat_translator::ui::release_notes_host::ReleaseNotesHost;
+use wizard101_chat_translator::ui::release_notes_host::{ReleaseNotesHost, github_url};
 use wizard101_chat_translator::ui::settings::release_notes_window::{NotesAction, NotesState};
 use wizard101_chat_translator::ui::settings_host::WindowOps;
 use wizard101_chat_translator::ui::viewport::testing::{
@@ -159,7 +159,41 @@ async fn result_after_close_is_cached() {
     host.open();
 
     assert_eq!(host.state(), Some(&NotesState::Loaded(notes())));
+    // 吃掉仍在途的請求事件，wiremock 的 expect(1) 才算得準
     deliver(&mut host, &rx);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reopening_while_loading_does_not_request_again() {
+    let server = MockServer::start().await;
+    mock_tag(&server, 200, 1).await;
+    let (mut host, rx) = host_for(Handle::current(), &server.uri());
+    let mut frames = Frames::new();
+
+    host.open();
+    frames.run(&mut host, false);
+    frames.run(&mut host, true);
+    assert!(!host.is_open());
+    host.open();
+    assert_eq!(host.state(), Some(&NotesState::Loading));
+    deliver(&mut host, &rx);
+
+    assert!(matches!(host.state(), Some(NotesState::Loaded(_))));
+    assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
+}
+
+#[test]
+fn github_url_prefers_the_loaded_release() {
+    assert_eq!(
+        github_url(Some(&NotesState::Loaded(notes()))),
+        "https://example.invalid/rel"
+    );
+    for state in [None, Some(NotesState::Loading), Some(NotesState::NotFound)] {
+        assert_eq!(
+            github_url(state.as_ref()),
+            format!("{PROJECT_URL}/releases")
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

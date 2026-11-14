@@ -1,6 +1,9 @@
 //! 托管本版說明視窗：背景取得目前版本的 release，結果快取，視窗的動作轉成重試、開網頁與關窗。
 
+use std::panic::AssertUnwindSafe;
+
 use eframe::egui::{self, OpenUrl, vec2};
+use futures_util::FutureExt;
 use tokio::runtime::Handle;
 
 use crate::logs::log;
@@ -10,6 +13,7 @@ use crate::runtime::updater::{
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::settings::release_notes_window::{NotesAction, NotesState, ReleaseNotesView};
 use crate::ui::settings_host::{HostedWindow, Spec, WindowOps};
+use crate::util::panic_message;
 
 const RELEASE_NOTES: Spec = Spec {
     name: "release notes window",
@@ -64,6 +68,7 @@ impl ReleaseNotesHost {
         }
     }
 
+    /// 視窗是否開著。
     pub fn is_open(&self) -> bool {
         self.view.is_some()
     }
@@ -73,6 +78,7 @@ impl ReleaseNotesHost {
         self.win.hwnd
     }
 
+    /// 目前的載入狀態（測試用）。
     pub fn state(&self) -> Option<&NotesState> {
         self.state.as_ref()
     }
@@ -106,15 +112,12 @@ impl ReleaseNotesHost {
         }
     }
 
-    /// 處理使用者在視窗按下的動作。
+    /// 處理視窗動作；公開給測試直接觸發。
     pub fn act(&mut self, ctx: &egui::Context, action: NotesAction) {
         match action {
             NotesAction::Retry => self.request(),
             NotesAction::OpenOnGitHub => {
-                let url = match &self.state {
-                    Some(NotesState::Loaded(release)) => release.url.clone(),
-                    _ => format!("{PROJECT_URL}/releases"),
-                };
+                let url = github_url(self.state.as_ref());
                 log(format!("[update] opening release notes page: {url}"));
                 ctx.open_url(OpenUrl::new_tab(url));
             }
@@ -127,18 +130,36 @@ impl ReleaseNotesHost {
         }
     }
 
+    /// 發背景請求；請求中不重發，結果以 `ReleaseNotesLoaded` 投遞。
     fn request(&mut self) {
+        if self.state == Some(NotesState::Loading) {
+            return;
+        }
         self.state = Some(NotesState::Loading);
         let url = release_tag_url(&self.api, env!("CARGO_PKG_VERSION"));
         let ui = self.ui.clone();
         self.rt.spawn(async move {
-            let result = fetch_release(&update_client(&url), &url)
-                .await
-                .map_err(|e| {
-                    log(format!("[update] release notes fetch failed: {}", e.0));
-                    e.0
-                });
+            let fetch = async {
+                fetch_release(&update_client(&url), &url)
+                    .await
+                    .map_err(|e| e.0)
+            };
+            let result = match AssertUnwindSafe(fetch).catch_unwind().await {
+                Ok(result) => result,
+                Err(panic) => Err(panic_message(panic.as_ref())),
+            };
+            if let Err(error) = &result {
+                log(format!("[update] release notes fetch failed: {error}"));
+            }
             ui.post(UiEvent::ReleaseNotesLoaded(result));
         });
+    }
+}
+
+/// 「在 GitHub 查看」要開的網址：已載入用該 release 的頁面，否則開專案的 releases 清單。
+pub fn github_url(state: Option<&NotesState>) -> String {
+    match state {
+        Some(NotesState::Loaded(release)) => release.url.clone(),
+        _ => format!("{PROJECT_URL}/releases"),
     }
 }
