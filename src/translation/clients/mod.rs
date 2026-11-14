@@ -141,7 +141,7 @@ async fn warm_up(http: &reqwest::Client, base_url: &str, label: &str) {
     let started = Instant::now();
     match http.head(base_url).timeout(TIMEOUT).send().await {
         Ok(resp) => log(format!(
-            "[translate] warm-up done in {:.2}s: {label} http={:?} status={}",
+            "[translate] warm-up connected in {:.2}s: {label} http={:?} (status {} ignored)",
             started.elapsed().as_secs_f64(),
             resp.version(),
             resp.status().as_u16()
