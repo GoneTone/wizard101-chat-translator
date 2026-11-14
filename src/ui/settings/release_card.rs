@@ -14,6 +14,10 @@ use crate::runtime::updater::Release;
 const MARKDOWN_HEADING_SIZE: f32 = 15.0;
 /// 載入中佔位條：標題列寬度（px）。
 const SKELETON_TITLE_WIDTH: f32 = 120.0;
+/// 載入中佔位條：日期寬度（px）。
+const SKELETON_DATE_WIDTH: f32 = 96.0;
+/// 載入中佔位條：兩段內文之間的間距（px）。
+const SKELETON_SECTION_GAP: f32 = 8.0;
 /// 載入中佔位條：每段內文各列佔可用寬度的比例。
 const SKELETON_SECTIONS: [&[f32]; 2] = [&[1.0, 0.92, 0.64], &[0.96, 0.58]];
 /// 標題區內距：字型行高在字形上方多留約 5 px、下方約 2 px，上方少給，字形上下到邊界看起來才一樣寬。
@@ -63,14 +67,14 @@ pub(super) fn show(ui: &mut Ui, cache: &mut CommonMarkCache, release: &Release, 
 pub(super) fn loading(ui: &mut Ui, version: &str) {
     let date_height = ui.fonts_mut(|f| f.row_height(&FontId::proportional(theme::HINT_SIZE)));
     let meta = |ui: &mut Ui| {
-        skeleton(ui, 96.0, date_height);
+        skeleton(ui, SKELETON_DATE_WIDTH, date_height);
     };
     shell(ui, version, meta, |ui| {
         let line = ui.text_style_height(&TextStyle::Body);
         let width = ui.available_width();
         for (i, lines) in SKELETON_SECTIONS.iter().enumerate() {
             if i > 0 {
-                ui.add_space(8.0);
+                ui.add_space(SKELETON_SECTION_GAP);
             }
             skeleton(ui, SKELETON_TITLE_WIDTH, line);
             for share in *lines {

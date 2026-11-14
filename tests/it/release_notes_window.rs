@@ -1,6 +1,6 @@
 //! 本版說明視窗：載入中、內文、找不到、失敗與底部按鈕。
 
-use crate::common::kittest::{click, themed_harness, tr};
+use crate::common::kittest::{click, painted_texts, themed_harness, tr};
 use eframe::egui::accesskit::Role;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
@@ -64,6 +64,16 @@ fn loading_shows_placeholders_not_text() {
     h.get_by_label("v1.3.1");
     assert!(h.get_all_by_label(&tr("local.loading")).count() >= 1);
     assert!(!has_retry(&h));
+    let published = t("update.published", &[("date", "")]);
+    let published = published.trim();
+    let loading = tr("local.loading");
+    let painted = painted_texts(&h);
+    assert!(
+        !painted
+            .iter()
+            .any(|text| text.contains(published) || text.contains(&loading)),
+        "{painted:?}"
+    );
 }
 
 /// 載入完成：顯示 Markdown 內文，不是最新版所以沒有「最新」標籤。
@@ -76,6 +86,13 @@ fn loaded_shows_the_markdown_body() {
     h.get_by_label("Fixed");
     h.get_by_label("a bug");
     assert!(h.query_by_label(&tr("update.latest_tag")).is_none());
+    for key in ["release_notes.open_github", "update.close"] {
+        h.get_by_role_and_label(Role::Button, &tr(key));
+    }
+    assert!(
+        h.query_by_role_and_label(Role::Button, &tr("update.now"))
+            .is_none()
+    );
 }
 
 /// 發布日期解析不了就原樣顯示。
