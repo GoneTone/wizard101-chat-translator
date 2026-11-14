@@ -1198,6 +1198,14 @@ fn clicking_the_new_version_opens_the_update_window() {
 }
 
 #[test]
+fn release_notes_link_opens_the_window() {
+    let mut h = harness(configured_cfg());
+    go(&mut h, "settings.tab.about");
+    assert!(click_link(&mut h, &tr("about.release_notes")).is_empty());
+    assert_eq!(h.state().actions, [SettingsAction::OpenReleaseNotes]);
+}
+
+#[test]
 fn update_result_is_only_clickable_over_its_text() {
     // 「有新版」整行是連結，但只到文字為止；不可撐滿整列讓空白也可點
     let mut h = harness(configured_cfg());

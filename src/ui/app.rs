@@ -32,6 +32,7 @@ use crate::ui::overlay::selection::Selection;
 use crate::ui::overlay::tab_bar;
 use crate::ui::region::flow::RegionFlow;
 use crate::ui::region_host::RegionHost;
+use crate::ui::release_notes_host::ReleaseNotesHost;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
@@ -121,11 +122,12 @@ pub struct App {
     settings: Option<SettingsWiring>,
     first_run: Option<FirstRun>,
     update: Option<UpdateHost>,
+    release_notes: Option<ReleaseNotesHost>,
     /// 最新版的 release 網頁；沒接上更新視窗時，點新版改開它。
     latest_url: Option<String>,
     /// 換上新版執行檔；測試換成會失敗的版本。
     replace_exe: fn(&Path) -> io::Result<()>,
-    /// overlay 根視窗與泡泡目前的疊放層級；設定或更新視窗開著時降為一般層級。
+    /// overlay 根視窗與泡泡目前的疊放層級；設定、更新或本版說明視窗開著時降為一般層級。
     overlay_level: WindowLevel,
 }
 
@@ -167,6 +169,7 @@ impl App {
             settings: None,
             first_run: None,
             update: None,
+            release_notes: None,
             latest_url: None,
             replace_exe,
             overlay_level: WindowLevel::AlwaysOnTop,
@@ -248,6 +251,11 @@ impl App {
     /// 接上更新視窗：橫幅與「關於」頁的新版連結開它，下載驗證完由它要求重新啟動。
     pub fn set_update(&mut self, host: UpdateHost) {
         self.update = Some(host);
+    }
+
+    /// 接上本版說明視窗：「關於」頁的連結開它。
+    pub fn set_release_notes(&mut self, host: ReleaseNotesHost) {
+        self.release_notes = Some(host);
     }
 
     /// 首次設定模式：精靈（呼叫端先 `open`）開著時根視窗藏著；完成時關掉精靈、呼叫 `start`，再顯示根視窗。
@@ -385,10 +393,14 @@ impl App {
         self.overlay_level
     }
 
-    /// 設定或更新視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
+    /// 設定、更新或本版說明視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
     fn sync_overlay_level(&mut self, ctx: &egui::Context) {
         let open = self.settings.as_ref().is_some_and(|w| w.host.is_open())
-            || self.update.as_ref().is_some_and(UpdateHost::is_open);
+            || self.update.as_ref().is_some_and(UpdateHost::is_open)
+            || self
+                .release_notes
+                .as_ref()
+                .is_some_and(ReleaseNotesHost::is_open);
         let level = if open {
             WindowLevel::Normal
         } else {
@@ -400,7 +412,7 @@ impl App {
         self.overlay_level = level;
         ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(level));
         log(format!(
-            "[ui] overlay window level set to {level:?} (settings or update window open={open})"
+            "[ui] overlay window level set to {level:?} (settings, update or release notes window open={open})"
         ));
     }
 
@@ -575,22 +587,29 @@ impl App {
             }
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
-            // 暫不處理：之後接到本版說明 host
-            UiEvent::ReleaseNotesLoaded(_) => {}
+            UiEvent::ReleaseNotesLoaded(result) => {
+                if let Some(host) = &mut self.release_notes {
+                    host.loaded(result);
+                }
+            }
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗、本版說明視窗；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
         let settings = self.settings.as_ref().map_or(0, |s| s.host.hwnd());
         let wizard = self.first_run.as_ref().map_or(0, |w| w.host.hwnd());
         let update = self.update.as_ref().map_or(0, UpdateHost::hwnd);
+        let notes = self
+            .release_notes
+            .as_ref()
+            .map_or(0, ReleaseNotesHost::hwnd);
         [self.hwnd, input]
             .into_iter()
             .chain(region)
-            .chain([settings, wizard, update])
+            .chain([settings, wizard, update, notes])
             .filter(|&h| h != 0)
             .collect()
     }
@@ -675,6 +694,10 @@ impl App {
             SettingsAction::PreviewLanguage => self.relabel(ctx),
             SettingsAction::UpdateFound(releases) => self.update_found(releases, false),
             SettingsAction::OpenUpdate => self.open_update(ctx),
+            SettingsAction::OpenReleaseNotes => match &mut self.release_notes {
+                Some(host) => host.open(),
+                None => log("[update] release notes requested but no host is wired"),
+            },
             SettingsAction::Save(cfg) => {
                 let Some(wiring) = &mut self.settings else {
                     return;
@@ -875,6 +898,10 @@ impl eframe::App for App {
         }
         self.show_settings(&ctx);
         self.show_update(&ctx);
+        let known = self.viewport_hwnds();
+        if let Some(host) = &mut self.release_notes {
+            host.show(&ctx, &known);
+        }
         self.sync_overlay_level(&ctx);
         if let Some(rect) = place {
             // 上一幀的全透明畫面要先真的上螢幕才能搬，否則 DWM 會把更早的內容帶到新位置
@@ -2095,6 +2122,43 @@ mod tests {
         harness.state_mut().open_update(&ctx);
         harness.step();
         assert_eq!(harness.state().overlay_level(), WindowLevel::Normal);
+    }
+
+    /// 接上不碰真視窗、不連外的本版說明視窗；回傳的 runtime 要留到測試結束。
+    fn wire_release_notes(harness: &mut Harness<App>) -> tokio::runtime::Runtime {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (poster, _) = UiPoster::for_test();
+        let mut host =
+            ReleaseNotesHost::new(rt.handle().clone(), poster, "http://127.0.0.1:1".into());
+        host.set_window_ops(crate::ui::settings_host::WindowOps::offscreen());
+        harness.state_mut().set_release_notes(host);
+        rt
+    }
+
+    #[test]
+    fn open_release_notes_action_opens_the_window() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_release_notes(&mut harness);
+        let ctx = harness.ctx.clone();
+        harness
+            .state_mut()
+            .settings_action(&ctx, SettingsAction::OpenReleaseNotes);
+        assert!(harness.state().release_notes.as_ref().unwrap().is_open());
+    }
+
+    #[test]
+    fn release_notes_window_keeps_the_overlay_at_normal_level() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let _rt = wire_release_notes(&mut harness);
+        let ctx = harness.ctx.clone();
+        harness
+            .state_mut()
+            .settings_action(&ctx, SettingsAction::OpenReleaseNotes);
+        harness.step();
+        assert_eq!(harness.state().overlay_level(), WindowLevel::Normal);
+        assert!(harness.state().release_notes.as_ref().unwrap().is_open());
     }
 
     #[test]

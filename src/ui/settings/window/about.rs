@@ -211,16 +211,25 @@ impl SettingsWindow {
         }
     }
 
-    fn hero_text(&self, ui: &mut Ui) {
+    fn hero_text(&mut self, ui: &mut Ui) {
         ui.add(Label::new(
             RichText::new(app_name()).font(theme::bold(17.0)),
         ));
         let version = format!("{} v{}", t("about.version", &[]), env!("CARGO_PKG_VERSION"));
-        ui.add(Label::new(
-            RichText::new(version)
-                .size(theme::HINT_SIZE)
-                .color(theme::TEXT_SECONDARY),
-        ));
+        let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.spacing_mut().interact_size.y = 0.0;
+            ui.horizontal_wrapped(|ui| {
+                ui.add(Label::new(small(version).color(theme::TEXT_SECONDARY)));
+                ui.add(Label::new(small(" · ".into()).color(theme::TEXT_SECONDARY)));
+                let notes = small(t("about.release_notes", &[])).color(theme::LINK);
+                if ui.add(Link::new(notes)).clicked() {
+                    log("[ui] release notes requested from the about tab");
+                    self.pending.push(SettingsAction::OpenReleaseNotes);
+                }
+            });
+        });
     }
 
     fn update_result(&mut self, ui: &mut Ui) {
