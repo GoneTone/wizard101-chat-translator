@@ -42,7 +42,7 @@
 ## 實作要點（交給實作者，下列是我的判斷）
 
 - **取資料**：在 `runtime/updater.rs` 加一個查單一 release 的函式，打 `{RELEASES_API}/tags/v{CARGO_PKG_VERSION}`。HTTP 200 → `Release`、404 → 找不到、其他 → `UpdateCheckError`。請求標頭與 client 沿用 `check_for_update` 與 `update_client`。從 `parse_releases` 抽出單筆 JSON 轉 `Release` 的部分共用，不要另寫一份欄位解析。單筆查詢不套用 `is_newer` 與 pre-release 過濾：tag 端點不回草稿，而目前執行的版本就算是 pre-release 也該顯示。
-- **視窗托管**：新增一個 host（例如 `src/ui/release_notes_host.rs`），用 `HostedWindow` 與一個新的 `Spec`，模式參照 `UpdateHost`，但不碰 `UpdateJob`。它自己持有 tokio `Handle` 與 `UiPoster`，在背景取資料，結果以新的 `UiEvent` 投遞回 UI 執行緒。要用輪次（或等效機制）丟掉過期的結果，例如關窗後才回來的那一次。
+- **視窗托管**：新增一個 host（例如 `src/ui/release_notes_host.rs`），用 `HostedWindow` 與一個新的 `Spec`，模式參照 `UpdateHost`，但不碰 `UpdateJob`。它自己持有 tokio `Handle` 與 `UiPoster`，在背景取資料，結果以新的 `UiEvent` 投遞回 UI 執行緒。請求中不會再發第二個請求（重新開窗或按〔重試〕都直接略過），關窗後才回來的結果照樣存進快取，下次開窗直接用，不需要輪次。
 - **跟更新視窗脫鉤**：`main.rs` 在除錯建置或找不到自己的 exe 時不會掛上 `UpdateHost`。本版說明的 host 不能依賴這個條件，`cargo run` 時也要能開，這樣才看得到「找不到」的畫面。
 - **App 串接**：關於頁送出新的 `SettingsAction`（例如 `OpenReleaseNotes`），App 呼叫 host 的 `open`，並每幀呼叫它的 `show`。overlay 置頂層級的判斷（`app.rs` 裡「設定或更新視窗開著就降為一般層級」那段）、`viewport_hwnds` 都要把新視窗算進去。
 - **共用卡片**：把 `UpdateView::release_card` 與它用到的 `flatten_headings`、`local_date`、Markdown 樣式設定抽成兩個視窗共用的函式。用參數決定要不要畫「最新」標籤。載入中的佔位版本可以是同一個函式的另一個分支，或另一個小函式，由實作者決定。標題區與底部列的外框（內距、底色、`scroll_page`）也盡量共用常數，不要複製數值。
