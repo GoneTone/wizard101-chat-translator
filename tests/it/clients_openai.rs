@@ -909,7 +909,7 @@ async fn warm_up_sends_a_keyless_head_request() {
     assert!(!received[0].headers.contains_key("authorization"));
     let lines = common::log_capture::log_lines_with("warm-up-keyless-head");
     assert!(
-        lines[0].contains("warm-up done") && lines[0].contains("status=404"),
+        lines[0].contains("warm-up connected") && lines[0].contains("(status 404 ignored)"),
         "{lines:?}"
     );
 }
