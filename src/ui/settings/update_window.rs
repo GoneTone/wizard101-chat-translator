@@ -3,36 +3,23 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, Panel, RichText, TextStyle, Ui, vec2};
-use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
+use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, Panel, RichText, Ui, vec2};
+use egui_commonmark::CommonMarkCache;
 
 use super::local_rate::{MB, Rates, Speed, format_speed};
 use super::quant_table::fraction;
-use super::release_links::linkify_github;
-use super::release_table::{self, Block, split_tables};
+use super::release_card;
 use super::theme;
 use super::widgets::{
-    card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
-    right_aligned_width, scroll_page, secondary_button,
+    danger_button, hint, primary_button, progress_bar, right_aligned, right_aligned_width,
+    scroll_page, secondary_button,
 };
 use crate::i18n::t;
 use crate::runtime::update_job::Phase;
 use crate::runtime::updater::Release;
 
-/// 內文標題字級（粗體）：比版本號小，略大於內文。
-const MARKDOWN_HEADING_SIZE: f32 = 15.0;
 /// 更新下載在 `Rates` 裡的鍵。
 const RATE_KEY: &str = "update";
-/// 標題區內距：字型行高在字形上方多留約 5 px、下方約 2 px，上方少給，字形上下到邊界看起來才一樣寬。
-const HEADER_MARGIN: Margin = Margin {
-    left: 20,
-    right: 20,
-    top: 13,
-    bottom: 16,
-};
-/// 卡片清單頭尾的留白：第一張卡片離標題區的分隔線、最後一張卡片離底部列的距離。
-const LIST_PADDING: i8 = 16;
-
 /// 使用者在更新視窗按下的動作，由 host 轉給 `UpdateJob`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateAction {
@@ -81,17 +68,17 @@ impl UpdateView {
             .frame(
                 Frame::new()
                     .fill(theme::MODAL_FOOT)
-                    .inner_margin(Margin::symmetric(20, 14)),
+                    .inner_margin(release_card::FOOTER_MARGIN),
             )
             .show(ui, |ui| {
                 footer(ui, phase, progress, speed, unsaved, &mut actions);
             });
         if let Some(latest) = releases.first() {
             Panel::top("update_header")
-                .frame(Frame::new().inner_margin(HEADER_MARGIN))
+                .frame(Frame::new().inner_margin(release_card::HEADER_MARGIN))
                 .show(ui, |ui| header(ui, latest, releases.len()));
         }
-        let margin = Margin::symmetric(20, LIST_PADDING);
+        let margin = Margin::symmetric(20, release_card::LIST_PADDING);
         scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
             self.releases(ui, releases);
         });
@@ -101,93 +88,11 @@ impl UpdateView {
     /// 每一版的卡片。
     fn releases(&mut self, ui: &mut Ui, releases: &[Release]) {
         for (i, release) in releases.iter().enumerate() {
-            ui.push_id(i, |ui| self.release_card(ui, release, i == 0));
+            ui.push_id(i, |ui| {
+                release_card::show(ui, &mut self.markdown, release, i == 0)
+            });
         }
     }
-
-    fn release_card(&mut self, ui: &mut Ui, release: &Release, latest: bool) {
-        card(ui, |ui| {
-            Frame::new()
-                .inner_margin(Margin::symmetric(16, 14))
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 8.0;
-                    let font = theme::bold(17.0);
-                    // 列高取版本號字高：用預設的控制項高時「最新」標籤會被撐高
-                    let height = ui.fonts_mut(|f| f.row_height(&font));
-                    let row = vec2(ui.available_width(), height);
-                    ui.allocate_ui_with_layout(row, Layout::left_to_right(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-                        let version = RichText::new(format!("v{}", release.version))
-                            .font(font)
-                            .color(theme::ACCENT);
-                        ui.add(Label::new(version));
-                        let date = t("update.published", &[("date", &local_date(release))]);
-                        hint(ui, &date, theme::TEXT_MUTED);
-                        if latest {
-                            pill(ui, &t("update.latest_tag", &[]));
-                        }
-                    });
-                    ui.separator();
-                    ui.style_mut()
-                        .text_styles
-                        .insert(TextStyle::Heading, theme::bold(MARKDOWN_HEADING_SIZE));
-                    // 主題的 override_text_color 會把連結也染成內文色
-                    let visuals = ui.visuals_mut();
-                    visuals.override_text_color = None;
-                    visuals.widgets.noninteractive.fg_stroke.color = theme::TEXT;
-                    // 清單項目用 horizontal_wrapped，首列高取 interact_size.y：控制項高會讓連結與項目符號浮在內文上方
-                    ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Body);
-                    let body = linkify_github(&flatten_headings(&release.body));
-                    for block in split_tables(&body) {
-                        match block {
-                            Block::Markdown(text) => {
-                                CommonMarkViewer::new().show(ui, &mut self.markdown, text);
-                            }
-                            Block::Table(table) => {
-                                release_table::show(ui, &table, &mut self.markdown)
-                            }
-                        }
-                    }
-                });
-        });
-    }
-}
-
-/// 各級 ATX 標題都改成一級：egui_commonmark 只有一級標題用 `TextStyle::Heading`（粗體），其餘只放大字級。
-fn flatten_headings(body: &str) -> String {
-    let mut fenced = false;
-    body.lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-                fenced = !fenced;
-            }
-            let hashes = trimmed.len() - trimmed.trim_start_matches('#').len();
-            let rest = &trimmed[hashes..];
-            // 縮排四格以上是程式碼區塊；`#` 超過六個或後面沒接空白就不是標題
-            let heading = line.len() - trimmed.len() < 4
-                && (2..=6).contains(&hashes)
-                && (rest.is_empty() || rest.starts_with([' ', '\t']));
-            if heading && !fenced {
-                format!("#{rest}")
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// 發布日期換成本機時區的 `YYYY-MM-DD`；解析不了就原樣顯示。
-fn local_date(release: &Release) -> String {
-    chrono::DateTime::parse_from_rfc3339(&release.published_at).map_or_else(
-        |_| release.published_at.clone(),
-        |at| {
-            at.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d")
-                .to_string()
-        },
-    )
 }
 
 /// 固定在上方的標題與副標：最新版號、目前版號與新版本數。

@@ -2,8 +2,8 @@
 
 use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense, Ui,
-    Vec2, WidgetInfo, pos2,
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Link, Rect, RichText, Role, Sense,
+    TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -38,6 +38,9 @@ impl Default for AboutState {
         }
     }
 }
+
+/// 版本號與本版說明連結之間的分隔。
+const SEPARATOR: &str = " · ";
 
 /// 頭卡圖示的邊長。
 const HERO_ICON: f32 = 48.0;
@@ -211,16 +214,53 @@ impl SettingsWindow {
         }
     }
 
-    fn hero_text(&self, ui: &mut Ui) {
+    fn hero_text(&mut self, ui: &mut Ui) {
         ui.add(Label::new(
             RichText::new(app_name()).font(theme::bold(17.0)),
         ));
         let version = format!("{} v{}", t("about.version", &[]), env!("CARGO_PKG_VERSION"));
-        ui.add(Label::new(
-            RichText::new(version)
-                .size(theme::HINT_SIZE)
-                .color(theme::TEXT_SECONDARY),
-        ));
+        let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
+        let notes = t("about.release_notes", &[]);
+        let width = |ui: &Ui, text: &str| {
+            let font = TextStyle::Body.resolve(ui.style());
+            let font = FontId::new(theme::HINT_SIZE, font.family);
+            ui.painter()
+                .layout_no_wrap(text.to_owned(), font, theme::TEXT_SECONDARY)
+                .size()
+                .x
+        };
+        let one_row =
+            width(ui, &version) + width(ui, SEPARATOR) + width(ui, &notes) <= ui.available_width();
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            // 預設的控制高度會讓連結那一列比文字高
+            ui.spacing_mut().interact_size.y = 0.0;
+            ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+            let row = |ui: &mut Ui| {
+                let label = Label::new(small(version).color(theme::TEXT_SECONDARY));
+                ui.add(label.wrap_mode(TextWrapMode::Wrap));
+                if one_row {
+                    ui.add(Label::new(
+                        small(SEPARATOR.into()).color(theme::TEXT_SECONDARY),
+                    ));
+                }
+            };
+            let link = |ui: &mut Ui| ui.add(Link::new(small(notes).color(theme::LINK))).clicked();
+            let clicked = if one_row {
+                ui.horizontal(|ui| {
+                    row(ui);
+                    link(ui)
+                })
+                .inner
+            } else {
+                row(ui);
+                link(ui)
+            };
+            if clicked {
+                log("[ui] release notes requested from the about tab");
+                self.pending.push(SettingsAction::OpenReleaseNotes);
+            }
+        });
     }
 
     fn update_result(&mut self, ui: &mut Ui) {

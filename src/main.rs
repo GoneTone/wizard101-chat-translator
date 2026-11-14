@@ -41,6 +41,7 @@ use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::region::flow::RegionFlow;
+use wizard101_chat_translator::ui::release_notes_host::ReleaseNotesHost;
 use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
@@ -383,6 +384,11 @@ fn start_main(app: &mut App, startup: Startup) {
             "[update] cannot locate own exe, in-app update disabled: {e}"
         )),
     }
+    app.set_release_notes(ReleaseNotesHost::new(
+        rt.clone(),
+        ui.clone(),
+        RELEASES_API.to_owned(),
+    ));
     schedule_update_checks(
         &rt,
         built.stop.clone(),

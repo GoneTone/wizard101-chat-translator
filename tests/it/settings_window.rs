@@ -1198,6 +1198,59 @@ fn clicking_the_new_version_opens_the_update_window() {
 }
 
 #[test]
+fn release_notes_link_opens_the_window() {
+    let mut h = harness(configured_cfg());
+    go(&mut h, "settings.tab.about");
+    assert!(click_link(&mut h, &tr("about.release_notes")).is_empty());
+    assert_eq!(h.state().actions, [SettingsAction::OpenReleaseNotes]);
+}
+
+/// 版本與本版說明連結的矩形、檢查更新按鈕的矩形，以及分隔符是否畫出；視窗寬度由 `size` 決定。
+fn about_hero_layout(size: egui::Vec2) -> (Rect, Rect, Rect, bool) {
+    let mut h = harness_with(configured_cfg(), FakeEnv::default(), size);
+    go(&mut h, "settings.tab.about");
+    run(&mut h);
+    let version = format!("{} v{}", tr("about.version"), env!("CARGO_PKG_VERSION"));
+    let version = h.get_by_label(&version).rect();
+    let link = h.get_by_label(&tr("about.release_notes")).rect();
+    let button = h
+        .get_by_role_and_label(Role::Button, &tr("button.check_update"))
+        .rect();
+    let separator = find_text_shape(&h.output().shapes, " · ").is_some();
+    (version, link, button, separator)
+}
+
+#[test]
+fn release_notes_link_shares_the_version_row_at_the_default_width() {
+    let (version, link, _, separator) =
+        about_hero_layout(theme::SETTINGS_SIZE + egui::vec2(0.0, 1000.0));
+    assert!(
+        (version.center().y - link.center().y).abs() <= 1.0,
+        "version {version:?} vs link {link:?}"
+    );
+    assert!(separator);
+}
+
+#[test]
+fn release_notes_link_is_never_split_at_the_minimum_width() {
+    // 最窄時整欄只剩約 90 pt：連結放不下就連同分隔符一起排到下一行，不可在字中間折斷
+    let (version, link, button, separator) =
+        about_hero_layout(theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    let (_, one_line, _, _) = about_hero_layout(theme::SETTINGS_SIZE + egui::vec2(0.0, 1000.0));
+    assert!(
+        (link.height() - one_line.height()).abs() <= 1.0,
+        "link {link:?} vs {one_line:?}"
+    );
+    let same_row = (version.center().y - link.center().y).abs() <= 1.0;
+    assert_eq!(separator, same_row, "version {version:?} vs link {link:?}");
+    assert!(link.right() < button.left(), "link {link:?} vs {button:?}");
+    assert!(
+        version.right() < button.left(),
+        "version {version:?} vs {button:?}"
+    );
+}
+
+#[test]
 fn update_result_is_only_clickable_over_its_text() {
     // 「有新版」整行是連結，但只到文字為止；不可撐滿整列讓空白也可點
     let mut h = harness(configured_cfg());

@@ -143,37 +143,44 @@ fn parse_asset(release: &Value) -> Option<Asset> {
     })
 }
 
+/// 回應形狀不符時的錯誤，附上前 80 字元方便對照。
+fn unexpected(json: &Value) -> UpdateCheckError {
+    let shown: String = json.to_string().chars().take(80).collect();
+    UpdateCheckError(format!("unexpected response: {shown}"))
+}
+
+/// 解析單一 release 物件；缺 `tag_name` 回 `None`。
+fn parse_release(item: &Value) -> Option<Release> {
+    let version = item["tag_name"].as_str()?.trim_start_matches(['v', 'V']);
+    let text = |key: &str| item[key].as_str().unwrap_or_default().to_owned();
+    Some(Release {
+        version: version.to_owned(),
+        url: item["html_url"]
+            .as_str()
+            .filter(|u| !u.is_empty())
+            .unwrap_or(RELEASES_URL)
+            .to_owned(),
+        published_at: text("published_at"),
+        body: text("body"),
+        asset: parse_asset(item),
+    })
+}
+
 /// 從 `/releases` 清單挑出比 `current` 新的正式 release，由新到舊；草稿與 pre-release 不算。
 pub fn parse_releases(json: &Value, current: &str) -> Result<Vec<Release>, UpdateCheckError> {
-    let items = json.as_array().ok_or_else(|| {
-        let shown: String = json.to_string().chars().take(80).collect();
-        UpdateCheckError(format!("unexpected response: {shown}"))
-    })?;
+    let items = json.as_array().ok_or_else(|| unexpected(json))?;
     let mut releases = Vec::new();
     for item in items {
         if item["draft"] == true || item["prerelease"] == true {
             continue;
         }
-        let Some(tag) = item["tag_name"].as_str() else {
+        let Some(release) = parse_release(item) else {
             log("[update] skipped a release without tag_name");
             continue;
         };
-        let version = tag.trim_start_matches(['v', 'V']);
-        if !is_newer(version, current) {
-            continue;
+        if is_newer(&release.version, current) {
+            releases.push(release);
         }
-        let text = |key: &str| item[key].as_str().unwrap_or_default().to_owned();
-        releases.push(Release {
-            version: version.to_owned(),
-            url: item["html_url"]
-                .as_str()
-                .filter(|u| !u.is_empty())
-                .unwrap_or(RELEASES_URL)
-                .to_owned(),
-            published_at: text("published_at"),
-            body: text("body"),
-            asset: parse_asset(item),
-        });
     }
     releases.sort_by_key(|r| std::cmp::Reverse(precedence_key(&r.version)));
     Ok(releases)
@@ -186,6 +193,21 @@ pub async fn check_for_update(
     current: &str,
 ) -> Result<Vec<Release>, UpdateCheckError> {
     log("[update] checking releases");
+    let Some(data) = get_json(client, url).await? else {
+        log("[update] no release published yet (404)");
+        return Ok(Vec::new());
+    };
+    let releases = parse_releases(&data, current)?;
+    log(format!(
+        "[update] newer releases: count={} latest={}",
+        releases.len(),
+        releases.first().map_or("-", |r| r.version.as_str())
+    ));
+    Ok(releases)
+}
+
+/// GET `url` 並解析成 JSON；404 回 `Ok(None)`，其他非 200 與壞掉的 JSON 回 `Err`。
+async fn get_json(client: &reqwest::Client, url: &str) -> Result<Option<Value>, UpdateCheckError> {
     // GitHub API 要求帶 User-Agent，缺了會被拒（403）
     let response = client
         .get(url)
@@ -199,23 +221,39 @@ pub async fn check_for_update(
         .map_err(|e| UpdateCheckError(error_chain(e)))?;
     let status = response.status();
     if status.as_u16() == 404 {
-        log("[update] no release published yet (404)");
-        return Ok(Vec::new());
+        return Ok(None);
     }
     if status.as_u16() != 200 {
         return Err(UpdateCheckError(format!("HTTP {}", status.as_u16())));
     }
-    let data: Value = response
+    response
         .json()
         .await
-        .map_err(|e| UpdateCheckError(format!("unexpected response: {}", error_chain(e))))?;
-    let releases = parse_releases(&data, current)?;
+        .map(Some)
+        .map_err(|e| UpdateCheckError(format!("unexpected response: {}", error_chain(e))))
+}
+
+/// 指定版本在 `api`（releases API 根網址）上的單一 release 網址。
+pub fn release_tag_url(api: &str, version: &str) -> String {
+    format!("{api}/tags/v{version}")
+}
+
+/// 取 `url` 上的單一 release；404 回 `Ok(None)`，其他失敗回 `Err`。
+pub async fn fetch_release(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Option<Release>, UpdateCheckError> {
+    log(format!("[update] fetching release notes: {url}"));
+    let Some(data) = get_json(client, url).await? else {
+        log("[update] release notes not found (404)");
+        return Ok(None);
+    };
+    let release = parse_release(&data).ok_or_else(|| unexpected(&data))?;
     log(format!(
-        "[update] newer releases: count={} latest={}",
-        releases.len(),
-        releases.first().map_or("-", |r| r.version.as_str())
+        "[update] release notes loaded: version={} published={}",
+        release.version, release.published_at
     ));
-    Ok(releases)
+    Ok(Some(release))
 }
 
 /// 立刻查一次更新，之後每隔 `interval` 再查，直到 `stop` 觸發；有新版就把清單交給 `found`。

@@ -15,6 +15,7 @@ pub mod overlay;
 pub mod palette;
 pub mod region;
 pub mod region_host;
+pub mod release_notes_host;
 pub mod richtext;
 pub mod run;
 pub mod settings;
