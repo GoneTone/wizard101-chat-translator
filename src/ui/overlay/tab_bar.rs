@@ -1,6 +1,6 @@
 //! overlay 標題列下方的分頁列：照抄遊戲聊天分頁按鈕的文字，高亮目前分頁，不可點擊。
 
-use eframe::egui::{self, FontId, Label, RichText, TextWrapMode, Ui, Vec2};
+use eframe::egui::{self, FontId, Label, RichText, Role, TextWrapMode, Ui, Vec2, WidgetInfo};
 
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::palette::{BAR, TAB_ACCENT, TAB_FG, TAB_FG_ACTIVE, bar_alpha};
@@ -38,7 +38,12 @@ pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>, alpha: f3
                         let label = Label::new(label)
                             .selectable(false)
                             .wrap_mode(TextWrapMode::Extend);
-                        let width = ui.add(label).rect.width();
+                        let tab = ui.add(label);
+                        tab.widget_info(|| WidgetInfo::labeled(Role::Tab, true, text));
+                        // WidgetInfo::selected 寫的是 toggled，Windows 的分頁選取狀態只看 selected
+                        ui.ctx()
+                            .accesskit_node_builder(tab.id, |node| node.set_selected(active));
+                        let width = tab.rect.width();
                         let (_, line) = ui.allocate_space(Vec2::new(width, ACCENT_HEIGHT));
                         if active {
                             ui.painter().rect_filled(line, 0.0, TAB_ACCENT);
@@ -52,7 +57,7 @@ pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>, alpha: f3
 #[cfg(test)]
 mod tests {
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
 
     use super::*;
     use crate::ui::fonts_egui;
@@ -80,6 +85,19 @@ mod tests {
             (1, "Group".into()),
             (2, "Room(1)".into()),
         ]
+    }
+
+    #[test]
+    fn only_the_current_tab_is_exposed_as_selected() {
+        let bar = harness(tabs(), Some(1));
+        for (label, selected) in [("Main", false), ("Group", true), ("Room(1)", false)] {
+            let node = bar.get_by_role_and_label(egui::accesskit::Role::Tab, label);
+            assert_eq!(
+                node.accesskit_node().is_selected(),
+                Some(selected),
+                "{label}"
+            );
+        }
     }
 
     #[test]
