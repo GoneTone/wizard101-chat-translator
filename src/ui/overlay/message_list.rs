@@ -7,7 +7,10 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
-use eframe::egui::{Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText, Ui, Vec2};
+use eframe::egui::{
+    Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText, Role, Sense, Ui, Vec2,
+    WidgetInfo,
+};
 
 use crate::config::py::py_bool;
 use crate::logs::log;
@@ -278,6 +281,7 @@ impl MessageList {
                     }
                 }
                 outlined::paint(&painter, origin, galley, color);
+                expose_line(ui, origin, galley, viewport, (message.seq, line));
             }
             self.rows.push(Row {
                 seq: message.seq,
@@ -297,6 +301,17 @@ impl MessageList {
             ));
         }
     }
+}
+
+/// 把畫在視口內的一行標成無障礙樹的文字節點，供 UI Automation 讀取。
+fn expose_line(ui: &Ui, origin: Pos2, galley: &Galley, viewport: Rect, key: (u64, usize)) {
+    let rect =
+        Rect::from_min_size(origin + Vec2::splat(TEXT_ORIGIN), galley.size()).intersect(viewport);
+    if galley.text().is_empty() || !rect.is_positive() {
+        return;
+    }
+    ui.interact(rect, ui.scope_id().with(key), Sense::hover())
+        .widget_info(|| WidgetInfo::labeled(Role::Label, true, galley.text()));
 }
 
 /// 從錨點那則（已被移除就改用其後第一則）排起，列頂再往下移 `dy`。
@@ -1241,5 +1256,29 @@ mod tests {
         times.sort();
         let median = times[times.len() / 2];
         assert!(median < Duration::from_millis(8), "{times:?}");
+    }
+
+    #[test]
+    fn only_lines_in_view_are_exposed_to_accessibility() {
+        let h = filled(40, 200, 0);
+        let all = messages(&h);
+        let (first, last) = (&all[0], all.last().unwrap());
+        for text in [&last.original, &last.translated] {
+            h.get_by_role_and_label(egui::accesskit::Role::Label, text);
+        }
+        assert!(h.query_by_label(&first.original).is_none());
+    }
+
+    #[test]
+    fn empty_translation_line_has_no_accessibility_node() {
+        let mut h = harness(OverlayModel::new(200, 0));
+        let at = h.state().t0;
+        let s = h.state_mut();
+        s.model
+            .add_message(1, &[0], "hello", "", Some(0), false, None, at);
+        h.step();
+        let labels: Vec<_> = h.query_all_by_role(egui::accesskit::Role::Label).collect();
+        assert_eq!(labels.len(), 1);
+        h.get_by_label("hello");
     }
 }

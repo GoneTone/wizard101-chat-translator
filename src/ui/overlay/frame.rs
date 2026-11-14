@@ -1,6 +1,7 @@
 //! overlay 視窗外框：半透明底、標題列（圖示、名稱、狀態、⛶⚙─✕）、拖曳移動、四邊四角縮放與記憶位置。
 
 use eframe::egui::layers::ShapeIdx;
+use eframe::egui::response::Flags;
 use eframe::egui::{
     self, Align, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response, RichText, Role,
     Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui, UiBuilder, Vec2,
@@ -501,13 +502,19 @@ fn tooltip_anchor(ctx: &egui::Context, widget: egui::Id) -> Pos2 {
 pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect) -> Response {
     let (square, node) = ui.allocate_exact_size(Vec2::splat(BAR_HEIGHT), Sense::hover());
     node.widget_info(|| WidgetInfo::labeled(Role::Button, true, glyph));
-    let button = ui
+    let mut button = ui
         .interact(
             square.intersect(hit),
             node.id.with("hit"),
             Sense::click_and_drag(),
         )
         .on_hover_cursor(CursorIcon::PointingHand);
+    // node 只感應懸停，egui 不會替它宣告可點擊；收到的點擊請求要轉給接滑鼠的這塊
+    ui.ctx()
+        .accesskit_node_builder(node.id, |n| n.add_action(egui::accesskit::Action::Click));
+    if ui.input(|i| i.has_accesskit_action_request(node.id, egui::accesskit::Action::Click)) {
+        button.flags.set(Flags::FAKE_PRIMARY_CLICKED, true);
+    }
     let (hover_fill, hover_fg) = if close {
         (CLOSE_HOVER, Color32::WHITE)
     } else {
@@ -577,7 +584,7 @@ pub(crate) mod tests {
     use std::time::Instant;
 
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
 
     use super::*;
     use crate::ui::fonts_egui;
@@ -1117,6 +1124,27 @@ pub(crate) mod tests {
             assert_eq!(harness.state().clicked, Some(action), "{glyph}");
             assert_eq!(harness.state().shell.rect, START, "{glyph}");
             assert!(saved.borrow().is_empty(), "{glyph}");
+        }
+    }
+
+    #[test]
+    fn title_buttons_respond_to_accessibility_clicks() {
+        for (glyph, action) in [
+            ("✕", Clicked::Close),
+            ("─", Clicked::Minimize),
+            ("⚙", Clicked::Settings),
+            ("⛶", Clicked::Region),
+        ] {
+            let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+            let node = harness.get_by_label(glyph);
+            let click = egui::accesskit::Action::Click;
+            assert!(
+                node.accesskit_node().data().supports_action(click),
+                "{glyph}"
+            );
+            node.click_accesskit();
+            harness.step();
+            assert_eq!(harness.state().clicked, Some(action), "{glyph}");
         }
     }
 
