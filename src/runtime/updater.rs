@@ -143,6 +143,12 @@ fn parse_asset(release: &Value) -> Option<Asset> {
     })
 }
 
+/// 回應形狀不符時的錯誤，附上前 80 字元方便對照。
+fn unexpected(json: &Value) -> UpdateCheckError {
+    let shown: String = json.to_string().chars().take(80).collect();
+    UpdateCheckError(format!("unexpected response: {shown}"))
+}
+
 /// 解析單一 release 物件；缺 `tag_name` 回 `None`。
 fn parse_release(item: &Value) -> Option<Release> {
     let version = item["tag_name"].as_str()?.trim_start_matches(['v', 'V']);
@@ -162,10 +168,7 @@ fn parse_release(item: &Value) -> Option<Release> {
 
 /// 從 `/releases` 清單挑出比 `current` 新的正式 release，由新到舊；草稿與 pre-release 不算。
 pub fn parse_releases(json: &Value, current: &str) -> Result<Vec<Release>, UpdateCheckError> {
-    let items = json.as_array().ok_or_else(|| {
-        let shown: String = json.to_string().chars().take(80).collect();
-        UpdateCheckError(format!("unexpected response: {shown}"))
-    })?;
+    let items = json.as_array().ok_or_else(|| unexpected(json))?;
     let mut releases = Vec::new();
     for item in items {
         if item["draft"] == true || item["prerelease"] == true {
@@ -245,10 +248,7 @@ pub async fn fetch_release(
         log("[update] release notes not found (404)");
         return Ok(None);
     };
-    let release = parse_release(&data).ok_or_else(|| {
-        let shown: String = data.to_string().chars().take(80).collect();
-        UpdateCheckError(format!("unexpected response: {shown}"))
-    })?;
+    let release = parse_release(&data).ok_or_else(|| unexpected(&data))?;
     log(format!(
         "[update] release notes loaded: version={} published={}",
         release.version, release.published_at
