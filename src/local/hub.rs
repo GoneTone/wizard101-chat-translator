@@ -201,7 +201,7 @@ pub struct Local {
     pub(super) hf_http: reqwest::Client,
     gh_http: reqwest::Client,
     pub(super) state: Mutex<Snapshot>,
-    /// 偵測過的 GPU（外層 `None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
+    /// 偵測過的 GPU（`None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
     gpus: Mutex<Option<Vec<Gpu>>>,
     /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
     first_measure: OnceCell<()>,

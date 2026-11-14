@@ -172,7 +172,7 @@ fn pair_adapters(gpus: &[Gpu], adapters: &[(u32, u32)]) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// 算進相容判斷的 VRAM：總量、可用量與算到的卡名（位元組）。
+/// 算進相容判斷的 VRAM：總量與可用量（位元組），以及算進去的卡名。
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Vram {
     pub total: u64,
@@ -218,8 +218,8 @@ pub fn vram(
                 }
             }
             if paired.is_empty() {
-                return match counters.first().copied().flatten() {
-                    Some(c) => Some(sum(vec![c], names(&[0]))),
+                return match gpus.first().zip(counters.first().copied().flatten()) {
+                    Some((g, c)) => Some(sum(vec![c], vec![g.name.clone()])),
                     None => pick_device(d, gpus.first())
                         .map(|(name, total, free)| sum(vec![(total, free)], vec![name])),
                 };
@@ -472,6 +472,24 @@ mod tests {
         assert_eq!(
             (v.total, v.free, v.cards),
             (6 * G, 5 * G, vec!["Bigger".into()])
+        );
+    }
+
+    /// 計數器比偵測到的卡多（不等長）時不會 panic，退回最大的裝置。
+    #[test]
+    fn unmatched_names_without_gpus_ignore_stray_counters() {
+        let v = vram(
+            &[],
+            &[Some((8 * G, 2 * G))],
+            Some(vec![("Other".into(), 4 * G, 3 * G)]),
+        );
+        assert_eq!(
+            v,
+            Some(Vram {
+                total: 4 * G,
+                free: 3 * G,
+                cards: vec!["Other".into()]
+            })
         );
     }
 
