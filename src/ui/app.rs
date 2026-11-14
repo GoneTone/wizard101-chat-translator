@@ -575,6 +575,8 @@ impl App {
             }
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
+            // 暫不處理：之後接到本版說明 host
+            UiEvent::ReleaseNotesLoaded(_) => {}
         }
     }
 

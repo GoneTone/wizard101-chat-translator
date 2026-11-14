@@ -57,6 +57,8 @@ pub enum UiEvent {
         run: u64,
         result: Result<(), String>,
     },
+    /// 本版說明的背景請求結束：`Ok(None)` 是 GitHub 上沒有這個版本（404）。
+    ReleaseNotesLoaded(Result<Option<Release>, String>),
     /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。
     ShowInputBox { retarget: Option<isize> },
     /// 遊戲聊天輸入框開了；`anchor` 是它的螢幕矩形。
