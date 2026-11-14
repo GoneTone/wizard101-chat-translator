@@ -107,13 +107,18 @@ pub struct Rating {
 /// 本來就比當時可用量少這麼多，再加上最多一層。
 const FIT_TARGET: u64 = 1024 << 20;
 
-/// 判斷等級用的可用量：VRAM 扣掉 `--fit` 一定會留下的 [`FIT_TARGET`]，RAM 扣掉 [`RAM_RESERVE`]。
+/// `--fit` 在算進 VRAM 的每張卡上各留一份 [`FIT_TARGET`]；沒記卡名時算一張。
+fn fit_margin(hw: &Hardware) -> u64 {
+    FIT_TARGET * hw.vram_cards.len().max(1) as u64
+}
+
+/// 判斷等級用的可用量：VRAM 扣掉 `--fit` 一定會留下的 [`fit_margin`]，RAM 扣掉 [`RAM_RESERVE`]。
 ///
-/// 載入後剩不到 `FIT_TARGET` 時 `--fit` 會把層移到 RAM，所以 VRAM 只放得下需求、沒多這一截就不算流暢。
+/// 載入後剩不到這一截時 `--fit` 會把層移到 RAM，所以 VRAM 只放得下需求、沒多這一截就不算流暢。
 fn usable(hw: &Hardware) -> (u64, u64) {
     let (vram, ram) = effective(hw);
     (
-        vram.saturating_sub(FIT_TARGET),
+        vram.saturating_sub(fit_margin(hw)),
         ram.saturating_sub(RAM_RESERVE),
     )
 }
@@ -138,11 +143,11 @@ pub struct Target<'a> {
 ///
 /// 自己照同樣的 MTP（同一個 MTP 檔）量過就用實測；否則從同 repo 量過的模型（含自己）推算
 /// （先挑 MTP 一樣、全放 GPU 的，再挑權重最接近的）；都沒有就是預估。
-/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`FIT_TARGET`] 加一層以上時，看不出現在會不會流暢，也退回預估。
+/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`fit_margin`] 加一層以上時，看不出現在會不會流暢，也退回預估。
 pub fn need(models: &[Installed], target: &Target, hw: &Hardware) -> Need {
     let room = |n: &Need| {
         n.vram
-            .saturating_add(FIT_TARGET)
+            .saturating_add(fit_margin(hw))
             .saturating_add(target.layer)
     };
     match measured_need(models, target) {
@@ -402,6 +407,16 @@ mod tests {
             vram_cards: Vec::new(),
             own: Default::default(),
         }
+    }
+
+    /// 兩張卡各留一份 `FIT_TARGET`；沒記卡名時仍留一份。
+    #[test]
+    fn fit_margin_is_per_card() {
+        let mut h = hw(16 * G, 32 * G);
+        assert_eq!(fit_margin(&h), FIT_TARGET);
+        h.vram_cards = vec!["A".into(), "A".into()];
+        assert_eq!(fit_margin(&h), 2 * FIT_TARGET);
+        assert_eq!(usable(&h).0, 16 * G - 2 * FIT_TARGET);
     }
 
     /// 小 KV（約 16 MiB），讓估算接近檔案大小。
