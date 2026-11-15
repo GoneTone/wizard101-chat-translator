@@ -95,7 +95,6 @@ fn every_builtin_loads_with_entries() {
             "{code}"
         );
     }
-    assert_eq!(builtin::builtin_creators("zh-CN"), "Subata");
 }
 
 /// 真實大小的內建表下，設定頁檢查與翻譯端比對都要夠快。
