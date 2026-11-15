@@ -120,7 +120,7 @@ fn builtin_creators_come_from_the_file() {
         builtin::builtin_creators(builtin::TEST_BUILTIN),
         "[Tester](https://example.com)"
     );
-    assert_eq!(builtin::builtin_creators("zh-TW"), "");
+    assert_eq!(builtin::builtin_creators("xx-XX"), "");
 }
 
 fn hits(entries: Vec<Entry>, text: &str) -> Vec<Entry> {
