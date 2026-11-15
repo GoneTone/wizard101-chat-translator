@@ -37,6 +37,14 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 
 <https://crowdin.com/project/wizard101-chat-translator>
 
+## 贡献内置术语表
+
+欢迎提供其他语言的内置术语表，或修正现有的译名！
+
+**不熟悉 GitHub 的话**：在设置里创建一份术语表，原文填英文、译名填你的语言；创建者写你的名字，也可以附上链接。接着导出成文件，[提交一个 Issue](https://github.com/GoneTone/wizard101-chat-translator/issues/new) 把文件附上来，我们会帮你加进去。要修正译名，直接在 Issue 里写出哪个名称该改成什么就好。
+
+**会提交 Pull Request 的话**：把导出的文件用语言代码命名（例如 `ja-JP.json`，可用的代码对照 `src/i18n/locales/` 里的文件名），放进 `src/glossary/builtin/` 再提交 PR。要修正译名，就直接改里面对应的文件。
+
 ## 下载
 
 下载 `Wizard101ChatTranslator.exe`，放到任意文件夹即可。配置文件 `config.json` 与日志文件 `app.log`、`messages.log` 都会存在 exe 同一个文件夹；用本地模型时，下载的引擎与模型也放在同一个文件夹里的 `llama`、`models`（模型一个就有好几 GB，移动或删除程序时记得一起处理）。

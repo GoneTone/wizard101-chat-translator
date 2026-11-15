@@ -37,6 +37,14 @@ Please help us translate this software!
 
 <https://crowdin.com/project/wizard101-chat-translator>
 
+## Contributing Built-in Glossaries
+
+Built-in glossaries for other languages, and fixes to existing names, are welcome!
+
+**If you don't use GitHub much**: create a glossary in the settings, with English as the source and your language as the translation; put your name as the creator, with a link if you like. Then export it to a file, [open an issue](https://github.com/GoneTone/wizard101-chat-translator/issues/new) and attach the file, and we'll add it for you. To fix a name, just say in the issue which name should change and to what.
+
+**If you can open a pull request**: name the exported file after the language code (for example `ja-JP.json`; the valid codes match the file names in `src/i18n/locales/`), put it in `src/glossary/builtin/` and open a PR. To fix a name, edit the matching file there directly.
+
 ## Download
 
 Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings file `config.json` and the logs `app.log`, `messages.log` are all created next to the exe. If you use local models, the downloaded engine and models also go into the `llama` and `models` folders there (a single model is several GB, so remember them when you move or delete the program).
