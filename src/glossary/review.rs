@@ -18,14 +18,16 @@ pub enum RowIssue {
     Incomplete,
 }
 
-/// 內建條目 fold 後的兩側，以及詞（任一側）→ 條目索引。
-struct BuiltinIndex {
+/// 內建條目依某個正規化方式 fold 好的兩側與詞索引；內建表與正規化方式不變時可重複使用。
+pub struct BuiltinIndex {
+    entries: Vec<Entry>,
+    fold: Fold,
     folded: Vec<(String, String)>,
     by_word: HashMap<String, Vec<usize>>,
 }
 
 impl BuiltinIndex {
-    fn new(builtin: &[Entry], fold: Fold) -> Self {
+    pub fn new(builtin: &[Entry], fold: Fold) -> Self {
         let folded: Vec<(String, String)> = builtin
             .iter()
             .map(|b| (fold.apply(&b.source), fold.apply(&b.target)))
@@ -37,7 +39,20 @@ impl BuiltinIndex {
                 by_word.entry(target.clone()).or_default().push(i);
             }
         }
-        Self { folded, by_word }
+        Self {
+            entries: builtin.to_vec(),
+            fold,
+            folded,
+            by_word,
+        }
+    }
+
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
+    pub fn fold(&self) -> Fold {
+        self.fold
     }
 
     /// 任一側含 `source` 或 `target` 的內建條目索引，依內建順序。
@@ -78,7 +93,12 @@ fn same_words(a: (&str, &str), b: &(String, String)) -> bool {
 ///
 /// SameAsBuiltin 只認字完全相同（不套 `fold` 的繁簡轉換），只差繁簡的自訂條目存檔時才不會被刪。
 pub fn review(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<RowIssue> {
-    let index = BuiltinIndex::new(builtin, fold);
+    review_in(custom, &BuiltinIndex::new(builtin, fold))
+}
+
+/// 同 [`review`]，用預先建好的索引。
+pub fn review_in(custom: &[Entry], index: &BuiltinIndex) -> Vec<RowIssue> {
+    let (builtin, fold) = (index.entries(), index.fold);
     let mut seen = HashSet::new();
     custom
         .iter()
@@ -112,12 +132,17 @@ pub fn review(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<RowIssue> 
 
 /// 每條內建一個旗標，有詞被自訂覆蓋就是 true。
 pub fn overridden(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<bool> {
-    let words = CustomWords::new(custom, fold);
-    builtin
+    overridden_in(custom, &BuiltinIndex::new(builtin, fold))
+}
+
+/// 同 [`overridden`]，用預先建好的索引。
+pub fn overridden_in(custom: &[Entry], index: &BuiltinIndex) -> Vec<bool> {
+    let words = CustomWords::new(custom, index.fold);
+    index
+        .folded
         .iter()
-        .map(|b| {
-            words.shadows(&fold.apply(&b.source), Side::Source)
-                || words.shadows(&fold.apply(&b.target), Side::Target)
+        .map(|(source, target)| {
+            words.shadows(source, Side::Source) || words.shadows(target, Side::Target)
         })
         .collect()
 }

@@ -58,27 +58,27 @@ impl Glossary {
     /// 建立比對器；參數順序為先自訂、後內建，同詞時自訂優先。
     pub fn new(custom: Vec<Entry>, builtin: Vec<Entry>, fold: Fold) -> Self {
         let custom_words = CustomWords::new(&custom, fold);
+        let folded = |e: Entry, is_custom: bool| {
+            let pair = (fold.apply(&e.source), fold.apply(&e.target));
+            (e, is_custom, pair)
+        };
+        let custom: Vec<_> = custom.into_iter().map(|e| folded(e, true)).collect();
         // 只差繁簡的內建條目整條讓給自訂；以詞為單位的覆蓋只看來源側，會漏掉這種
-        let custom_pairs: HashSet<(String, String)> = custom
+        let custom_pairs: HashSet<(&str, &str)> = custom
             .iter()
-            .flat_map(|e| {
-                let (s, t) = (fold.apply(&e.source), fold.apply(&e.target));
-                [(s.clone(), t.clone()), (t, s)]
-            })
+            .flat_map(|(_, _, (s, t))| [(s.as_str(), t.as_str()), (t.as_str(), s.as_str())])
             .collect();
-        let builtin = builtin.into_iter().filter(|e| {
-            !custom_pairs.contains(&(fold.apply(&e.source), fold.apply(&e.target)))
-        });
-        let entries: Vec<(Entry, bool)> = custom
+        let builtin: Vec<_> = builtin
             .into_iter()
-            .map(|e| (e, true))
-            .chain(builtin.map(|e| (e, false)))
+            .map(|e| folded(e, false))
+            .filter(|(_, _, (s, t))| !custom_pairs.contains(&(s.as_str(), t.as_str())))
             .collect();
+        let mut entries: Vec<(Entry, bool)> = Vec::with_capacity(custom.len() + builtin.len());
         let mut index: HashMap<String, usize> = HashMap::new();
         let mut patterns: Vec<String> = Vec::new();
         let mut owners: Vec<Vec<Owner>> = Vec::new();
-        for (i, (entry, _)) in entries.iter().enumerate() {
-            let (src, tgt) = (fold.apply(&entry.source), fold.apply(&entry.target));
+        for (i, (entry, is_custom, (src, tgt))) in custom.into_iter().chain(builtin).enumerate() {
+            entries.push((entry, is_custom));
             let mut words = vec![(src.clone(), Side::Source)];
             if tgt != src {
                 words.push((tgt, Side::Target));

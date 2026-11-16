@@ -12,7 +12,7 @@ use super::widgets::{
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{TRADITIONAL_MATCH_BUILTIN, builtin_codes, builtin_creators};
-use crate::glossary::{Entry, Fold, RowIssue, fold, overridden, review};
+use crate::glossary::{BuiltinIndex, Entry, Fold, RowIssue, fold, overridden_in, review_in};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -30,7 +30,8 @@ pub(super) struct GlossaryEditor {
     query: String,
     /// 上次檢查時的條目、引入代碼與正規化方式。
     checked: Option<(Vec<Entry>, Option<String>, Fold)>,
-    builtin: Vec<Entry>,
+    /// 引入的內建條目；只在換內建表或切正規化方式時重建，每打一個字都重算太慢。
+    builtin: BuiltinIndex,
     issues: Vec<RowIssue>,
     overridden: Vec<bool>,
     custom_rows: LazyRows,
@@ -45,7 +46,7 @@ impl GlossaryEditor {
             id: id.into(),
             query: String::new(),
             checked: None,
-            builtin: Vec::new(),
+            builtin: BuiltinIndex::new(&[], Fold::default()),
             issues: Vec::new(),
             overridden: Vec::new(),
             custom_rows: LazyRows::default(),
@@ -105,16 +106,18 @@ impl GlossaryEditor {
         {
             return;
         }
-        if self
+        let code_changed = self
             .checked
             .as_ref()
-            .is_none_or(|(_, b, _)| *b != glossary.builtin)
-        {
+            .is_none_or(|(_, b, _)| *b != glossary.builtin);
+        if code_changed {
             self.builtin_rows.clear();
         }
-        self.builtin = builtin_of(glossary);
-        self.issues = review(&glossary.entries, &self.builtin, fold);
-        self.overridden = overridden(&glossary.entries, &self.builtin, fold);
+        if code_changed || self.builtin.fold() != fold {
+            self.builtin = BuiltinIndex::new(&builtin_of(glossary), fold);
+        }
+        self.issues = review_in(&glossary.entries, &self.builtin);
+        self.overridden = overridden_in(&glossary.entries, &self.builtin);
         self.checked = Some((glossary.entries.clone(), glossary.builtin.clone(), fold));
     }
 
@@ -274,11 +277,11 @@ impl GlossaryEditor {
 
     /// 最下方預設收起的唯讀內建條目；沒有條目（含代碼不存在）時不畫。
     fn builtin_card(&mut self, ui: &mut Ui, code: &str) {
-        if self.builtin.is_empty() {
+        if self.builtin.entries().is_empty() {
             return;
         }
         let query = fold(&self.query);
-        let count = self.builtin.len().to_string();
+        let count = self.builtin.entries().len().to_string();
         let language = language_name(code);
         let title = t(
             "glossary.builtin_section",
@@ -300,7 +303,8 @@ impl GlossaryEditor {
                         let gap = 16.0;
                         let column = (ui.available_width() - gap) / 2.0;
                         let estimate = ui.text_style_height(&TextStyle::Body);
-                        let rows = self.builtin.iter().zip(&self.overridden).enumerate();
+                        let rows = self.builtin.entries().iter().zip(&self.overridden);
+                        let rows = rows.enumerate();
                         for (i, (entry, overridden)) in rows {
                             if !matches(entry, &query) {
                                 continue;

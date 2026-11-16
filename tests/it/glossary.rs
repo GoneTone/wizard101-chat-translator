@@ -1,9 +1,9 @@
 //! 術語表檔案解析（含建立者）與內建術語表註冊。
 
 use wizard101_chat_translator::glossary::{
-    CREATORS_KEY, Conflict, Entry, Fold, Glossary, GlossaryFile, ParseError, RowIssue, apply_merge,
-    builtin, file_to_json, hits_key, overridden, parse_file, plan_merge, review,
-    without_builtin_duplicates,
+    BuiltinIndex, CREATORS_KEY, Conflict, Entry, Fold, Glossary, GlossaryFile, ParseError,
+    RowIssue, apply_merge, builtin, file_to_json, hits_key, overridden, overridden_in, parse_file,
+    plan_merge, review, review_in, without_builtin_duplicates,
 };
 
 fn e(source: &str, target: &str) -> Entry {
@@ -104,13 +104,19 @@ fn real_builtin_stays_fast() {
     let custom: Vec<Entry> = (0..2_000)
         .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
         .collect();
-    let start = std::time::Instant::now();
-    review(&custom, &builtin, Fold::default());
-    overridden(&custom, &builtin, Fold::default());
-    let g = Glossary::new(custom, builtin, Fold::default());
-    assert!(!g.hits("anyone going to Tower of the Helephant?").is_empty());
-    let elapsed = start.elapsed();
-    assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
+    for fold in [Fold::default(), TW] {
+        let start = std::time::Instant::now();
+        let index = BuiltinIndex::new(&builtin, fold);
+        review_in(&custom, &index);
+        overridden_in(&custom, &index);
+        let g = Glossary::new(custom.clone(), builtin.clone(), fold);
+        assert!(!g.hits("anyone going to Tower of the Helephant?").is_empty());
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "{fold:?} {elapsed:?}"
+        );
+    }
 }
 
 #[test]
@@ -404,14 +410,36 @@ fn traditional_custom_overrides_simplified_builtin() {
     assert_eq!(g.hits("去龍之谷"), custom);
 }
 
+/// 編輯畫面重複使用的預先索引，結果要跟每次現算一樣。
+#[test]
+fn prebuilt_index_gives_the_same_results() {
+    let custom = vec![e("Dragonspyre", "龍之谷"), e("學院", "School"), e("x", "")];
+    let builtin = vec![e("Dragonspyre", "龙之谷"), e("Academy", "学院")];
+    for fold in [TW, Fold::default()] {
+        let index = BuiltinIndex::new(&builtin, fold);
+        assert_eq!(index.entries(), builtin.as_slice());
+        assert_eq!(review_in(&custom, &index), review(&custom, &builtin, fold));
+        assert_eq!(
+            overridden_in(&custom, &index),
+            overridden(&custom, &builtin, fold)
+        );
+    }
+}
+
 /// 自然寫法（英文 → 繁體）：繁簡同義的內建條目整條讓給自訂，不會兩條一起送。
 #[test]
 fn traditional_custom_replaces_the_same_builtin_entry() {
     let custom = vec![e("Dragonspyre", "龍之谷")];
     let builtin = vec![e("Dragonspyre", "龙之谷"), e("Spyre", "龙之谷")];
     let g = Glossary::new(custom.clone(), builtin, TW);
-    assert_eq!(g.hits("去龍之谷"), vec![custom[0].clone(), e("Spyre", "龙之谷")]);
-    assert_eq!(g.hits("去龙之谷"), vec![custom[0].clone(), e("Spyre", "龙之谷")]);
+    assert_eq!(
+        g.hits("去龍之谷"),
+        vec![custom[0].clone(), e("Spyre", "龙之谷")]
+    );
+    assert_eq!(
+        g.hits("去龙之谷"),
+        vec![custom[0].clone(), e("Spyre", "龙之谷")]
+    );
 }
 
 #[test]
