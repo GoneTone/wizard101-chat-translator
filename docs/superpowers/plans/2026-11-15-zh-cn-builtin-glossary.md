@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - 腳本放 scratchpad（`C:\Users\p2902\AppData\Local\Temp\claude\664c7238a8b7db3a\1d2554e7-ade9-4b7e-ba74-1d0833201a6f\scratchpad\gl\`），不進 repo；已有 `wad.py`（`entries(path)`、`read(entry)`）可直接用。
-- 英文：`D:\Program Files (x86)\Steam\steamapps\common\Wizard101\Data\GameData\Root.wad`；簡中：同目錄 `Locale_en-US-root.wad`（漢化包 debug 6.1.2）。只讀，不可寫入遊戲目錄。
+- 英文：`D:\Program Files (x86)\Steam\steamapps\common\Wizard101\Data\GameData\Root.wad`；簡中：同目錄 `Locale_en-US-root.wad`（漢化包 6.1.2）。只讀，不可寫入遊戲目錄。
 - `.lang`：UTF-16、`\r\n` 分行，第 1 行標頭，之後每三行「鍵、註解、文字」。
 - 輸出：UTF-8、兩格縮排、依英文原文字母序；第一個鍵 `"glossary.creators": "Subata"`。
 - cargo 一律 `-j 4`，測試加 `-- --test-threads=4`。

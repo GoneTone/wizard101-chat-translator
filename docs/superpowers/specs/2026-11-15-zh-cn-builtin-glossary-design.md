@@ -31,7 +31,7 @@
 ## 資料來源
 
 - 英文原文：遊戲 `Data/GameData/Root.wad` 內的 `Locale/en-US/*.lang`。
-- 簡中譯名：漢化包取代的 `Data/GameData/Locale_en-US-root.wad`，內有同名、同鍵的 `Locale/en-US/*.lang`。漢化包有 release 和 debug 兩版，採用目前套用中的版本，也就是 debug 版（產生當下是漢化包 debug 6.1.2、遊戲 `W.1.620.0`）。
+- 簡中譯名：漢化包取代的 `Data/GameData/Locale_en-US-root.wad`，內有同名、同鍵的 `Locale/en-US/*.lang`。產生當下是漢化包 6.1.2、遊戲 `W.1.620.0`。
 - 兩個 wad 都是 KIWAD 格式。`.lang` 是 UTF-16，第一行是標頭，之後每三行一組：「鍵、註解、文字」。英文和中文用「檔名＋鍵」逐條對應。
 
 ## 抽取規則
