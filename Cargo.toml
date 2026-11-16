@@ -70,3 +70,10 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.rusto-rs]
 opt-level = 3
+# 術語表比對（繁簡轉換、casefold、建比對表）在未最佳化的 debug 建置下太慢，CI 上的效能測試會超時。
+[profile.dev.package.hanconv]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.caseless]
+opt-level = 3
