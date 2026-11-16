@@ -9,6 +9,9 @@ use crate::logs::log;
 /// 編進 exe 的內建檔，依代碼字母序；清單由 `build.rs` 掃描 `builtin/` 資料夾產生，新增語系只要放檔案。
 const BUILTINS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/glossary_builtins.rs"));
 
+/// 提供繁體配對開關的內建表；只有簡體中文表需要，屬於例外，直接判斷語系。
+pub const TRADITIONAL_MATCH_BUILTIN: &str = "zh-CN";
+
 /// 測試用的內建術語表代碼；不隨正式版發佈，讓設定頁測試畫得出內建區塊。
 #[cfg(any(test, feature = "test-support"))]
 pub const TEST_BUILTIN: &str = "zz-TEST";

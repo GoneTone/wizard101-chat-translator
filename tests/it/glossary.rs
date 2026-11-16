@@ -461,7 +461,9 @@ fn real_zh_cn_traditional_matches_in_context() {
 
 mod config_glossaries {
     use serde_json::{Value, json};
+    use wizard101_chat_translator::config::glossaries::StoredGlossary;
     use wizard101_chat_translator::config::{Config, default_config, glossaries};
+    use wizard101_chat_translator::glossary::builtin;
 
     fn cfg_with(glossaries: Value, active: Value) -> Config {
         let mut cfg = default_config();
@@ -481,7 +483,8 @@ mod config_glossaries {
     fn malformed_glossaries_are_normalized() {
         let mut cfg = cfg_with(
             json!([
-                {"id": "a", "name": "X", "creators": 5, "builtin": 5, "entries": {"k": "v", "n": 1}},
+                {"id": "a", "name": "X", "creators": 5, "builtin": 5, "match_traditional": "no",
+                 "entries": {"k": "v", "n": 1}},
                 3,
                 {"id": "a", "name": "X", "entries": []},
             ]),
@@ -495,6 +498,7 @@ mod config_glossaries {
         assert_eq!(list[1]["name"], "X (2)");
         assert!(list[0]["builtin"].is_null());
         assert!(list[0].get("creators").is_none());
+        assert!(list[0].get("match_traditional").is_none());
         assert_eq!(list[0]["entries"], json!({"k": "v"}));
         assert_eq!(list[1]["entries"], json!({}));
         assert!(cfg["active_glossary"].is_null());
@@ -537,6 +541,58 @@ mod config_glossaries {
         );
         assert!(!glossaries::active(&cfg).unwrap().hits("Hollo").is_empty());
         assert!(glossaries::active(&default_config()).is_none());
+    }
+
+    #[test]
+    fn active_glossary_matches_traditional_input() {
+        let glossary = json!({"id": "a", "name": "X", "builtin": "zh-CN", "entries": {}});
+        let cfg = cfg_with(json!([glossary.clone()]), json!("a"));
+        assert!(
+            !glossaries::active(&cfg)
+                .unwrap()
+                .hits("去龍之谷")
+                .is_empty()
+        );
+        let mut off = glossary;
+        off["match_traditional"] = json!(false);
+        let cfg = cfg_with(json!([off]), json!("a"));
+        assert!(
+            glossaries::active(&cfg)
+                .unwrap()
+                .hits("去龍之谷")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn match_traditional_round_trips() {
+        let raw = json!({"id": "a", "name": "X", "builtin": "zh-CN", "entries": {}});
+        let g = StoredGlossary::from_value(&raw).unwrap();
+        assert!(g.match_traditional);
+        assert!(g.to_value().get("match_traditional").is_none());
+        let off = StoredGlossary {
+            match_traditional: false,
+            ..g
+        };
+        let back = StoredGlossary::from_value(&off.to_value()).unwrap();
+        assert!(!back.match_traditional);
+    }
+
+    #[test]
+    fn fold_only_applies_to_zh_cn() {
+        let mut g = StoredGlossary {
+            builtin: Some("zh-CN".into()),
+            ..Default::default()
+        };
+        assert!(g.match_traditional);
+        assert!(g.fold().traditional);
+        g.match_traditional = false;
+        assert!(!g.fold().traditional);
+        g.match_traditional = true;
+        g.builtin = Some(builtin::TEST_BUILTIN.into());
+        assert!(!g.fold().traditional);
+        g.builtin = None;
+        assert!(!g.fold().traditional);
     }
 
     #[test]

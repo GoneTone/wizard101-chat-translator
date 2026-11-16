@@ -17,9 +17,7 @@ use super::widgets::{
 };
 use super::window::SaveError;
 use crate::config::glossaries::StoredGlossary;
-use crate::glossary::{
-    Entry, Fold, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge,
-};
+use crate::glossary::{Entry, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -287,7 +285,7 @@ impl GlossaryPane {
         let merge = MergeDialog::new(plan_merge(
             &glossary.entries,
             &incoming.entries,
-            Fold::default(),
+            glossary.fold(),
         ));
         self.dialog = Dialog::Merge { id, merge };
     }

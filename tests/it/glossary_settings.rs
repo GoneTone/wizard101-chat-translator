@@ -159,7 +159,10 @@ fn new_glossary_names_dedupe() {
 
 #[test]
 fn duplicate_copies_entries_and_builtin() {
-    let original = glossary("a", "Mine", Some("xx"), vec![entry("Ravenwood", "R")]);
+    let original = StoredGlossary {
+        match_traditional: false,
+        ..glossary("a", "Mine", Some("xx"), vec![entry("Ravenwood", "R")])
+    };
     let mut h = harness(draft(vec![original.clone()], None));
     click_nth(&mut h, &tr("button.copy"), 0);
     click_nth(&mut h, &tr("button.copy"), 0);
@@ -172,6 +175,7 @@ fn duplicate_copies_entries_and_builtin() {
     for duplicate in &d.glossaries[1..] {
         assert_eq!(duplicate.entries, original.entries);
         assert_eq!(duplicate.builtin, original.builtin);
+        assert!(!duplicate.match_traditional);
         assert_ne!(duplicate.id, original.id);
     }
     assert_ne!(d.glossaries[1].id, d.glossaries[2].id);

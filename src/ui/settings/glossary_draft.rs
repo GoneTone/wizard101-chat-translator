@@ -6,9 +6,7 @@ use super::window::SaveError;
 use crate::config::Config;
 use crate::config::glossaries::{StoredGlossary, stored};
 use crate::config::services::{new_id, unique_name};
-use crate::glossary::{
-    Entry, Fold, GlossaryFile, RowIssue, builtin, review, without_builtin_duplicates,
-};
+use crate::glossary::{Entry, GlossaryFile, RowIssue, builtin, review, without_builtin_duplicates};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
@@ -62,7 +60,7 @@ impl GlossaryDraft {
                 })
                 .collect();
             glossary.entries =
-                without_builtin_duplicates(&entries, &builtin_of(&glossary), Fold::default());
+                without_builtin_duplicates(&entries, &builtin_of(&glossary), glossary.fold());
             let removed = entries.len() - glossary.entries.len();
             if removed > 0 {
                 log(format!(
@@ -206,7 +204,7 @@ fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveEr
         .filter(|e| !e.is_blank())
         .cloned()
         .collect();
-    let issues = review(&filled, &builtin_of(glossary), Fold::default());
+    let issues = review(&filled, &builtin_of(glossary), glossary.fold());
     // 名稱空白時引號裡會是空的，改用第幾份稱呼
     let named = |key: &str, unnamed: &str| -> SaveError {
         if name.is_empty() {
