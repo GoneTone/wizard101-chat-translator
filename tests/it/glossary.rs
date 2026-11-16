@@ -375,6 +375,20 @@ fn merge_plan_keeps_the_first_of_case_variant_duplicates() {
 
 const TW: Fold = Fold { traditional: true };
 
+/// 把整份內建表當檔案匯入一份不小的術語表，合併規劃不能卡住介面。
+#[test]
+fn large_merge_plan_stays_fast() {
+    let incoming = builtin::builtin_entries("zh-CN").unwrap();
+    let current: Vec<Entry> = (0..500)
+        .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
+        .collect();
+    let start = std::time::Instant::now();
+    let plan = plan_merge(&current, &incoming, TW);
+    let elapsed = start.elapsed();
+    assert_eq!(plan.added.len(), incoming.len());
+    assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
+}
+
 #[test]
 fn traditional_fold_matches_simplified_entries() {
     let g = Glossary::new(vec![], vec![e("Krokotopia", "克洛克托比亚")], TW);

@@ -181,13 +181,17 @@ pub fn plan_merge(current: &[Entry], incoming: &[Entry], fold: Fold) -> MergePla
         identical: 0,
         conflicts: Vec::new(),
     };
+    let mut by_source: HashMap<String, usize> = HashMap::new();
+    for (i, c) in current.iter().enumerate() {
+        by_source.entry(fold.apply(&c.source)).or_insert(i);
+    }
     let mut seen = HashSet::new();
     for inc in incoming {
         let key = fold.apply(&inc.source);
         if !seen.insert(key.clone()) {
             continue;
         }
-        match current.iter().position(|c| fold.apply(&c.source) == key) {
+        match by_source.get(&key).copied() {
             None => plan.added.push(inc.clone()),
             Some(i) if fold.apply(&current[i].target) == fold.apply(&inc.target) => {
                 plan.identical += 1
