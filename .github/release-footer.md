@@ -14,6 +14,16 @@ Please help us translate this software!
 
 <https://crowdin.com/project/wizard101-chat-translator>
 
+## Contribute Built-in Glossaries 貢獻內建術語表
+
+Built-in glossaries for other languages, and fixes to existing names, are welcome! Export a glossary from the settings and attach it to an issue, or open a pull request. See the link below for details.
+
+<https://github.com/GoneTone/wizard101-chat-translator#contributing-built-in-glossaries>
+
+歡迎提供其他語言的內建術語表，或修正現有的譯名！在設定裡匯出術語表、開 Issue 附上檔案，或直接送 Pull Request。詳細步驟請看下方連結。
+
+<https://github.com/GoneTone/wizard101-chat-translator/blob/master/README_ZH-TW.md#%E8%B2%A2%E7%8D%BB%E5%85%A7%E5%BB%BA%E8%A1%93%E8%AA%9E%E8%A1%A8>
+
 ## Notice 注意
 
 **_This software injects into the game process to read in-game conversations. KingsIsle does not sanction this, and it may be treated as a breach of the [Wizard101 Terms of Use](https://www.wizard101.com/game/termsofuse); under those terms KingsIsle may suspend an account for any reason, or for no reason. Use at your own risk._**
