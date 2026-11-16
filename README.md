@@ -37,6 +37,14 @@ Please help us translate this software!
 
 <https://crowdin.com/project/wizard101-chat-translator>
 
+## Contributing Built-in Glossaries
+
+Built-in glossaries for other languages, and fixes to existing names, are welcome!
+
+**If you don't use GitHub much**: create a glossary in the settings, with English as the source and your language as the translation; put your name as the creator, with a link if you like. Then export it to a file, [open an issue](https://github.com/GoneTone/wizard101-chat-translator/issues/new) and attach the file, and we'll add it for you. To fix a name, just say in the issue which name should change and to what.
+
+**If you can open a pull request**: name the exported file after the language code (for example `ja-JP.json`; the valid codes match the file names in `src/i18n/locales/`), put it in `src/glossary/builtin/` and open a PR. To fix a name, edit the matching file there directly.
+
 ## Download
 
 Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings file `config.json` and the logs `app.log`, `messages.log` are all created next to the exe. If you use local models, the downloaded engine and models also go into the `llama` and `models` folders there (a single model is several GB, so remember them when you move or delete the program).
@@ -87,7 +95,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI, Claude, Gemini, your own OpenAI-compatible service, or a local model running on your own PC — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
 - **Run a model on your own PC**: no extra software to install — when you ask, the program downloads llama.cpp (the official prebuilt build) from GitHub and the models you pick from Hugging Face, choosing from a recommended list or searching Hugging Face for other GGUF models. Each model is rated for compatibility from this computer's free VRAM and RAM (the estimate is higher when the game is not running); you can have models loaded as soon as this app starts, or unloaded after a period of idle time to give the memory back to the game, and the first-run wizard can set one up for you. Files go into the `llama` and `models` folders beside the program. Translation then runs on your own GPU or CPU, so speed and quality depend on your hardware and the model
-- **Names translated your way**: build glossaries that pin down how place names, monsters, spells or friends' nicknames are translated — keep several and switch anytime; only the terms a line actually uses go to the AI, for incoming chat, outgoing chat, system messages and area translation alike. Export a glossary to a file to share it with friends, or import theirs
+- **Names translated your way**: build glossaries that pin down how place names, monsters, spells or friends' nicknames are translated — keep several and switch anytime; only the terms a line actually uses go to the AI, for incoming chat, outgoing chat, system messages and area translation alike. Export a glossary to a file to share it with friends, or import theirs. A glossary can also pull in a built-in glossary (off by default). The built-in Simplified Chinese one uses the names from Subata's Simplified Chinese translation pack, so translations match what players using the pack see in game
 - **System messages, if you want them**: loot, XP, level-up broadcasts and the like are hidden by default — turn them on in the settings and they are shown and translated
 - **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble that shows the unread count when you are not reading it; position and size are remembered and it comes back in the same place next time
 - **Copy anything worth keeping**: drag over the messages to select text, across several messages, then `Ctrl+C` or right-click to copy

@@ -86,10 +86,31 @@ fn builtin_load_drops_untranslated_pairs() {
 }
 
 #[test]
-fn only_the_test_builtin_loads_until_real_ones_ship() {
-    let hint = "real built-in glossaries shipped: update this test";
-    assert_eq!(builtin::builtin_codes(), [builtin::TEST_BUILTIN], "{hint}");
-    assert!(builtin::builtin_entries("zh-TW").is_none(), "{hint}");
+fn every_builtin_loads_with_entries() {
+    let codes = builtin::builtin_codes();
+    assert!(codes.contains(&"zh-CN"), "{codes:?}");
+    for code in codes {
+        assert!(
+            builtin::builtin_entries(code).is_some_and(|e| !e.is_empty()),
+            "{code}"
+        );
+    }
+}
+
+/// 真實大小的內建表下，設定頁檢查與翻譯端比對都要夠快。
+#[test]
+fn real_builtin_stays_fast() {
+    let builtin = builtin::builtin_entries("zh-CN").unwrap();
+    let custom: Vec<Entry> = (0..2_000)
+        .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
+        .collect();
+    let start = std::time::Instant::now();
+    review(&custom, &builtin);
+    overridden(&custom, &builtin);
+    let g = Glossary::new(custom, builtin);
+    assert!(!g.hits("anyone going to Tower of the Helephant?").is_empty());
+    let elapsed = start.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
 }
 
 #[test]
@@ -98,7 +119,7 @@ fn builtin_creators_come_from_the_file() {
         builtin::builtin_creators(builtin::TEST_BUILTIN),
         "[Tester](https://example.com)"
     );
-    assert_eq!(builtin::builtin_creators("zh-TW"), "");
+    assert_eq!(builtin::builtin_creators("xx-XX"), "");
 }
 
 fn hits(entries: Vec<Entry>, text: &str) -> Vec<Entry> {
