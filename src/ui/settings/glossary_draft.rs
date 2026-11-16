@@ -59,7 +59,8 @@ impl GlossaryDraft {
                     target: pystr::strip(&e.target).into(),
                 })
                 .collect();
-            glossary.entries = without_builtin_duplicates(&entries, &builtin_of(&glossary));
+            glossary.entries =
+                without_builtin_duplicates(&entries, &builtin_of(&glossary), glossary.fold());
             let removed = entries.len() - glossary.entries.len();
             if removed > 0 {
                 log(format!(
@@ -203,7 +204,8 @@ fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveEr
         .filter(|e| !e.is_blank())
         .cloned()
         .collect();
-    let issues = review(&filled, &builtin_of(glossary));
+    // 這裡只看來源重複與未填完，跟內建表無關；帶內建表會讓每次重繪都 fold 整份內建表
+    let issues = review(&filled, &[], glossary.fold());
     // 名稱空白時引號裡會是空的，改用第幾份稱呼
     let named = |key: &str, unnamed: &str| -> SaveError {
         if name.is_empty() {

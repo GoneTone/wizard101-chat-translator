@@ -159,7 +159,10 @@ fn new_glossary_names_dedupe() {
 
 #[test]
 fn duplicate_copies_entries_and_builtin() {
-    let original = glossary("a", "Mine", Some("xx"), vec![entry("Ravenwood", "R")]);
+    let original = StoredGlossary {
+        match_traditional: false,
+        ..glossary("a", "Mine", Some("xx"), vec![entry("Ravenwood", "R")])
+    };
     let mut h = harness(draft(vec![original.clone()], None));
     click_nth(&mut h, &tr("button.copy"), 0);
     click_nth(&mut h, &tr("button.copy"), 0);
@@ -172,6 +175,7 @@ fn duplicate_copies_entries_and_builtin() {
     for duplicate in &d.glossaries[1..] {
         assert_eq!(duplicate.entries, original.entries);
         assert_eq!(duplicate.builtin, original.builtin);
+        assert!(!duplicate.match_traditional);
         assert_ne!(duplicate.id, original.id);
     }
     assert_ne!(d.glossaries[1].id, d.glossaries[2].id);
@@ -488,6 +492,44 @@ fn builtin_rows_stay_one_line_tall_and_mark_overridden_entries() {
         "{first} {second} {third}"
     );
     assert!(has_label(&h, &tr("glossary.overridden")));
+}
+
+#[test]
+fn toggle_only_shows_for_zh_cn() {
+    let label = tr("glossary.match_traditional");
+    let h = editing(Vec::new(), Some("zh-CN"));
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_some());
+    let h = editing(Vec::new(), Some(TEST_BUILTIN));
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_none());
+    let h = editing(Vec::new(), None);
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_none());
+}
+
+#[test]
+fn toggle_turns_matching_off() {
+    let mut h = editing(Vec::new(), Some("zh-CN"));
+    assert!(copy(&h).match_traditional);
+    click(&mut h, Role::Switch, &tr("glossary.match_traditional"));
+    assert!(!copy(&h).match_traditional);
+}
+
+/// 只切開關、條目不變時，內建區塊的「被自訂覆蓋」也要跟著重算。
+#[test]
+fn toggle_refreshes_overridden_marks() {
+    let mut h = scrollable(vec![entry("龍之谷", "Dspyre")], Some("zh-CN"), false);
+    type_into_nth(&mut h, &tr("glossary.search"), 0, "Dragonspyre");
+    let count = wizard101_chat_translator::glossary::builtin::builtin_entries("zh-CN")
+        .unwrap()
+        .len()
+        .to_string();
+    let title = t(
+        "glossary.builtin_section",
+        &[("language", &language_name("zh-CN")), ("count", &count)],
+    );
+    click(&mut h, Role::DisclosureTriangle, &title);
+    assert!(has_label(&h, &tr("glossary.overridden")));
+    click(&mut h, Role::Switch, &tr("glossary.match_traditional"));
+    assert!(!has_label(&h, &tr("glossary.overridden")));
 }
 
 #[test]

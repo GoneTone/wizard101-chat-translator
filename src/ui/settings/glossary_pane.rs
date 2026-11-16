@@ -282,7 +282,11 @@ impl GlossaryPane {
             return;
         };
         // 合併只加條目，建立者維持目前這份的
-        let merge = MergeDialog::new(plan_merge(&glossary.entries, &incoming.entries));
+        let merge = MergeDialog::new(plan_merge(
+            &glossary.entries,
+            &incoming.entries,
+            glossary.fold(),
+        ));
         self.dialog = Dialog::Merge { id, merge };
     }
 

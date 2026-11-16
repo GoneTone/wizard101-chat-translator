@@ -1,9 +1,9 @@
 //! 術語表檔案解析（含建立者）與內建術語表註冊。
 
 use wizard101_chat_translator::glossary::{
-    CREATORS_KEY, Conflict, Entry, Glossary, GlossaryFile, ParseError, RowIssue, apply_merge,
-    builtin, file_to_json, hits_key, overridden, parse_file, plan_merge, review,
-    without_builtin_duplicates,
+    BuiltinIndex, CREATORS_KEY, Conflict, Entry, Fold, Glossary, GlossaryFile, ParseError,
+    RowIssue, apply_merge, builtin, file_to_json, hits_key, overridden, overridden_in, parse_file,
+    plan_merge, review, review_in, without_builtin_duplicates,
 };
 
 fn e(source: &str, target: &str) -> Entry {
@@ -104,13 +104,19 @@ fn real_builtin_stays_fast() {
     let custom: Vec<Entry> = (0..2_000)
         .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
         .collect();
-    let start = std::time::Instant::now();
-    review(&custom, &builtin);
-    overridden(&custom, &builtin);
-    let g = Glossary::new(custom, builtin);
-    assert!(!g.hits("anyone going to Tower of the Helephant?").is_empty());
-    let elapsed = start.elapsed();
-    assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
+    for fold in [Fold::default(), TW] {
+        let start = std::time::Instant::now();
+        let index = BuiltinIndex::new(&builtin, fold);
+        review_in(&custom, &index);
+        overridden_in(&custom, &index);
+        let g = Glossary::new(custom.clone(), builtin.clone(), fold);
+        assert!(!g.hits("anyone going to Tower of the Helephant?").is_empty());
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "{fold:?} {elapsed:?}"
+        );
+    }
 }
 
 #[test]
@@ -123,11 +129,11 @@ fn builtin_creators_come_from_the_file() {
 }
 
 fn hits(entries: Vec<Entry>, text: &str) -> Vec<Entry> {
-    Glossary::new(entries, vec![]).hits(text)
+    Glossary::new(entries, vec![], Fold::default()).hits(text)
 }
 
 fn layered(custom: Vec<Entry>, builtin: Vec<Entry>, text: &str) -> Vec<Entry> {
-    Glossary::new(custom, builtin).hits(text)
+    Glossary::new(custom, builtin, Fold::default()).hits(text)
 }
 
 #[test]
@@ -225,7 +231,7 @@ fn review_fixture() -> (Vec<Entry>, Vec<Entry>) {
 fn review_flags_each_issue() {
     let (custom, builtin) = review_fixture();
     assert_eq!(
-        review(&custom, &builtin),
+        review(&custom, &builtin, Fold::default()),
         vec![
             RowIssue::BuiltinDiffers {
                 other: "火精靈".into()
@@ -242,7 +248,11 @@ fn review_flags_each_issue() {
 #[test]
 fn cross_side_conflict_is_flagged() {
     assert_eq!(
-        review(&[e("哈樓", "Hollo")], &[e("Hollo", "哈羅")]),
+        review(
+            &[e("哈樓", "Hollo")],
+            &[e("Hollo", "哈羅")],
+            Fold::default()
+        ),
         vec![RowIssue::BuiltinDiffers {
             other: "哈羅".into()
         }]
@@ -252,14 +262,17 @@ fn cross_side_conflict_is_flagged() {
 #[test]
 fn overridden_marks_only_shadowed_builtins() {
     let (custom, builtin) = review_fixture();
-    assert_eq!(overridden(&custom, &builtin), vec![true, true, false]);
+    assert_eq!(
+        overridden(&custom, &builtin, Fold::default()),
+        vec![true, true, false]
+    );
 }
 
 #[test]
 fn without_builtin_duplicates_drops_same_rows() {
     let (custom, builtin) = review_fixture();
     assert_eq!(
-        without_builtin_duplicates(&custom, &builtin),
+        without_builtin_duplicates(&custom, &builtin, Fold::default()),
         vec![
             e("Fire Elf", "火妖精"),
             e("hollo", ""),
@@ -273,17 +286,27 @@ fn without_builtin_duplicates_drops_same_rows() {
 #[test]
 fn whitespace_variant_sources_are_duplicates() {
     assert_eq!(
-        review(&[e("Hollo", "哈樓"), e("Hollo ", "哈囉")], &[]),
+        review(
+            &[e("Hollo", "哈樓"), e("Hollo ", "哈囉")],
+            &[],
+            Fold::default()
+        ),
         vec![RowIssue::Ok, RowIssue::DuplicateSource]
     );
-    assert_eq!(review(&[e(" ", "哈樓")], &[]), vec![RowIssue::Incomplete]);
+    assert_eq!(
+        review(&[e(" ", "哈樓")], &[], Fold::default()),
+        vec![RowIssue::Incomplete]
+    );
 }
 
 #[test]
 fn reversed_identical_entry_is_same_as_builtin() {
     let (c, b) = (vec![e("哈樓", "Hollo")], vec![e("Hollo", "哈樓")]);
-    assert_eq!(review(&c, &b), vec![RowIssue::SameAsBuiltin]);
-    assert!(without_builtin_duplicates(&c, &b).is_empty());
+    assert_eq!(
+        review(&c, &b, Fold::default()),
+        vec![RowIssue::SameAsBuiltin]
+    );
+    assert!(without_builtin_duplicates(&c, &b, Fold::default()).is_empty());
     assert_eq!(layered(c.clone(), b.clone(), "Hollo"), c);
     assert_eq!(layered(c.clone(), b, "哈樓"), c);
 }
@@ -297,8 +320,12 @@ fn review_handles_large_glossaries() {
         .map(|i| e(&format!("builtin {i}"), &format!("內建 {i}")))
         .collect();
     let start = std::time::Instant::now();
-    assert!(review(&custom, &builtin).iter().all(|i| *i == RowIssue::Ok));
-    assert!(!overridden(&custom, &builtin).contains(&true));
+    assert!(
+        review(&custom, &builtin, Fold::default())
+            .iter()
+            .all(|i| *i == RowIssue::Ok)
+    );
+    assert!(!overridden(&custom, &builtin, Fold::default()).contains(&true));
     let elapsed = start.elapsed();
     assert!(elapsed < std::time::Duration::from_secs(1), "{elapsed:?}");
 }
@@ -308,6 +335,7 @@ fn merge_plan_counts_added_identical_and_conflicts() {
     let plan = plan_merge(
         &[e("A", "甲"), e("B", "乙")],
         &[e("a", "甲"), e("B", "丙"), e("C", "丁")],
+        Fold::default(),
     );
     assert_eq!(plan.identical, 1);
     assert_eq!(plan.added, vec![e("C", "丁")]);
@@ -324,7 +352,11 @@ fn merge_plan_counts_added_identical_and_conflicts() {
 #[test]
 fn apply_merge_takes_only_checked_conflicts() {
     let current = vec![e("A", "甲"), e("B", "乙")];
-    let plan = plan_merge(&current, &[e("a", "甲"), e("B", "丙"), e("C", "丁")]);
+    let plan = plan_merge(
+        &current,
+        &[e("a", "甲"), e("B", "丙"), e("C", "丁")],
+        Fold::default(),
+    );
     let mut kept = current.clone();
     apply_merge(&mut kept, &plan, &[false]);
     assert_eq!(kept, vec![e("A", "甲"), e("B", "乙"), e("C", "丁")]);
@@ -335,15 +367,174 @@ fn apply_merge_takes_only_checked_conflicts() {
 
 #[test]
 fn merge_plan_keeps_the_first_of_case_variant_duplicates() {
-    let plan = plan_merge(&[], &[e("Hollo", "甲"), e("hollo", "乙")]);
+    let plan = plan_merge(&[], &[e("Hollo", "甲"), e("hollo", "乙")], Fold::default());
     assert_eq!(plan.added, vec![e("Hollo", "甲")]);
     assert_eq!(plan.identical, 0);
     assert!(plan.conflicts.is_empty());
 }
 
+const TW: Fold = Fold { traditional: true };
+
+/// 把整份內建表當檔案匯入一份不小的術語表，合併規劃不能卡住介面。
+#[test]
+fn large_merge_plan_stays_fast() {
+    let incoming = builtin::builtin_entries("zh-CN").unwrap();
+    let current: Vec<Entry> = (0..500)
+        .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
+        .collect();
+    let start = std::time::Instant::now();
+    let plan = plan_merge(&current, &incoming, TW);
+    let elapsed = start.elapsed();
+    assert_eq!(plan.added.len(), incoming.len());
+    assert!(elapsed < std::time::Duration::from_secs(2), "{elapsed:?}");
+}
+
+#[test]
+fn traditional_fold_matches_simplified_entries() {
+    let g = Glossary::new(vec![], vec![e("Krokotopia", "克洛克托比亚")], TW);
+    assert_eq!(g.hits("要去克洛克托比亞嗎").len(), 1);
+    let plain = Glossary::new(
+        vec![],
+        vec![e("Krokotopia", "克洛克托比亚")],
+        Fold::default(),
+    );
+    assert!(plain.hits("要去克洛克托比亞嗎").is_empty());
+}
+
+#[test]
+fn traditional_fold_keeps_other_scripts_matching() {
+    let g = Glossary::new(
+        vec![e("Tokyo Tower", "東京タワー")],
+        vec![e("Krokotopia", "克洛克托比亚")],
+        TW,
+    );
+    assert_eq!(g.hits("要去克洛克托比亚吗").len(), 1);
+    assert_eq!(g.hits("going to krokotopia").len(), 1);
+    assert_eq!(g.hits("東京タワーに行こう").len(), 1);
+}
+
+/// 依現有規則，內建的譯名側只會被自訂的「來源側」蓋掉，所以自訂把繁體寫在來源。
+#[test]
+fn traditional_custom_overrides_simplified_builtin() {
+    let custom = vec![e("龍之谷", "Dspyre")];
+    let builtin = vec![e("Dragonspyre", "龙之谷")];
+    assert_eq!(overridden(&custom, &builtin, TW), vec![true]);
+    assert_eq!(overridden(&custom, &builtin, Fold::default()), vec![false]);
+    let g = Glossary::new(custom.clone(), builtin, TW);
+    assert_eq!(g.hits("去龍之谷"), custom);
+}
+
+/// 編輯畫面重複使用的預先索引，結果要跟每次現算一樣。
+#[test]
+fn prebuilt_index_gives_the_same_results() {
+    let custom = vec![e("Dragonspyre", "龍之谷"), e("學院", "School"), e("x", "")];
+    let builtin = vec![e("Dragonspyre", "龙之谷"), e("Academy", "学院")];
+    for fold in [TW, Fold::default()] {
+        let index = BuiltinIndex::new(&builtin, fold);
+        assert_eq!(index.entries(), builtin.as_slice());
+        assert_eq!(review_in(&custom, &index), review(&custom, &builtin, fold));
+        assert_eq!(
+            overridden_in(&custom, &index),
+            overridden(&custom, &builtin, fold)
+        );
+    }
+}
+
+/// 自然寫法（英文 → 繁體）：繁簡同義的內建條目整條讓給自訂，不會兩條一起送。
+#[test]
+fn traditional_custom_replaces_the_same_builtin_entry() {
+    let custom = vec![e("Dragonspyre", "龍之谷")];
+    let builtin = vec![e("Dragonspyre", "龙之谷"), e("Spyre", "龙之谷")];
+    let g = Glossary::new(custom.clone(), builtin, TW);
+    assert_eq!(
+        g.hits("去龍之谷"),
+        vec![custom[0].clone(), e("Spyre", "龙之谷")]
+    );
+    assert_eq!(
+        g.hits("去龙之谷"),
+        vec![custom[0].clone(), e("Spyre", "龙之谷")]
+    );
+}
+
+#[test]
+fn traditional_fold_applies_to_review_and_merge() {
+    let custom = vec![e("學院", "School"), e("学院", "Academy")];
+    assert_eq!(review(&custom, &[], TW)[1], RowIssue::DuplicateSource);
+    assert_eq!(review(&custom, &[], Fold::default())[1], RowIssue::Ok);
+    let plan = plan_merge(&[e("学院", "School")], &[e("學院", "School")], TW);
+    assert_eq!(plan.identical, 1);
+    let plan = plan_merge(
+        &[e("学院", "School")],
+        &[e("學院", "School")],
+        Fold::default(),
+    );
+    assert_eq!(plan.added.len(), 1);
+}
+
+/// 只差在繁簡的自訂條目不算「與內建相同」，存檔時不可被刪。
+#[test]
+fn traditional_custom_is_not_same_as_simplified_builtin() {
+    let custom = vec![e("Dragonspyre", "龍之谷")];
+    let builtin = vec![e("Dragonspyre", "龙之谷")];
+    assert_eq!(
+        review(&custom, &builtin, TW)[0],
+        RowIssue::BuiltinDiffers {
+            other: "龙之谷".into()
+        }
+    );
+    assert_eq!(without_builtin_duplicates(&custom, &builtin, TW), custom);
+    assert_eq!(overridden(&custom, &builtin, TW), vec![true]);
+}
+
+/// 真實內建表放進幾種前後文，換成繁體或打開開關時的命中結果。
+fn real_zh_cn_hit_mismatches(compare: impl Fn(&str, &str) -> bool) -> Vec<String> {
+    let builtin = builtin::builtin_entries("zh-CN").unwrap();
+    let contexts = [("", ""), ("我们去", "吧"), ("在", "的"), ("打", "了")];
+    let mut misses = Vec::new();
+    for entry in &builtin {
+        for (before, after) in contexts {
+            let simplified = format!("{before}{}{after}", entry.target);
+            if !compare(&simplified, &hanconv::s2tw(&simplified)) {
+                misses.push(simplified);
+            }
+        }
+    }
+    misses
+}
+
+/// 繁體寫法的命中結果要跟簡體寫法一樣（防詞組轉換在句中、單獨出現時結果不同）。
+#[test]
+fn real_zh_cn_traditional_matches_in_context() {
+    let g = Glossary::new(vec![], builtin::builtin_entries("zh-CN").unwrap(), TW);
+    let misses = real_zh_cn_hit_mismatches(|s, t| g.hits(s) == g.hits(t));
+    assert!(
+        misses.is_empty(),
+        "{} misses, e.g. {:?}",
+        misses.len(),
+        &misses[..misses.len().min(20)]
+    );
+}
+
+/// 打開開關後，簡體輸入的命中結果不能比關著時差。
+#[test]
+fn real_zh_cn_simplified_input_does_not_regress() {
+    let builtin = builtin::builtin_entries("zh-CN").unwrap();
+    let on = Glossary::new(vec![], builtin.clone(), TW);
+    let off = Glossary::new(vec![], builtin, Fold::default());
+    let misses = real_zh_cn_hit_mismatches(|s, _| on.hits(s) == off.hits(s));
+    assert!(
+        misses.is_empty(),
+        "{} misses, e.g. {:?}",
+        misses.len(),
+        &misses[..misses.len().min(20)]
+    );
+}
+
 mod config_glossaries {
     use serde_json::{Value, json};
+    use wizard101_chat_translator::config::glossaries::StoredGlossary;
     use wizard101_chat_translator::config::{Config, default_config, glossaries};
+    use wizard101_chat_translator::glossary::builtin;
 
     fn cfg_with(glossaries: Value, active: Value) -> Config {
         let mut cfg = default_config();
@@ -363,7 +554,8 @@ mod config_glossaries {
     fn malformed_glossaries_are_normalized() {
         let mut cfg = cfg_with(
             json!([
-                {"id": "a", "name": "X", "creators": 5, "builtin": 5, "entries": {"k": "v", "n": 1}},
+                {"id": "a", "name": "X", "creators": 5, "builtin": 5, "match_traditional": "no",
+                 "entries": {"k": "v", "n": 1}},
                 3,
                 {"id": "a", "name": "X", "entries": []},
             ]),
@@ -377,6 +569,7 @@ mod config_glossaries {
         assert_eq!(list[1]["name"], "X (2)");
         assert!(list[0]["builtin"].is_null());
         assert!(list[0].get("creators").is_none());
+        assert!(list[0].get("match_traditional").is_none());
         assert_eq!(list[0]["entries"], json!({"k": "v"}));
         assert_eq!(list[1]["entries"], json!({}));
         assert!(cfg["active_glossary"].is_null());
@@ -422,6 +615,58 @@ mod config_glossaries {
     }
 
     #[test]
+    fn active_glossary_matches_traditional_input() {
+        let glossary = json!({"id": "a", "name": "X", "builtin": "zh-CN", "entries": {}});
+        let cfg = cfg_with(json!([glossary.clone()]), json!("a"));
+        assert!(
+            !glossaries::active(&cfg)
+                .unwrap()
+                .hits("去龍之谷")
+                .is_empty()
+        );
+        let mut off = glossary;
+        off["match_traditional"] = json!(false);
+        let cfg = cfg_with(json!([off]), json!("a"));
+        assert!(
+            glossaries::active(&cfg)
+                .unwrap()
+                .hits("去龍之谷")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn match_traditional_round_trips() {
+        let raw = json!({"id": "a", "name": "X", "builtin": "zh-CN", "entries": {}});
+        let g = StoredGlossary::from_value(&raw).unwrap();
+        assert!(g.match_traditional);
+        assert!(g.to_value().get("match_traditional").is_none());
+        let off = StoredGlossary {
+            match_traditional: false,
+            ..g
+        };
+        let back = StoredGlossary::from_value(&off.to_value()).unwrap();
+        assert!(!back.match_traditional);
+    }
+
+    #[test]
+    fn fold_only_applies_to_zh_cn() {
+        let mut g = StoredGlossary {
+            builtin: Some("zh-CN".into()),
+            ..Default::default()
+        };
+        assert!(g.match_traditional);
+        assert!(g.fold().traditional);
+        g.match_traditional = false;
+        assert!(!g.fold().traditional);
+        g.match_traditional = true;
+        g.builtin = Some(builtin::TEST_BUILTIN.into());
+        assert!(!g.fold().traditional);
+        g.builtin = None;
+        assert!(!g.fold().traditional);
+    }
+
+    #[test]
     fn active_ignores_a_missing_builtin() {
         let cfg = cfg_with(
             json!([{"id": "a", "name": "X", "builtin": "xx-XX", "entries": {"Hollo": "哈樓"}}]),
@@ -445,7 +690,7 @@ mod system_cache {
     use std::sync::Arc;
 
     use crate::common::fake_backend::{Fake, spec};
-    use wizard101_chat_translator::glossary::{Entry, Glossary};
+    use wizard101_chat_translator::glossary::{Entry, Fold, Glossary};
     use wizard101_chat_translator::translation::cache::{
         TranslationCache, lookup, translate_and_cache,
     };
@@ -458,7 +703,11 @@ mod system_cache {
             source: "Hollo".into(),
             target: "哈樓".into(),
         };
-        Some(Arc::new(Glossary::new(vec![entry], Vec::new())))
+        Some(Arc::new(Glossary::new(
+            vec![entry],
+            Vec::new(),
+            Fold::default(),
+        )))
     }
 
     fn cache(dir: &tempfile::TempDir) -> TranslationCache {

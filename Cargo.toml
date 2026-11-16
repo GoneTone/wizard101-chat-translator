@@ -23,6 +23,7 @@ egui_commonmark = { version = "0.26", default-features = false, features = ["pul
 pulldown-cmark = { version = "0.13", default-features = false }
 futures-util = "0.3.34"
 ggus = "0.5"
+hanconv = "0.6"
 icu_locale = "2.3.1"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.34"
@@ -68,4 +69,11 @@ opt-level = 3
 [profile.dev.package.rten-tensor]
 opt-level = 3
 [profile.dev.package.rusto-rs]
+opt-level = 3
+# 術語表比對（繁簡轉換、casefold、建比對表）在未最佳化的 debug 建置下太慢，CI 上的效能測試會超時。
+[profile.dev.package.hanconv]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.caseless]
 opt-level = 3

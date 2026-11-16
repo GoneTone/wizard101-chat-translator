@@ -6,8 +6,8 @@ mod review;
 
 pub use matcher::{Glossary, hits_key};
 pub use review::{
-    Conflict, MergePlan, RowIssue, apply_merge, overridden, plan_merge, review,
-    without_builtin_duplicates,
+    BuiltinIndex, Conflict, MergePlan, RowIssue, apply_merge, overridden, overridden_in,
+    plan_merge, review, review_in, without_builtin_duplicates,
 };
 
 use serde_json::{Map, Value};
@@ -46,6 +46,25 @@ impl std::fmt::Display for Entry {
 /// 比對用的正規化形式（去頭尾空白再 casefold）。
 pub fn fold(s: &str) -> String {
     pystr::casefold(pystr::strip(s))
+}
+
+/// 整份術語表比對時用的正規化方式。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Fold {
+    /// 先把繁體字轉成簡體字，讓打繁體也配得上簡體術語。
+    pub traditional: bool,
+}
+
+impl Fold {
+    /// 依這個方式正規化；不轉繁簡時同 [`fold`]。
+    pub fn apply(self, s: &str) -> String {
+        if self.traditional {
+            // 單做 tw2s 不收斂（「颚」不變、「顎」卻轉成「腭」），先轉成繁體再轉回簡體
+            fold(&hanconv::tw2s(hanconv::s2tw(s)))
+        } else {
+            fold(s)
+        }
+    }
 }
 
 /// 一份術語表檔案：建立者與條目。

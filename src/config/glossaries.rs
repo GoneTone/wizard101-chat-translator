@@ -6,13 +6,14 @@ use serde_json::{Map, Value};
 
 use super::Config;
 use super::services::{new_id, str_field, unique_name};
-use crate::glossary::{Entry, Glossary, builtin};
+use crate::glossary::builtin::TRADITIONAL_MATCH_BUILTIN;
+use crate::glossary::{Entry, Fold, Glossary, builtin};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
 
 /// config 裡存的一份術語表：自訂條目，可選擇同時引用一份內建術語表。
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StoredGlossary {
     pub id: String,
     pub name: String,
@@ -20,14 +21,45 @@ pub struct StoredGlossary {
     pub creators: String,
     /// 引用的內建術語表代碼。
     pub builtin: Option<String>,
+    /// 引入 [`TRADITIONAL_MATCH_BUILTIN`] 時，打繁體也配得上；沒存過就是打開。
+    pub match_traditional: bool,
     pub entries: Vec<Entry>,
     /// 不認得的其他鍵，原樣寫回。
     pub extra: Map<String, Value>,
 }
 
-const KNOWN_KEYS: [&str; 5] = ["id", "name", "creators", "builtin", "entries"];
+const KNOWN_KEYS: [&str; 6] = [
+    "id",
+    "name",
+    "creators",
+    "builtin",
+    "match_traditional",
+    "entries",
+];
+
+impl Default for StoredGlossary {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            creators: String::new(),
+            builtin: None,
+            match_traditional: true,
+            entries: Vec::new(),
+            extra: Map::new(),
+        }
+    }
+}
 
 impl StoredGlossary {
+    /// 這份術語表比對時的正規化方式。
+    pub fn fold(&self) -> Fold {
+        Fold {
+            traditional: self.match_traditional
+                && self.builtin.as_deref() == Some(TRADITIONAL_MATCH_BUILTIN),
+        }
+    }
+
     /// 從 config 的一筆讀出；不是物件回 `None`，非字串的條目值略過。
     pub fn from_value(v: &Value) -> Option<Self> {
         let map = v.as_object()?;
@@ -53,6 +85,10 @@ impl StoredGlossary {
             name: str_field(v, "name").into(),
             creators: str_field(v, "creators").into(),
             builtin: map.get("builtin").and_then(Value::as_str).map(Into::into),
+            match_traditional: map
+                .get("match_traditional")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
             entries,
             extra,
         })
@@ -73,6 +109,10 @@ impl StoredGlossary {
             map.insert("creators".into(), self.creators.clone().into());
         }
         map.insert("builtin".into(), self.builtin.clone().into());
+        // 預設是打開，只在關掉時寫，舊設定檔才會原封不動
+        if !self.match_traditional {
+            map.insert("match_traditional".into(), false.into());
+        }
         map.insert("entries".into(), Value::Object(entries));
         map.extend(self.extra.clone());
         Value::Object(map)
@@ -89,7 +129,7 @@ pub fn stored(cfg: &Config) -> Vec<StoredGlossary> {
         .collect()
 }
 
-/// 把一筆修成合法形狀（id、名稱、builtin、entries），`taken` 是已整理好的前面幾筆；第二個值表示有沒有實質修正。
+/// 把一筆修成合法形狀（id、名稱、建立者、builtin、繁體配對開關、entries），`taken` 是已整理好的前面幾筆；第二個值表示有沒有實質修正。
 fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
     let mut repaired = false;
     let mut id = str_field(raw, "id").to_owned();
@@ -119,6 +159,15 @@ fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
     {
         repaired = true;
         log(format!("[config] glossary {id}: dropped malformed builtin"));
+    }
+    if raw
+        .get("match_traditional")
+        .is_some_and(|m| !m.is_boolean())
+    {
+        repaired = true;
+        log(format!(
+            "[config] glossary {id}: dropped malformed match_traditional"
+        ));
     }
     if raw.get("creators").is_some_and(|c| !c.is_string()) {
         repaired = true;
@@ -213,11 +262,13 @@ pub fn active(cfg: &Config) -> Option<Arc<Glossary>> {
         found
     });
     let imported = imported.unwrap_or_default();
+    let fold = chosen.fold();
     log(format!(
-        "[glossary] active glossary {id}: {} custom + {} builtin entries",
+        "[glossary] active glossary {id}: {} custom + {} builtin entries, traditional={}",
         chosen.entries.len(),
-        imported.len()
+        imported.len(),
+        fold.traditional
     ));
-    let glossary = Glossary::new(chosen.entries, imported);
+    let glossary = Glossary::new(chosen.entries, imported, fold);
     (!glossary.is_empty()).then(|| Arc::new(glossary))
 }
