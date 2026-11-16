@@ -8,11 +8,11 @@ use super::theme::{self, icon};
 use super::widgets::{
     LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, hint,
     optional_combo, required_label, required_setting_row_with, rich, right_aligned,
-    right_aligned_width, secondary_button, setting_row_with,
+    right_aligned_width, secondary_button, setting_row, setting_row_with, toggle,
 };
 use crate::config::glossaries::StoredGlossary;
-use crate::glossary::builtin::{builtin_codes, builtin_creators};
-use crate::glossary::{Entry, RowIssue, fold, overridden, review};
+use crate::glossary::builtin::{TRADITIONAL_MATCH_BUILTIN, builtin_codes, builtin_creators};
+use crate::glossary::{Entry, Fold, RowIssue, fold, overridden, review};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -28,8 +28,8 @@ pub(super) enum EditorAction {
 pub(super) struct GlossaryEditor {
     id: String,
     query: String,
-    /// 上次檢查時的條目與引入代碼。
-    checked: Option<(Vec<Entry>, Option<String>)>,
+    /// 上次檢查時的條目、引入代碼與正規化方式。
+    checked: Option<(Vec<Entry>, Option<String>, Fold)>,
     builtin: Vec<Entry>,
     issues: Vec<RowIssue>,
     overridden: Vec<bool>,
@@ -78,6 +78,9 @@ impl GlossaryEditor {
             if builtin_offered(glossary) {
                 self.builtin_row(ui, glossary);
             }
+            if glossary.builtin.as_deref() == Some(TRADITIONAL_MATCH_BUILTIN) {
+                self.traditional_row(ui, glossary);
+            }
         });
         let (import, export) = self.search_row(ui);
         self.custom_card(ui, &mut glossary.entries);
@@ -94,25 +97,25 @@ impl GlossaryEditor {
     }
 
     fn refresh(&mut self, glossary: &StoredGlossary) {
-        let current = (&glossary.entries, &glossary.builtin);
+        let fold = glossary.fold();
         if self
             .checked
             .as_ref()
-            .is_some_and(|(e, b)| (e, b) == current)
+            .is_some_and(|(e, b, f)| (e, b, *f) == (&glossary.entries, &glossary.builtin, fold))
         {
             return;
         }
         if self
             .checked
             .as_ref()
-            .is_none_or(|(_, b)| *b != glossary.builtin)
+            .is_none_or(|(_, b, _)| *b != glossary.builtin)
         {
             self.builtin_rows.clear();
         }
         self.builtin = builtin_of(glossary);
-        self.issues = review(&glossary.entries, &self.builtin, glossary.fold());
-        self.overridden = overridden(&glossary.entries, &self.builtin, glossary.fold());
-        self.checked = Some((glossary.entries.clone(), glossary.builtin.clone()));
+        self.issues = review(&glossary.entries, &self.builtin, fold);
+        self.overridden = overridden(&glossary.entries, &self.builtin, fold);
+        self.checked = Some((glossary.entries.clone(), glossary.builtin.clone(), fold));
     }
 
     fn builtin_row(&self, ui: &mut Ui, glossary: &mut StoredGlossary) {
@@ -152,6 +155,20 @@ impl GlossaryEditor {
                     code.as_deref().unwrap_or("none")
                 ));
                 glossary.builtin = code;
+            }
+        });
+    }
+
+    /// 打繁體也能配對簡體術語的開關。
+    fn traditional_row(&self, ui: &mut Ui, glossary: &mut StoredGlossary) {
+        let label = t("glossary.match_traditional", &[]);
+        let hint = t("glossary.match_traditional_hint", &[]);
+        setting_row(ui, &label, Some(&hint), |ui| {
+            if toggle(ui, &mut glossary.match_traditional, &label).changed() {
+                log(format!(
+                    "[settings] glossary {} match_traditional set to {}",
+                    self.id, glossary.match_traditional
+                ));
             }
         });
     }

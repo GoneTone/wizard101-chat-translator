@@ -373,6 +373,8 @@
   "glossary.builtin": "引入内置术语表",
   "glossary.builtin_none": "不引入",
   "glossary.builtin_missing": "引入的内置术语表已不存在。",
+  "glossary.match_traditional": "繁体也能匹配",
+  "glossary.match_traditional_hint": "输入繁体字时也能匹配到这份简体术语表的术语。",
   "glossary.search": "搜索",
   "glossary.import": "导入文件",
   "glossary.export": "导出",

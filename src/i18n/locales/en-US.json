@@ -373,6 +373,8 @@
   "glossary.builtin": "Built-in glossary",
   "glossary.builtin_none": "None",
   "glossary.builtin_missing": "The included built-in glossary no longer exists.",
+  "glossary.match_traditional": "Match Traditional Chinese",
+  "glossary.match_traditional_hint": "Terms in this Simplified Chinese glossary also match text typed in Traditional Chinese.",
   "glossary.search": "Search",
   "glossary.import": "Import file",
   "glossary.export": "Export",

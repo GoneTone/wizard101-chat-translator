@@ -495,6 +495,44 @@ fn builtin_rows_stay_one_line_tall_and_mark_overridden_entries() {
 }
 
 #[test]
+fn toggle_only_shows_for_zh_cn() {
+    let label = tr("glossary.match_traditional");
+    let h = editing(Vec::new(), Some("zh-CN"));
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_some());
+    let h = editing(Vec::new(), Some(TEST_BUILTIN));
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_none());
+    let h = editing(Vec::new(), None);
+    assert!(h.query_by_role_and_label(Role::Switch, &label).is_none());
+}
+
+#[test]
+fn toggle_turns_matching_off() {
+    let mut h = editing(Vec::new(), Some("zh-CN"));
+    assert!(copy(&h).match_traditional);
+    click(&mut h, Role::Switch, &tr("glossary.match_traditional"));
+    assert!(!copy(&h).match_traditional);
+}
+
+/// 只切開關、條目不變時，內建區塊的「被自訂覆蓋」也要跟著重算。
+#[test]
+fn toggle_refreshes_overridden_marks() {
+    let mut h = scrollable(vec![entry("龍之谷", "Dspyre")], Some("zh-CN"), false);
+    type_into_nth(&mut h, &tr("glossary.search"), 0, "Dragonspyre");
+    let count = wizard101_chat_translator::glossary::builtin::builtin_entries("zh-CN")
+        .unwrap()
+        .len()
+        .to_string();
+    let title = t(
+        "glossary.builtin_section",
+        &[("language", &language_name("zh-CN")), ("count", &count)],
+    );
+    click(&mut h, Role::DisclosureTriangle, &title);
+    assert!(has_label(&h, &tr("glossary.overridden")));
+    click(&mut h, Role::Switch, &tr("glossary.match_traditional"));
+    assert!(!has_label(&h, &tr("glossary.overridden")));
+}
+
+#[test]
 fn deleting_a_row_by_keyboard_keeps_focus_on_a_delete_button() {
     let mut h = editing(vec![entry("A", "甲"), entry("B", "乙")], None);
     let delete = tr("glossary.delete_entry");
