@@ -404,6 +404,16 @@ fn traditional_custom_overrides_simplified_builtin() {
     assert_eq!(g.hits("去龍之谷"), custom);
 }
 
+/// 自然寫法（英文 → 繁體）：繁簡同義的內建條目整條讓給自訂，不會兩條一起送。
+#[test]
+fn traditional_custom_replaces_the_same_builtin_entry() {
+    let custom = vec![e("Dragonspyre", "龍之谷")];
+    let builtin = vec![e("Dragonspyre", "龙之谷"), e("Spyre", "龙之谷")];
+    let g = Glossary::new(custom.clone(), builtin, TW);
+    assert_eq!(g.hits("去龍之谷"), vec![custom[0].clone(), e("Spyre", "龙之谷")]);
+    assert_eq!(g.hits("去龙之谷"), vec![custom[0].clone(), e("Spyre", "龙之谷")]);
+}
+
 #[test]
 fn traditional_fold_applies_to_review_and_merge() {
     let custom = vec![e("學院", "School"), e("学院", "Academy")];
