@@ -486,23 +486,42 @@ fn traditional_custom_is_not_same_as_simplified_builtin() {
     assert_eq!(overridden(&custom, &builtin, TW), vec![true]);
 }
 
-/// 用真實內建表驗證：繁體寫法單獨出現與夾在句中，命中結果都要跟簡體寫法一樣（防詞組轉換前後不一致）。
-#[test]
-fn real_zh_cn_traditional_matches_in_context() {
+/// 真實內建表放進幾種前後文，換成繁體或打開開關時的命中結果。
+fn real_zh_cn_hit_mismatches(compare: impl Fn(&str, &str) -> bool) -> Vec<String> {
     let builtin = builtin::builtin_entries("zh-CN").unwrap();
-    let g = Glossary::new(vec![], builtin.clone(), TW);
+    let contexts = [("", ""), ("我们去", "吧"), ("在", "的"), ("打", "了")];
     let mut misses = Vec::new();
     for entry in &builtin {
-        let tw = hanconv::s2tw(&entry.target);
-        for (simplified, traditional) in [
-            (entry.target.clone(), tw.clone()),
-            (format!("我们去{}吧", entry.target), format!("我們去{tw}吧")),
-        ] {
-            if g.hits(&traditional) != g.hits(&simplified) {
-                misses.push(traditional);
+        for (before, after) in contexts {
+            let simplified = format!("{before}{}{after}", entry.target);
+            if !compare(&simplified, &hanconv::s2tw(&simplified)) {
+                misses.push(simplified);
             }
         }
     }
+    misses
+}
+
+/// 繁體寫法的命中結果要跟簡體寫法一樣（防詞組轉換在句中、單獨出現時結果不同）。
+#[test]
+fn real_zh_cn_traditional_matches_in_context() {
+    let g = Glossary::new(vec![], builtin::builtin_entries("zh-CN").unwrap(), TW);
+    let misses = real_zh_cn_hit_mismatches(|s, t| g.hits(s) == g.hits(t));
+    assert!(
+        misses.is_empty(),
+        "{} misses, e.g. {:?}",
+        misses.len(),
+        &misses[..misses.len().min(20)]
+    );
+}
+
+/// 打開開關後，簡體輸入的命中結果不能比關著時差。
+#[test]
+fn real_zh_cn_simplified_input_does_not_regress() {
+    let builtin = builtin::builtin_entries("zh-CN").unwrap();
+    let on = Glossary::new(vec![], builtin.clone(), TW);
+    let off = Glossary::new(vec![], builtin, Fold::default());
+    let misses = real_zh_cn_hit_mismatches(|s, _| on.hits(s) == off.hits(s));
     assert!(
         misses.is_empty(),
         "{} misses, e.g. {:?}",

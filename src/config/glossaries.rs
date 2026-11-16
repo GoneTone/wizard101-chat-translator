@@ -129,7 +129,7 @@ pub fn stored(cfg: &Config) -> Vec<StoredGlossary> {
         .collect()
 }
 
-/// 把一筆修成合法形狀（id、名稱、builtin、entries），`taken` 是已整理好的前面幾筆；第二個值表示有沒有實質修正。
+/// 把一筆修成合法形狀（id、名稱、建立者、builtin、繁體配對開關、entries），`taken` 是已整理好的前面幾筆；第二個值表示有沒有實質修正。
 fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
     let mut repaired = false;
     let mut id = str_field(raw, "id").to_owned();
