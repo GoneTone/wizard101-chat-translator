@@ -17,7 +17,7 @@ use serde_json::json;
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::config::Config;
-use wizard101_chat_translator::glossary::{Entry, Glossary};
+use wizard101_chat_translator::glossary::{Entry, Fold, Glossary};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::reader::chat_tabs::TabState;
 use wizard101_chat_translator::reader::markup::ChatLine;
@@ -426,6 +426,7 @@ fn system_cache_hit_with_a_glossary_key_is_shown_without_pool() {
             target: "哈樓".into(),
         }],
         Vec::new(),
+        Fold::default(),
     ));
     let run = |key: &str, submits: usize| {
         let mut s = Setup::new().system_messages(true);

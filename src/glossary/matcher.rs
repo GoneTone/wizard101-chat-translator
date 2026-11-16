@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, MatchKind};
 
-use super::{Entry, fold};
+use super::{Entry, Fold};
 use crate::logs::log;
 
 /// 比對字串在條目的哪一側。
@@ -22,10 +22,10 @@ pub(crate) struct CustomWords {
 }
 
 impl CustomWords {
-    pub(crate) fn new(custom: &[Entry]) -> Self {
+    pub(crate) fn new(custom: &[Entry], fold: Fold) -> Self {
         Self {
-            sources: custom.iter().map(|e| fold(&e.source)).collect(),
-            targets: custom.iter().map(|e| fold(&e.target)).collect(),
+            sources: custom.iter().map(|e| fold.apply(&e.source)).collect(),
+            targets: custom.iter().map(|e| fold.apply(&e.target)).collect(),
         }
     }
 
@@ -51,12 +51,13 @@ pub struct Glossary {
     owners: Vec<Vec<Owner>>,
     custom_words: CustomWords,
     automaton: Option<AhoCorasick>,
+    fold: Fold,
 }
 
 impl Glossary {
     /// 建立比對器；參數順序為先自訂、後內建，同詞時自訂優先。
-    pub fn new(custom: Vec<Entry>, builtin: Vec<Entry>) -> Self {
-        let custom_words = CustomWords::new(&custom);
+    pub fn new(custom: Vec<Entry>, builtin: Vec<Entry>, fold: Fold) -> Self {
+        let custom_words = CustomWords::new(&custom, fold);
         let entries: Vec<(Entry, bool)> = custom
             .into_iter()
             .map(|e| (e, true))
@@ -66,7 +67,7 @@ impl Glossary {
         let mut patterns: Vec<String> = Vec::new();
         let mut owners: Vec<Vec<Owner>> = Vec::new();
         for (i, (entry, _)) in entries.iter().enumerate() {
-            let (src, tgt) = (fold(&entry.source), fold(&entry.target));
+            let (src, tgt) = (fold.apply(&entry.source), fold.apply(&entry.target));
             let mut words = vec![(src.clone(), Side::Source)];
             if tgt != src {
                 words.push((tgt, Side::Target));
@@ -99,6 +100,7 @@ impl Glossary {
             owners,
             custom_words,
             automaton,
+            fold,
         }
     }
 
@@ -113,7 +115,7 @@ impl Glossary {
             return Vec::new();
         };
         // 偏移量只對 fold 後的字串有意義，不可拿去索引原文。
-        let text = fold(text);
+        let text = self.fold.apply(text);
         let mut spans: Vec<(usize, usize, usize)> = ac
             .find_overlapping_iter(&text)
             .filter(|m| boundaries_ok(&text, m.start(), m.end()))

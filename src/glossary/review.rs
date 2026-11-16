@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::matcher::{CustomWords, Side};
-use super::{Entry, fold};
+use super::{Entry, Fold};
 
 /// 一條自訂條目在編輯畫面上的狀態。
 #[derive(Clone, Debug, PartialEq)]
@@ -25,10 +25,10 @@ struct BuiltinIndex {
 }
 
 impl BuiltinIndex {
-    fn new(builtin: &[Entry]) -> Self {
+    fn new(builtin: &[Entry], fold: Fold) -> Self {
         let folded: Vec<(String, String)> = builtin
             .iter()
-            .map(|b| (fold(&b.source), fold(&b.target)))
+            .map(|b| (fold.apply(&b.source), fold.apply(&b.target)))
             .collect();
         let mut by_word: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, (source, target)) in folded.iter().enumerate() {
@@ -75,8 +75,10 @@ fn same_words(a: (&str, &str), b: &(String, String)) -> bool {
 }
 
 /// 每條自訂一個狀態，優先序為 Incomplete、DuplicateSource、SameAsBuiltin、BuiltinDiffers、Ok。
-pub fn review(custom: &[Entry], builtin: &[Entry]) -> Vec<RowIssue> {
-    let index = BuiltinIndex::new(builtin);
+///
+/// SameAsBuiltin 只認字完全相同（不套 `fold` 的繁簡轉換），只差繁簡的自訂條目存檔時才不會被刪。
+pub fn review(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<RowIssue> {
+    let index = BuiltinIndex::new(builtin, fold);
     let mut seen = HashSet::new();
     custom
         .iter()
@@ -84,18 +86,22 @@ pub fn review(custom: &[Entry], builtin: &[Entry]) -> Vec<RowIssue> {
             if c.is_incomplete() {
                 return RowIssue::Incomplete;
             }
-            let (source, target) = (fold(&c.source), fold(&c.target));
+            let (source, target) = (fold.apply(&c.source), fold.apply(&c.target));
             if !seen.insert(source.clone()) {
                 return RowIssue::DuplicateSource;
             }
             let sharing = index.sharing(&source, &target);
-            if sharing
-                .iter()
-                .any(|&i| same_words((&source, &target), &index.folded[i]))
-            {
+            let exact = (super::fold(&c.source), super::fold(&c.target));
+            if sharing.iter().any(|&i| {
+                let b = &builtin[i];
+                same_words(
+                    (&exact.0, &exact.1),
+                    &(super::fold(&b.source), super::fold(&b.target)),
+                )
+            }) {
                 return RowIssue::SameAsBuiltin;
             }
-            let words = CustomWords::new(std::slice::from_ref(c));
+            let words = CustomWords::new(std::slice::from_ref(c), fold);
             sharing
                 .iter()
                 .find_map(|&i| unshared_side(&words, &builtin[i], &index.folded[i]))
@@ -105,20 +111,20 @@ pub fn review(custom: &[Entry], builtin: &[Entry]) -> Vec<RowIssue> {
 }
 
 /// 每條內建一個旗標，有詞被自訂覆蓋就是 true。
-pub fn overridden(custom: &[Entry], builtin: &[Entry]) -> Vec<bool> {
-    let words = CustomWords::new(custom);
+pub fn overridden(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<bool> {
+    let words = CustomWords::new(custom, fold);
     builtin
         .iter()
         .map(|b| {
-            words.shadows(&fold(&b.source), Side::Source)
-                || words.shadows(&fold(&b.target), Side::Target)
+            words.shadows(&fold.apply(&b.source), Side::Source)
+                || words.shadows(&fold.apply(&b.target), Side::Target)
         })
         .collect()
 }
 
 /// 去掉與內建完全相同的自訂列（存檔用）。
-pub fn without_builtin_duplicates(custom: &[Entry], builtin: &[Entry]) -> Vec<Entry> {
-    review(custom, builtin)
+pub fn without_builtin_duplicates(custom: &[Entry], builtin: &[Entry], fold: Fold) -> Vec<Entry> {
+    review(custom, builtin, fold)
         .into_iter()
         .zip(custom)
         .filter(|(issue, _)| *issue != RowIssue::SameAsBuiltin)
@@ -144,7 +150,7 @@ pub struct MergePlan {
 }
 
 /// 以 fold 後的來源比對，規劃新增、相同與衝突各幾筆；檔案內來源重複（含大小寫差異）者只取第一筆。
-pub fn plan_merge(current: &[Entry], incoming: &[Entry]) -> MergePlan {
+pub fn plan_merge(current: &[Entry], incoming: &[Entry], fold: Fold) -> MergePlan {
     let mut plan = MergePlan {
         added: Vec::new(),
         identical: 0,
@@ -152,13 +158,15 @@ pub fn plan_merge(current: &[Entry], incoming: &[Entry]) -> MergePlan {
     };
     let mut seen = HashSet::new();
     for inc in incoming {
-        let key = fold(&inc.source);
+        let key = fold.apply(&inc.source);
         if !seen.insert(key.clone()) {
             continue;
         }
-        match current.iter().position(|c| fold(&c.source) == key) {
+        match current.iter().position(|c| fold.apply(&c.source) == key) {
             None => plan.added.push(inc.clone()),
-            Some(i) if fold(&current[i].target) == fold(&inc.target) => plan.identical += 1,
+            Some(i) if fold.apply(&current[i].target) == fold.apply(&inc.target) => {
+                plan.identical += 1
+            }
             Some(i) => plan.conflicts.push(Conflict {
                 index: i,
                 current: current[i].clone(),

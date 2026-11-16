@@ -17,7 +17,9 @@ use super::widgets::{
 };
 use super::window::SaveError;
 use crate::config::glossaries::StoredGlossary;
-use crate::glossary::{Entry, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge};
+use crate::glossary::{
+    Entry, Fold, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge,
+};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -282,7 +284,11 @@ impl GlossaryPane {
             return;
         };
         // 合併只加條目，建立者維持目前這份的
-        let merge = MergeDialog::new(plan_merge(&glossary.entries, &incoming.entries));
+        let merge = MergeDialog::new(plan_merge(
+            &glossary.entries,
+            &incoming.entries,
+            Fold::default(),
+        ));
         self.dialog = Dialog::Merge { id, merge };
     }
 

@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
-use wizard101_chat_translator::glossary::{Entry, Glossary};
+use wizard101_chat_translator::glossary::{Entry, Fold, Glossary};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{ChatBackend, MAX_TOKENS_REGION};
 use wizard101_chat_translator::translation::errors::TranslateError;
@@ -1202,7 +1202,11 @@ fn hollo_glossary() -> Option<Arc<Glossary>> {
         source: "Hollo".into(),
         target: "哈樓".into(),
     };
-    Some(Arc::new(Glossary::new(vec![entry], Vec::new())))
+    Some(Arc::new(Glossary::new(
+        vec![entry],
+        Vec::new(),
+        Fold::default(),
+    )))
 }
 
 #[tokio::test]
@@ -1293,7 +1297,11 @@ async fn system_message_strict_retry_logs_the_hits_once() {
         source: "雪刺".into(),
         target: "冰刺".into(),
     };
-    tr.set_glossary(Some(Arc::new(Glossary::new(vec![entry], Vec::new()))));
+    tr.set_glossary(Some(Arc::new(Glossary::new(
+        vec![entry],
+        Vec::new(),
+        Fold::default(),
+    ))));
     tr.translate_system_message("雪刺帽").await.unwrap();
     let calls = fake.calls();
     assert_eq!(calls.len(), 2);

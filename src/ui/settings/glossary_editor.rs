@@ -12,7 +12,7 @@ use super::widgets::{
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{builtin_codes, builtin_creators};
-use crate::glossary::{Entry, RowIssue, fold, overridden, review};
+use crate::glossary::{Entry, Fold, RowIssue, fold, overridden, review};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -110,8 +110,8 @@ impl GlossaryEditor {
             self.builtin_rows.clear();
         }
         self.builtin = builtin_of(glossary);
-        self.issues = review(&glossary.entries, &self.builtin);
-        self.overridden = overridden(&glossary.entries, &self.builtin);
+        self.issues = review(&glossary.entries, &self.builtin, Fold::default());
+        self.overridden = overridden(&glossary.entries, &self.builtin, Fold::default());
         self.checked = Some((glossary.entries.clone(), glossary.builtin.clone()));
     }
 

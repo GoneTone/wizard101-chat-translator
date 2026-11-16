@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 use super::Config;
 use super::services::{new_id, str_field, unique_name};
-use crate::glossary::{Entry, Glossary, builtin};
+use crate::glossary::{Entry, Fold, Glossary, builtin};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
@@ -218,6 +218,6 @@ pub fn active(cfg: &Config) -> Option<Arc<Glossary>> {
         chosen.entries.len(),
         imported.len()
     ));
-    let glossary = Glossary::new(chosen.entries, imported);
+    let glossary = Glossary::new(chosen.entries, imported, Fold::default());
     (!glossary.is_empty()).then(|| Arc::new(glossary))
 }

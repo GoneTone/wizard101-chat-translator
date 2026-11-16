@@ -1728,6 +1728,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "hanconv"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea5aef8625ba6ce42df2dd8de6c629cc230a5d192aebc074af5fe8c779ea5dbc"
+dependencies = [
+ "ahash",
+]
+
+[[package]]
 name = "harfrust"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5544,6 +5553,7 @@ dependencies = [
  "epaint",
  "futures-util",
  "ggus",
+ "hanconv",
  "icu_locale",
  "image",
  "log",
