@@ -11,8 +11,8 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::System::Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory};
 use windows_sys::Win32::System::Memory::{
-    MEM_COMMIT, MEM_RELEASE, MEMORY_BASIC_INFORMATION, PAGE_EXECUTE_READWRITE, VirtualAllocEx,
-    VirtualFreeEx, VirtualQueryEx,
+    MEM_COMMIT, MEM_FREE, MEM_RELEASE, MEM_RESERVE, MEMORY_BASIC_INFORMATION,
+    PAGE_EXECUTE_READWRITE, VirtualAllocEx, VirtualFreeEx, VirtualQueryEx,
 };
 use windows_sys::Win32::System::ProcessStatus::{
     EnumProcessModulesEx, GetModuleBaseNameW, GetModuleInformation, LIST_MODULES_ALL, MODULEINFO,
@@ -74,6 +74,35 @@ impl fmt::Display for MemError {
 
 impl std::error::Error for MemError {}
 
+/// `E9 rel32` 跳得到的最大距離（留餘裕給跳板本身的長度）。
+pub const NEAR_LIMIT: u64 = 0x7FF0_0000;
+
+/// `VirtualAlloc` 指定位址時要求的對齊。
+const ALLOC_ALIGN: u64 = 0x1_0000;
+
+/// 從空閒區段（起點, 長度）挑出離 `near` 最近、64 KB 對齊、整塊都在 `NEAR_LIMIT` 內的起點。
+pub fn pick_near(free: &[(u64, u64)], near: u64, size: u64) -> Option<u64> {
+    let align_down = |v: u64| v & !(ALLOC_ALIGN - 1);
+    let align_up = |v: u64| v.saturating_add(ALLOC_ALIGN - 1) & !(ALLOC_ALIGN - 1);
+    free.iter()
+        .flat_map(|&(base, len)| {
+            let end = base.saturating_add(len);
+            let below = end
+                .checked_sub(size)
+                .map(|latest| align_down(latest.min(near)));
+            let above = Some(align_up(base.max(near)));
+            [below, above]
+                .into_iter()
+                .flatten()
+                .filter(move |&start| start >= base && start.saturating_add(size) <= end)
+        })
+        .filter(|&start| {
+            start.abs_diff(near) <= NEAR_LIMIT
+                && start.saturating_add(size).abs_diff(near) <= NEAR_LIMIT
+        })
+        .min_by_key(|&start| start.abs_diff(near))
+}
+
 /// 與 wizwalker `read_bytes` 相同的位址檢查。
 fn check_range(addr: u64) -> Result<(), MemError> {
     if addr == 0 || addr > 0x7FFF_FFFF_FFFF_FFFF {
@@ -116,7 +145,9 @@ pub trait ProcessMemory: Send {
     fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError>;
     /// 配置一塊 `MEM_COMMIT`、可執行可讀寫的記憶體，回傳位址。
     fn alloc(&self, size: usize) -> Result<u64, MemError>;
-    /// 釋放 [`ProcessMemory::alloc`] 配置的記憶體；失敗不回報（同 pymem）。
+    /// 同 [`ProcessMemory::alloc`]，但整塊落在 `near` 的 [`NEAR_LIMIT`] 範圍內，找不到空位回 [`MemError::Alloc`]。
+    fn alloc_near(&self, near: u64, size: usize) -> Result<u64, MemError>;
+    /// 釋放 [`ProcessMemory::alloc`] 或 [`ProcessMemory::alloc_near`] 配置的記憶體；失敗不回報（同 pymem）。
     fn free(&self, addr: u64);
     /// 模組基址（名稱不分大小寫）。
     fn module_base(&self, name: &str) -> Result<u64, MemError>;
@@ -320,6 +351,47 @@ impl ProcessMemory for WinProcess {
         Ok(addr as u64)
     }
 
+    fn alloc_near(&self, near: u64, size: usize) -> Result<u64, MemError> {
+        let lo = near.saturating_sub(NEAR_LIMIT);
+        let hi = near.saturating_add(NEAR_LIMIT);
+        let mut free = Vec::new();
+        let mut addr = lo;
+        while addr < hi {
+            let mut mbi: MEMORY_BASIC_INFORMATION = unsafe { zeroed() };
+            let got = unsafe {
+                VirtualQueryEx(self.handle, addr as *const _, &mut mbi, size_of_val(&mbi))
+            };
+            if got == 0 {
+                break;
+            }
+            let base = mbi.BaseAddress as u64;
+            if mbi.State == MEM_FREE {
+                let start = base.max(lo);
+                free.push((start, base + mbi.RegionSize as u64 - start));
+            }
+            addr = base + mbi.RegionSize as u64;
+        }
+        let target = pick_near(&free, near, size as u64);
+        let allocated = target.map_or(null_mut(), |start| unsafe {
+            VirtualAllocEx(
+                self.handle,
+                start as *const _,
+                size,
+                MEM_RESERVE | MEM_COMMIT,
+                PAGE_EXECUTE_READWRITE,
+            )
+        });
+        if allocated.is_null() {
+            log(format!(
+                "[reader] alloc_near failed: near={near:#x} size={size} free_regions={} error={}",
+                free.len(),
+                unsafe { GetLastError() }
+            ));
+            return Err(self.failure(MemError::Alloc(size)));
+        }
+        Ok(allocated as u64)
+    }
+
     fn free(&self, addr: u64) {
         unsafe { VirtualFreeEx(self.handle, addr as *mut _, 0, MEM_RELEASE) };
     }
@@ -372,6 +444,7 @@ mod fake {
 
     const FIRST_ALLOC: u64 = 0x2000_0000;
     const ALLOC_GRANULARITY: u64 = 0x1_0000;
+    const FAKE_NEAR_OFFSET: u64 = 0x1000_0000;
 
     /// [`FakeMemory`] 依序記下的一次記憶體變動。
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,6 +475,8 @@ mod fake {
         failing_reads: Vec<u64>,
         ops: Vec<MemOp>,
         next_alloc: u64,
+        next_near: Option<u64>,
+        fail_near: bool,
         dead: bool,
     }
 
@@ -489,6 +564,11 @@ mod fake {
             self.state().next_alloc = addr;
         }
 
+        /// 之後的 [`ProcessMemory::alloc_near`] 一律失敗。
+        pub fn fail_alloc_near(&self) {
+            self.state().fail_near = true;
+        }
+
         /// 模擬程序結束：之後的存取都回 [`MemError::Closed`]。
         pub fn kill(&self) {
             self.state().dead = true;
@@ -542,6 +622,22 @@ mod fake {
             let addr = state.next_alloc;
             state.next_alloc +=
                 (size as u64).div_ceil(ALLOC_GRANULARITY).max(1) * ALLOC_GRANULARITY;
+            state.put(addr, &vec![0; size]);
+            state.allocs.insert(addr, size);
+            state.ops.push(MemOp::Alloc { addr, size });
+            Ok(addr)
+        }
+
+        fn alloc_near(&self, near: u64, size: usize) -> Result<u64, MemError> {
+            let mut state = self.state();
+            if state.dead {
+                return Err(MemError::Closed);
+            }
+            if state.fail_near {
+                return Err(MemError::Alloc(size));
+            }
+            let addr = state.next_near.unwrap_or(near - FAKE_NEAR_OFFSET);
+            state.next_near = Some(addr + ALLOC_GRANULARITY);
             state.put(addr, &vec![0; size]);
             state.allocs.insert(addr, size);
             state.ops.push(MemOp::Alloc { addr, size });
@@ -761,5 +857,57 @@ mod tests {
             Err(MemError::ModuleNotFound(_))
         ));
         assert_eq!(WinProcess::open(0).err(), Some(MemError::Closed));
+    }
+
+    #[test]
+    fn win_process_alloc_near_lands_within_limit() {
+        let proc = WinProcess::open(std::process::id()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let name = exe.file_name().unwrap().to_str().unwrap().to_uppercase();
+        let near = proc.module_base(&name).unwrap();
+        let addr = proc.alloc_near(near, 0x1000).unwrap();
+        assert!(addr.abs_diff(near) <= NEAR_LIMIT);
+        assert_eq!(addr % 0x1_0000, 0);
+        proc.write(addr, &[1, 2, 3, 4]).unwrap();
+        assert_eq!(proc.read(addr, 4).unwrap(), vec![1, 2, 3, 4]);
+        proc.free(addr);
+    }
+
+    #[test]
+    fn pick_near_prefers_closest_aligned_slot() {
+        let near = 0x1_4000_0000;
+        // 模組下方有一段空位、上方較遠處也有
+        let free = [(0x1_3000_0000, 0x0800_0000), (0x1_9000_0000, 0x1000_0000)];
+        assert_eq!(pick_near(&free, near, 0x1000), Some(0x1_37FF_0000));
+    }
+
+    #[test]
+    fn pick_near_rejects_slots_beyond_limit_and_unaligned_tails() {
+        let near = 0x1_4000_0000;
+        assert_eq!(
+            pick_near(&[(near + NEAR_LIMIT, 0x10_0000)], near, 0x1000),
+            None
+        );
+        assert_eq!(pick_near(&[(0x1_3000_8000, 0x8000)], near, 0x1000), None); // 區段內沒有 64 KB 對齊點
+    }
+
+    #[test]
+    fn fake_alloc_near_records_alloc_and_can_fail() {
+        let mem = FakeMemory::new();
+        assert_eq!(
+            mem.alloc_near(0x1_4000_0000, 0x1000).unwrap(),
+            0x1_3000_0000
+        );
+        assert_eq!(
+            mem.alloc_near(0x1_4000_0000, 0x1000).unwrap(),
+            0x1_3001_0000
+        );
+        assert_eq!(mem.alloc(0x10).unwrap(), 0x2000_0000); // 與 alloc 的游標互不影響
+        mem.fail_alloc_near();
+        assert!(matches!(
+            mem.alloc_near(0x1_4000_0000, 0x1000),
+            Err(MemError::Alloc(0x1000))
+        ));
+        assert_eq!(mem.ops().len(), 3);
     }
 }

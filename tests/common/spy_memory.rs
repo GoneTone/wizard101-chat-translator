@@ -89,6 +89,10 @@ impl ProcessMemory for SpyMemory {
         self.mem.alloc(size)
     }
 
+    fn alloc_near(&self, near: u64, size: usize) -> Result<u64, MemError> {
+        self.mem.alloc_near(near, size)
+    }
+
     fn free(&self, addr: u64) {
         self.mem.free(addr)
     }
