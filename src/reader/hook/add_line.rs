@@ -21,7 +21,7 @@ pub const MAX_CHARS: u64 = (SLOT_SIZE - DATA_OFF) / 2;
 
 /// 從函式開頭到 `lea rbp,[rsp-disp32]` 的穩定特徵；`lea` 之後的堆疊大小與暫存器存取順序會隨編譯改變，不在其中。
 pub const ANCHOR_PATTERN: &str = concat!(
-    r"(?:[\x48\x4C]\x89[\x44\x4C\x54\x5C\x6C\x74\x7C]\x24.)*",
+    r"(?:[\x44\x48\x4C]\x89[\x44\x4C\x54\x5C\x64\x6C\x74\x7C]\x24.)*",
     r"(?:[\x40\x41]?[\x50-\x57]){1,8}",
     r"\x48\x8D\xAC\x24....",
     r".{0,96}?\x83[\xF8-\xFF]\x05\x7C",
@@ -44,11 +44,11 @@ pub struct AddLineSite {
 /// 解析函式開頭，回傳（push 數, `lea` 在 bytes 內的位移）；`lea` 之前出現其他指令就回錯誤。
 pub fn decode_prologue(bytes: &[u8]) -> Result<(u8, usize), String> {
     let mut at = 0;
-    // 存暫存器到 home 空間：REX.W 89 ModRM(rsp 相對) 24 disp8
+    // 存暫存器到 home 空間：REX 89 ModRM(rsp 相對) 24 disp8，只寫記憶體、不改暫存器
     while let [
-        0x48 | 0x4C,
+        0x44 | 0x48 | 0x4C,
         0x89,
-        0x44 | 0x4C | 0x54 | 0x5C | 0x6C | 0x74 | 0x7C,
+        0x44 | 0x4C | 0x54 | 0x5C | 0x64 | 0x6C | 0x74 | 0x7C,
         0x24,
         _,
         ..,
@@ -78,12 +78,13 @@ pub fn decode_prologue(bytes: &[u8]) -> Result<(u8, usize), String> {
 /// 掃描並解碼跳轉點；位址未 16 對齊或開頭解析失敗回 [`HookError::Mismatch`]。
 pub fn locate(mem: &dyn ProcessMemory) -> Result<AddLineSite, HookError> {
     let addr = pattern::scan(mem, MODULE, ANCHOR_PATTERN)?;
+    let bytes = mem.read(addr, PROLOGUE_READ)?;
     if !addr.is_multiple_of(16) {
         return Err(HookError::Mismatch(format!(
-            "AddLine match at {addr:#x} is not 16-byte aligned"
+            "AddLine match at {addr:#x} is not 16-byte aligned (bytes={})",
+            hex(&bytes)
         )));
     }
-    let bytes = mem.read(addr, PROLOGUE_READ)?;
     let (pushes, lea) = decode_prologue(&bytes).map_err(|why| {
         HookError::Mismatch(format!(
             "AddLine at {addr:#x}: {why} (bytes={})",
@@ -97,8 +98,10 @@ pub fn locate(mem: &dyn ProcessMemory) -> Result<AddLineSite, HookError> {
     })
 }
 
-/// 依 push 數與原指令組出 stub（不含回跳）。
+/// 依 push 數與原指令組出 stub（不含回跳）；push 數超過 8 會 panic。
 pub fn stub_for(ring: u64, site: &AddLineSite) -> Vec<u8> {
+    // 超過 8 個 push 時 disp8 會變負數或溢位
+    assert!(site.pushes <= 8, "pushes={} exceeds 8", site.pushes);
     let q = ring.to_le_bytes();
     let d = |v: u64| (v as u32).to_le_bytes();
     // 函式的 push 加上 stub 自己的 7 個 push（含 pushfq）
@@ -435,6 +438,33 @@ mod tests {
             panic!("expected Mismatch");
         };
         assert!(msg.contains("not 16-byte aligned"), "{msg}");
+        assert!(
+            msg.contains("0x140758cf8") && msg.contains(&NEW_BUILD[..2 * PROLOGUE_READ]),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn prologue_accepts_r12_and_32_bit_saves() {
+        let re = pattern::compile(ANCHOR_PATTERN).unwrap();
+        // mov [rsp+18],r12；mov [rsp+18],r8d
+        for save in ["4c89642418", "4489442418"] {
+            let bytes = unhex(&format!("{save}{}", &NEW_BUILD[10..]));
+            let padded = [&[0xCC; 16][..], &bytes].concat();
+            assert_eq!(re.find(&padded).unwrap().start(), 16, "{save}");
+            assert_eq!(decode_prologue(&bytes).unwrap(), (7, 16), "{save}");
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn stub_refuses_push_counts_that_overflow_disp8() {
+        let site = AddLineSite {
+            jump: 0,
+            pushes: 9,
+            original: unhex("488dac24e0feffff").try_into().unwrap(),
+        };
+        stub_for(0x3000_0000, &site);
     }
 
     #[test]

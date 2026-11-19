@@ -56,6 +56,10 @@ pub enum MemError {
     ModuleNotFound(String),
     /// 配置失敗，帶要求的大小。
     Alloc(usize),
+    /// `near` 附近找不到放得下 `size` bytes 的空位（沒呼叫 `VirtualAllocEx`）。
+    NoRoomNear { near: u64, size: usize },
+    /// 在 `addr` 指定位址配置失敗，帶 `GetLastError` 錯誤碼。
+    AllocAt { addr: u64, size: usize, code: u32 },
 }
 
 impl fmt::Display for MemError {
@@ -68,6 +72,14 @@ impl fmt::Display for MemError {
             Self::OutOfRange(addr) => write!(f, "Address {addr} out of bounds"),
             Self::ModuleNotFound(name) => write!(f, "{name} module not found."),
             Self::Alloc(size) => write!(f, "could not allocate {size} bytes"),
+            Self::NoRoomNear { near, size } => write!(
+                f,
+                "no free {size}-byte slot within {NEAR_LIMIT:#x} of {near:#x}"
+            ),
+            Self::AllocAt { addr, size, code } => write!(
+                f,
+                "could not allocate {size} bytes at {addr:#x} (error={code})"
+            ),
         }
     }
 }
@@ -146,7 +158,7 @@ pub trait ProcessMemory: Send {
     fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError>;
     /// 配置一塊 `MEM_COMMIT`、可執行可讀寫的記憶體，回傳位址。
     fn alloc(&self, size: usize) -> Result<u64, MemError>;
-    /// 同 [`ProcessMemory::alloc`]，但整塊落在 `near` 的 [`NEAR_LIMIT`] 範圍內，找不到空位回 [`MemError::Alloc`]。
+    /// 同 [`ProcessMemory::alloc`]，但整塊落在 `near` 的 [`NEAR_LIMIT`] 範圍內，找不到空位回 [`MemError::NoRoomNear`]。
     fn alloc_near(&self, near: u64, size: usize) -> Result<u64, MemError>;
     /// 釋放 [`ProcessMemory::alloc`] 或 [`ProcessMemory::alloc_near`] 配置的記憶體；失敗不回報（同 pymem）。
     fn free(&self, addr: u64);
@@ -372,23 +384,21 @@ impl ProcessMemory for WinProcess {
             }
             addr = base + mbi.RegionSize as u64;
         }
-        let target = pick_near(&free, near, size as u64);
-        let allocated = target.map_or(null_mut(), |start| unsafe {
+        let Some(addr) = pick_near(&free, near, size as u64) else {
+            return Err(self.failure(MemError::NoRoomNear { near, size }));
+        };
+        let allocated = unsafe {
             VirtualAllocEx(
                 self.handle,
-                start as *const _,
+                addr as *const _,
                 size,
                 MEM_RESERVE | MEM_COMMIT,
                 PAGE_EXECUTE_READWRITE,
             )
-        });
+        };
         if allocated.is_null() {
-            log(format!(
-                "[reader] alloc_near failed: near={near:#x} size={size} free_regions={} error={}",
-                free.len(),
-                unsafe { GetLastError() }
-            ));
-            return Err(self.failure(MemError::Alloc(size)));
+            let code = unsafe { GetLastError() };
+            return Err(self.failure(MemError::AllocAt { addr, size, code }));
         }
         Ok(allocated as u64)
     }
@@ -635,7 +645,7 @@ mod fake {
                 return Err(MemError::Closed);
             }
             if state.fail_near {
-                return Err(MemError::Alloc(size));
+                return Err(MemError::NoRoomNear { near, size });
             }
             let addr = state.next_near.unwrap_or(near - FAKE_NEAR_OFFSET);
             state.next_near = Some(addr + ALLOC_GRANULARITY);
@@ -875,6 +885,19 @@ mod tests {
     }
 
     #[test]
+    fn win_process_alloc_near_reports_no_room_without_calling_virtual_alloc() {
+        let proc = WinProcess::open(std::process::id()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let name = exe.file_name().unwrap().to_str().unwrap().to_uppercase();
+        let near = proc.module_base(&name).unwrap();
+        let size = (2 * NEAR_LIMIT + ALLOC_ALIGN) as usize;
+        assert_eq!(
+            proc.alloc_near(near, size),
+            Err(MemError::NoRoomNear { near, size })
+        );
+    }
+
+    #[test]
     fn pick_near_prefers_closest_aligned_slot() {
         let near = 0x1_4000_0000;
         // 模組下方有一段空位、上方較遠處也有
@@ -905,10 +928,13 @@ mod tests {
         );
         assert_eq!(mem.alloc(0x10).unwrap(), 0x2000_0000); // 與 alloc 的游標互不影響
         mem.fail_alloc_near();
-        assert!(matches!(
+        assert_eq!(
             mem.alloc_near(0x1_4000_0000, 0x1000),
-            Err(MemError::Alloc(0x1000))
-        ));
+            Err(MemError::NoRoomNear {
+                near: 0x1_4000_0000,
+                size: 0x1000
+            })
+        );
         assert_eq!(mem.ops().len(), 3);
     }
 }

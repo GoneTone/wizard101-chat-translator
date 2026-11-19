@@ -29,7 +29,7 @@ fn base_of(rex: u8, modrm: u8) -> u8 {
     (rex & 1) << 3 | (modrm & 7)
 }
 
-/// 從比對到的位元組（至少 `MATCH_LEN` bytes，多的忽略） 取出 base 暫存器與原指令；不安全或前後不一致時回錯誤說明。
+/// 從比對到的前 `MATCH_LEN` bytes 取出 base 暫存器與原指令，不安全或前後不一致時回錯誤；opcode 與 mod 位元靠 pattern 已檢查過。
 pub fn decode(bytes: &[u8]) -> Result<(u8, [u8; 7]), String> {
     let bytes = bytes
         .get(..MATCH_LEN)
@@ -70,8 +70,10 @@ pub fn locate(mem: &dyn ProcessMemory) -> Result<RootWindowSite, HookError> {
     }
 }
 
-/// 組出 stub（不含回跳）：把 `[base+D8]` 寫到 export，再重放原指令。
+/// 組出 stub（不含回跳）：把 `[base+D8]` 寫到 export，再重放原指令；base 為 rsp／r12 會 panic。
 pub fn stub_for(export: u64, site: &RootWindowSite) -> Vec<u8> {
+    // rm=100 要接 SIB byte，下面的編碼會變成別的指令
+    assert!(site.base & 7 != 4, "base={} needs a SIB byte", site.base);
     [
         &[0x50][..],
         &[
@@ -191,6 +193,17 @@ mod tests {
         ]
         .concat();
         assert_eq!(stub_for(export, &site), expected);
+    }
+
+    #[test]
+    #[should_panic]
+    fn stub_refuses_bases_that_need_a_sib_byte() {
+        let site = RootWindowSite {
+            jump: 0,
+            base: 12,
+            original: unhex(NEW_BUILD)[..7].try_into().unwrap(),
+        };
+        stub_for(0x2000_0000, &site);
     }
 
     #[test]

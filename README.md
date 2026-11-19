@@ -144,7 +144,7 @@ Set up as many translation services as you like — OpenAI, Claude, Gemini, your
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
 - Translations do not appear instantly: the game is checked for new chat every 0.1 seconds, and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
 - Player chat is never cached; every line is really sent for translation (so every line costs an API call; local models cost nothing). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
-- It depends on fixed memory patterns: a game update can invalidate them (a pattern is no longer found when hooking, or the hook installs but never fires), and it only works again once a new release of this project updates the patterns. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
+- It depends on memory patterns: registers and stack sizes are worked out from the game code when hooking, so an update that only shuffles those keeps working, but one that changes the instruction shape or the offsets invalidates the patterns (a pattern is no longer found or does not fit when hooking, or the hook installs but never fires), and it only works again once a new release of this project updates them. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
 - Hooking into the game and the global hotkey only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
 ## Development
@@ -166,7 +166,7 @@ The rest of this file covers working from source: development, debugging and pac
 2. `cargo run` — the first run goes through the setup wizard (see [How to Use](#how-to-use)); the settings are written to `config.json` in the repository root, which is not version-controlled.
 3. It works exactly as described in [How to Use](#how-to-use); when a banner shows up, see [Troubleshooting](#troubleshooting).
 
-> When a game update breaks the memory patterns (`app.log` records the pattern that failed to match), update the patterns in `src/reader/hook/`: `add_line.rs` holds the chat hook's, `cave.rs` holds the code cave's and the root window hook's (input-box detection and tab state).
+> The patterns only pin down the instruction shape and the offsets; registers, the push count and the stack displacement are derived from the matched bytes when hooking, and the stubs live in memory allocated near the game module at that time. When a game update changes the instruction shape or the offsets (`app.log` records the pattern that failed to match, or `does not fit this game build` with the failed check and the matched bytes), update the patterns in `src/reader/hook/`: `ANCHOR_PATTERN` in `add_line.rs` for the chat hook, `ROOT_WINDOW_PATTERN` in `root_window.rs` for the root window hook (input-box detection and tab state).
 
 ### Checks
 

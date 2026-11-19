@@ -612,8 +612,8 @@ impl WizChatReader {
         Ok(Some((left + x, top + y, w, h)))
     }
 
-    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 定位兩處跳轉點 → 配置 stub 區、
-    /// 掛 root window hook（各存一次 hookstate）→ 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
+    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 定位兩處跳轉點 → 配置 stub 區 →
+    /// 掛 root window hook → 存 hookstate → 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
     fn connect(&mut self) -> Result<(), GameNotRunning> {
         let pid = process::window_pid(self.hwnd);
         let mem = match (self.open)(pid) {
@@ -655,21 +655,29 @@ impl WizChatReader {
             Ok(waited) => waited,
             Err(err) => {
                 self.teardown();
-                let mismatch = format!("hook does not match this game build: {err}");
-                return Err(if err.is_pattern_failure() {
-                    GameNotRunning::VersionMismatch(mismatch)
-                } else if matches!(err, AttachError::Timeout) {
-                    GameNotRunning::HookNotFiring(mismatch)
-                } else {
-                    GameNotRunning::Missing(format!("failed to attach to game: {err}"))
-                });
+                let detail = format!("{err} (pid={pid})");
+                let mismatch = || format!("hook does not match this game build: {detail}");
+                return Err(
+                    if matches!(err, AttachError::Hook(HookError::Mismatch(_))) {
+                        // 本身已寫明 does not fit this game build，不再加前綴
+                        GameNotRunning::VersionMismatch(detail)
+                    } else if err.is_pattern_failure() {
+                        GameNotRunning::VersionMismatch(mismatch())
+                    } else if matches!(err, AttachError::Timeout) {
+                        GameNotRunning::HookNotFiring(mismatch())
+                    } else {
+                        GameNotRunning::Missing(format!("failed to attach to game: {detail}"))
+                    },
+                );
             }
         };
         self.last_attach_failure = None;
         // 連線成功才清：遊戲可能已改版；失敗重試也清的話每輪都會重洗警告
         forget_warned_icons();
+        let arena = self.conn().arena.as_ref().map_or(0, StubArena::addr);
         log(format!(
-            "[reader] attached to game (slot={}, pid={pid}, hwnd={:#x}, hook_ready_in={:.1}s)",
+            "[reader] attached to game (slot={}, pid={pid}, hwnd={:#x}, arena={arena:#x}, \
+             hook_ready_in={:.1}s)",
             self.slot,
             self.hwnd,
             waited.as_secs_f64()
@@ -704,10 +712,19 @@ impl WizChatReader {
                 addline.pushes
             ));
         }
-        conn.arena = Some(StubArena::install(mem)?);
-        self.save_hook_state();
-        let conn = self.attached.as_mut().expect("process is open");
-        let arena = conn.arena.as_mut().expect("arena is installed");
+        let arena = match StubArena::install(mem) {
+            Ok(arena) => arena,
+            Err(err) => {
+                if remember(&mut self.last_attach_failure, &format!("arena: {err}")) {
+                    log(format!(
+                        "[reader] stub arena allocation failed (slot={}, pid={}): {err}",
+                        self.slot, self.pid
+                    ));
+                }
+                return Err(err.into());
+            }
+        };
+        let arena = conn.arena.insert(arena);
         conn.export = RootWindowHook::install(conn.mem.as_ref(), arena, &root)?.export_addr();
         self.save_hook_state();
         let waited = self.wait_root_window_ready()?;

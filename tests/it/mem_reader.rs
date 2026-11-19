@@ -404,7 +404,8 @@ fn connect_order_matches_python() {
              ring=0x20010000, ring_size=0x80040)"
         ),
         format!(
-            "[reader] attached to game (slot=101, pid={p}, hwnd={:#x}, hook_ready_in=0.3s)",
+            "[reader] attached to game (slot=101, pid={p}, hwnd={:#x}, arena={ARENA:#x}, \
+             hook_ready_in=0.3s)",
             hwnd()
         ),
     ] {
@@ -493,7 +494,9 @@ fn mismatch_in_either_site_writes_nothing() {
             panic!("{err:?}");
         };
         assert!(
-            msg.contains("hook site does not fit this game build") && msg.contains(check),
+            msg.starts_with("hook site does not fit this game build")
+                && msg.contains(check)
+                && msg.ends_with(&format!("(pid={})", pid())),
             "{msg}"
         );
         assert!(
@@ -513,10 +516,23 @@ fn no_room_near_module_is_not_a_version_mismatch() {
     let g = Game::new();
     g.mem.fail_alloc_near();
     let mut r = g.reader(116);
-    assert_eq!(
-        r.read_new().unwrap_err(),
-        GameNotRunning::Missing("failed to attach to game: could not allocate 4096 bytes".into())
+    for _ in 0..3 {
+        assert_eq!(
+            r.read_new().unwrap_err(),
+            GameNotRunning::Missing(format!(
+                "failed to attach to game: no free 4096-byte slot within 0x70000000 of {BASE:#x} \
+                 (pid={})",
+                pid()
+            ))
+        );
+    }
+    let lines = logged(116, "[reader] stub arena allocation failed");
+    let line = format!(
+        "[reader] stub arena allocation failed (slot=116, pid={}): no free 4096-byte slot within \
+         0x70000000 of {BASE:#x}",
+        pid()
     );
+    assert!(lines.len() == 1 && lines[0].ends_with(&line), "{lines:?}");
     assert!(
         !g.mem
             .ops()
@@ -622,9 +638,11 @@ fn readiness_timeout_is_a_hook_not_firing_mismatch() {
     let mut r = g.reader(104);
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::HookNotFiring(
-            "hook does not match this game build: root window hook did not fire within 15s".into()
-        )
+        GameNotRunning::HookNotFiring(format!(
+            "hook does not match this game build: root window hook did not fire within 15s \
+             (pid={})",
+            pid()
+        ))
     );
     let waited = g.clock.elapsed();
     assert!(waited >= HOOK_READY_TIMEOUT, "{waited:?}");
@@ -705,9 +723,10 @@ fn other_attach_failure_stays_game_not_running() {
     r.state_dir = dir.path().to_owned();
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::Missing(
-            "failed to attach to game: WizardGraphicalClient.exe module not found.".into()
-        )
+        GameNotRunning::Missing(format!(
+            "failed to attach to game: WizardGraphicalClient.exe module not found. (pid={})",
+            pid()
+        ))
     );
 }
 
@@ -782,8 +801,8 @@ fn hook_state_save_failure_is_logged() {
     assert_eq!(r.read_new().unwrap(), vec![]);
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
-    assert_eq!(lines.len(), 3, "{lines:?}");
-    for (line, ops) in lines.iter().zip(0..) {
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    for (line, ops) in lines.iter().zip(1..) {
         assert!(line.contains(&format!("(slot=109, pid={p}, ops={ops}): ")));
     }
 }
