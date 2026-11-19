@@ -2,7 +2,7 @@
 //!
 //! stub 在遊戲執行緒上執行，錯一個位元組就會讓遊戲當掉。
 
-use super::cave::{AutobotCave, HookError, MODULE, SimpleHook};
+use super::cave::{HookError, MODULE, SimpleHook, StubArena};
 use crate::game::memory::{MemError, ProcessMemory, decode_utf16le};
 use crate::game::pattern;
 use crate::reader::chat_tabs::MAX_BROADCAST_RECORDS;
@@ -18,14 +18,6 @@ pub const HEADER: u64 = 0x40;
 pub const DATA_OFF: u64 = 0x30;
 /// 每則最多複製的 UTF-16 字元數。
 pub const MAX_CHARS: u64 = (SLOT_SIZE - DATA_OFF) / 2;
-
-/// `ChatBox::AddLine` 開頭 7 個 push 之後的 pattern；跳轉點是 8 bytes 的 `lea rbp,[rsp-130]`，只蓋一條指令，掛入時執行緒不會停在被蓋掉的指令中間。
-pub const PATTERN: &str = concat!(
-    r"\x48\x8D\xAC\x24\xD0\xFE\xFF\xFF\x48\x81\xEC....\x48\xC7\x44\x24.\xFE\xFF\xFF\xFF",
-    r"\x48\x89\x9C\x24....\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85....",
-    r"\x4D\x63\xF0\x4C\x8B\xEA\x48\x89\x54\x24.\x48\x8B\xF9\x48\x89\x54\x24.",
-    r"\x33\xDB\x89\x5C\x24.\x41\x83\xFE\x05\x7C",
-);
 
 /// 從函式開頭到 `lea rbp,[rsp-disp32]` 的穩定特徵；`lea` 之後的堆疊大小與暫存器存取順序會隨編譯改變，不在其中。
 pub const ANCHOR_PATTERN: &str = concat!(
@@ -107,23 +99,15 @@ pub fn locate(mem: &dyn ProcessMemory) -> Result<AddLineSite, HookError> {
 
 /// 依 push 數與原指令組出 stub（不含回跳）。
 pub fn stub_for(ring: u64, site: &AddLineSite) -> Vec<u8> {
-    let mut stub = stub_bytes(ring);
-    stub[..8].copy_from_slice(&site.original);
-    // 函式的 push 加上 stub 自己的 7 個 push（含 pushfq）
-    stub[21] = 8 * site.pushes + 0x38;
-    stub
-}
-
-/// AddLine hook 的 stub 機器碼（不含回跳）。
-pub fn stub_bytes(ring: u64) -> Vec<u8> {
     let q = ring.to_le_bytes();
     let d = |v: u64| (v as u32).to_le_bytes();
+    // 函式的 push 加上 stub 自己的 7 個 push（含 pushfq）
+    let ret_off = 8 * site.pushes + 0x38;
     [
-        &[0x48, 0x8D, 0xAC, 0x24, 0xD0, 0xFE, 0xFF, 0xFF][..], // lea rbp,[rsp-130]  (original)
+        &site.original[..], // 原指令 lea rbp,[rsp-disp32]
         &[0x9C, 0x50, 0x51, 0x56, 0x57, 0x41, 0x51, 0x41, 0x52], // pushfq; push rax,rcx,rsi,rdi,r9,r10
-        // 函式的 7 個 push 加上這裡的 7 個，共 0x70
-        &[0x4C, 0x8B, 0x4C, 0x24, 0x70], // mov r9,[rsp+70]    return address
-        &[0x48, 0xB8],                   // mov rax,ring       counter
+        &[0x4C, 0x8B, 0x4C, 0x24, ret_off], // mov r9,[rsp+ret_off]  return address
+        &[0x48, 0xB8],                      // mov rax,ring       counter
         &q,
         &[0x4C, 0x8B, 0x10], // mov r10,[rax]
         &[0x49, 0xFF, 0xC2], // inc r10            seq (1-based)
@@ -167,10 +151,8 @@ pub fn stub_bytes(ring: u64) -> Vec<u8> {
 }
 
 const ADD_LINE: SimpleHook = SimpleHook {
-    pattern: PATTERN,
     instruction_length: 8,
     noops: 3,
-    // wizwalker 預設 50 bytes 放不下這個 stub
     stub_size: 256,
     export_size: (HEADER + SLOTS * SLOT_SIZE) as usize,
     // 不釋放 ring：還原跳轉點的瞬間，遊戲執行緒可能還在 stub 內寫入
@@ -184,10 +166,17 @@ pub struct AddLineHook {
 }
 
 impl AddLineHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall_with`] 解除，環形緩衝刻意不釋放）。
-    pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
-        let (jump, ring) = ADD_LINE.install(mem, cave, stub_bytes)?;
-        Ok(Self { jump, ring })
+    /// 掛上並登記到 stub 區（由 [`StubArena::uninstall_with`] 解除，環形緩衝刻意不釋放）。
+    pub fn install(
+        mem: &dyn ProcessMemory,
+        arena: &mut StubArena,
+        site: &AddLineSite,
+    ) -> Result<Self, HookError> {
+        let ring = ADD_LINE.install(mem, arena, site.jump, |ring| stub_for(ring, site))?;
+        Ok(Self {
+            jump: site.jump,
+            ring,
+        })
     }
 
     /// 被改成跳轉的 `ChatBox::AddLine` 開頭位址。
@@ -433,9 +422,10 @@ mod tests {
         let stub = stub_for(0x3000_0000, &site);
         assert_eq!(&stub[..8], &site.original);
         assert_eq!(&stub[17..22], &[0x4C, 0x8B, 0x4C, 0x24, 0x70]);
-        assert_eq!(stub[8..], stub_bytes(0x3000_0000)[8..]);
         site.pushes = 5;
-        assert_eq!(stub_for(0x3000_0000, &site)[21], 0x60);
+        let five = stub_for(0x3000_0000, &site);
+        assert_eq!(five[21], 0x60);
+        assert_eq!((&five[..21], &five[22..]), (&stub[..21], &stub[22..]));
     }
 
     #[test]

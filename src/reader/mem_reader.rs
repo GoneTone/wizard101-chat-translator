@@ -1,6 +1,6 @@
-//! 收訊端：掛入一個遊戲客戶端（autobot cave、root window 與 AddLine hook），依序讀出新增的聊天事件與分頁狀態。
+//! 收訊端：掛入一個遊戲客戶端（stub 區、root window 與 AddLine hook），依序讀出新增的聊天事件與分頁狀態。
 //!
-//! hook 會寫入遊戲程序記憶體：連線失敗、`close` 與 drop 都經由 cave 解除並還原遊戲，
+//! hook 會寫入遊戲程序記憶體：連線失敗、`close` 與 drop 都經由 stub 區解除並還原遊戲，
 //! 解除不了就留下 hookstate 檔，下次啟動修復。
 
 use std::collections::HashSet;
@@ -16,10 +16,11 @@ use super::chat_tabs::{
     read_tab_state,
 };
 use super::hook::add_line::{
-    AddLineHook, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts, pending_broadcast,
-    read_ring,
+    self, AddLineHook, AddLineSite, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts,
+    pending_broadcast, read_ring,
 };
-use super::hook::cave::{AutobotCave, HookError, MODULE, RootWindowHook};
+use super::hook::cave::{HookError, MODULE, StubArena};
+use super::hook::root_window::{self, RootWindowHook, reg_name};
 use super::hook::state as hook_state;
 use super::markup::{ChatLine, forget_warned_icons, parse_line};
 use super::ui_rect::client_rect;
@@ -96,10 +97,10 @@ pub trait MessageSink: Send {
 /// 依 PID 開啟遊戲程序記憶體（實機用 `WinProcess::open`，測試注入 `FakeMemory`）。
 pub type Opener = Box<dyn Fn(u32) -> Result<Box<dyn ProcessMemory>, MemError> + Send>;
 
-/// 一次連線：程序記憶體與掛上的 hook（cave 只在掛入後才有）。
+/// 一次連線：程序記憶體與掛上的 hook（stub 區只在掛入後才有）。
 struct Attached {
     mem: Box<dyn ProcessMemory>,
-    cave: Option<AutobotCave>,
+    arena: Option<StubArena>,
     export: u64,
     ring: u64,
 }
@@ -134,13 +135,14 @@ impl fmt::Display for AttachError {
 }
 
 impl AttachError {
-    /// pattern 掃不到或多重命中（都在寫入遊戲之前）：同一個程序重試也不會好。
+    /// pattern 掃不到、多重命中或比對後的檢查不符（都在寫入遊戲之前）：同一個程序重試也不會好。
     fn is_pattern_failure(&self) -> bool {
         matches!(
             self,
-            Self::Hook(HookError::Scan(
-                ScanError::NotFound(_) | ScanError::Multiple(..)
-            ))
+            Self::Hook(
+                HookError::Scan(ScanError::NotFound(_) | ScanError::Multiple(..))
+                    | HookError::Mismatch(_)
+            )
         )
     }
 }
@@ -607,8 +609,8 @@ impl WizChatReader {
         Ok(Some((left + x, top + y, w, h)))
     }
 
-    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 掛 cave、root window hook
-    /// （各存一次 hookstate）→ 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
+    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 定位兩處跳轉點 → 配置 stub 區、
+    /// 掛 root window hook（各存一次 hookstate）→ 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
     fn connect(&mut self) -> Result<(), GameNotRunning> {
         let pid = process::window_pid(self.hwnd);
         let mem = match (self.open)(pid) {
@@ -639,16 +641,10 @@ impl WizChatReader {
             ));
         }
         hook_state::sweep(&self.state_dir, process::pid_alive);
-        hook_state::repair(
-            &self.state_dir,
-            mem.as_ref(),
-            pid,
-            self.slot as usize,
-            |d| (self.clock.sleep)(d),
-        );
+        hook_state::repair(&self.state_dir, mem.as_ref(), pid, self.slot as usize);
         self.attached = Some(Attached {
             mem,
-            cave: None,
+            arena: None,
             export: 0,
             ring: 0,
         });
@@ -678,20 +674,38 @@ impl WizChatReader {
         Ok(())
     }
 
-    /// 每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
+    /// 兩處都定位並檢查完才寫入遊戲，版本不符時不動遊戲；每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；
+    /// AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
     fn attach(&mut self) -> Result<Duration, AttachError> {
         if self.stop.is_cancelled() {
             return Err(AttachError::Cancelled);
         }
+        let started = (self.clock.now)();
         let conn = self.attached.as_mut().expect("process is open");
-        conn.cave = Some(AutobotCave::install(conn.mem.as_ref())?);
+        let mem = conn.mem.as_ref();
+        let root = root_window::locate(mem)?;
+        let addline = add_line::locate(mem)?;
+        let base = mem.module_base(MODULE).map_err(HookError::from)?;
+        let lea_disp = i32::from_le_bytes(addline.original[4..].try_into().expect("4 bytes"));
+        log(format!(
+            "[reader] hook sites located in {}ms (slot={}, pid={}, root_jump={:#x}, \
+             root_base={}, addline_jump={:#x}, pushes={}, lea_disp={lea_disp})",
+            ((self.clock.now)() - started).as_millis(),
+            self.slot,
+            self.pid,
+            root.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
+            reg_name(root.base),
+            addline.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
+            addline.pushes
+        ));
+        conn.arena = Some(StubArena::install(mem)?);
         self.save_hook_state();
         let conn = self.attached.as_mut().expect("process is open");
-        let cave = conn.cave.as_mut().expect("cave is installed");
-        conn.export = RootWindowHook::install(conn.mem.as_ref(), cave)?.export_addr();
+        let arena = conn.arena.as_mut().expect("arena is installed");
+        conn.export = RootWindowHook::install(conn.mem.as_ref(), arena, &root)?.export_addr();
         self.save_hook_state();
         let waited = self.wait_root_window_ready()?;
-        let ring = self.install_chat_hook()?;
+        let ring = self.install_chat_hook(&addline)?;
         self.attached.as_mut().expect("process is open").ring = ring;
         Ok(waited)
     }
@@ -734,18 +748,18 @@ impl WizChatReader {
         }
     }
 
-    /// 掛上 AddLine hook（登記在 cave，由 cave 一併解除）並存 hookstate，回傳環形緩衝位址。
-    fn install_chat_hook(&mut self) -> Result<u64, HookError> {
+    /// 掛上 AddLine hook（登記在 stub 區，由 stub 區一併解除）並存 hookstate，回傳環形緩衝位址。
+    fn install_chat_hook(&mut self, site: &AddLineSite) -> Result<u64, HookError> {
         let (slot, pid) = (self.slot, self.pid);
-        let Attached { mem, cave, .. } = self.attached.as_mut().expect("process is open");
-        let cave = cave.as_mut().expect("cave is installed");
-        let hook = match AddLineHook::install(mem.as_ref(), cave) {
+        let Attached { mem, arena, .. } = self.attached.as_mut().expect("process is open");
+        let arena = arena.as_mut().expect("arena is installed");
+        let hook = match AddLineHook::install(mem.as_ref(), arena, site) {
             Ok(hook) => hook,
             Err(err) => {
                 if remember(&mut self.last_attach_failure, &format!("addline: {err}")) {
                     log(format!(
                         "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {err}; \
-                         a pattern failure here needs hook::add_line::PATTERN updated in a new release"
+                         a mismatch here means the game changed more than registers or stack size"
                     ));
                 }
                 return Err(err);
@@ -766,10 +780,10 @@ impl WizChatReader {
     /// 存 unhook 所需狀態；存不了就修不回，得讓 app.log 看得出原因。
     fn save_hook_state(&self) {
         let conn = self.conn();
-        let Some(cave) = &conn.cave else {
+        let Some(arena) = &conn.arena else {
             return;
         };
-        let ops = cave.restore_ops();
+        let ops = arena.restore_ops();
         let saved = conn
             .mem
             .module_base(MODULE)
@@ -790,9 +804,9 @@ impl WizChatReader {
 
     /// 解除 hook、關閉程序 handle，回到未連線狀態（下次 `read_new` 會重連）。
     fn teardown(&mut self) {
-        if let Some(Attached { mem, cave, .. }) = self.attached.take() {
-            let unhooked = match cave {
-                Some(cave) => cave.uninstall_with(mem.as_ref(), |d| (self.clock.sleep)(d)),
+        if let Some(Attached { mem, arena, .. }) = self.attached.take() {
+            let unhooked = match arena {
+                Some(arena) => arena.uninstall_with(mem.as_ref(), |d| (self.clock.sleep)(d)),
                 None => Ok(()),
             };
             match unhooked {

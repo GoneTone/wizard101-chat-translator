@@ -1,8 +1,9 @@
-//! root window hook 的跳轉點：pattern 不綁暫存器，base 暫存器由比對到的位元組推導。
+//! root window hook：pattern 不綁暫存器，base 暫存器由比對到的位元組推導，stub 把目前的 root window 位址寫到 export。
 
-use super::cave::{HookError, MODULE};
+use super::cave::{HookError, MODULE, SimpleHook, StubArena};
 use crate::game::memory::ProcessMemory;
 use crate::game::pattern;
+use crate::util::hex;
 
 /// 跳轉點 pattern；兩條指令的 base 暫存器各自比對，一致性在 [`decode`] 檢查。
 pub const ROOT_WINDOW_PATTERN: &str = concat!(
@@ -62,12 +63,10 @@ pub fn locate(mem: &dyn ProcessMemory) -> Result<RootWindowSite, HookError> {
             base,
             original,
         }),
-        Err(why) => {
-            let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-            Err(HookError::Mismatch(format!(
-                "root window at {addr:#x}: {why} (bytes={hex})"
-            )))
-        }
+        Err(why) => Err(HookError::Mismatch(format!(
+            "root window at {addr:#x}: {why} (bytes={})",
+            hex(&bytes)
+        ))),
     }
 }
 
@@ -90,6 +89,36 @@ pub fn stub_for(export: u64, site: &RootWindowSite) -> Vec<u8> {
         &site.original,
     ]
     .concat()
+}
+
+const ROOT_WINDOW: SimpleHook = SimpleHook {
+    instruction_length: 7,
+    noops: 2,
+    stub_size: 50,
+    export_size: 8,
+    free_export: true,
+};
+
+/// root window hook：把目前的 root window 位址寫到 export。
+pub struct RootWindowHook {
+    export: u64,
+}
+
+impl RootWindowHook {
+    /// 掛上並登記到 stub 區（由 [`StubArena::uninstall_with`] 解除）。
+    pub fn install(
+        mem: &dyn ProcessMemory,
+        arena: &mut StubArena,
+        site: &RootWindowSite,
+    ) -> Result<Self, HookError> {
+        let export = ROOT_WINDOW.install(mem, arena, site.jump, |export| stub_for(export, site))?;
+        Ok(Self { export })
+    }
+
+    /// 存放 root window 位址的 8 bytes。
+    pub fn export_addr(&self) -> u64 {
+        self.export
+    }
 }
 
 /// 暫存器編號對應的名稱，供 log 使用。

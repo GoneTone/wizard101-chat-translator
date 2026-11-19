@@ -74,8 +74,9 @@ impl fmt::Display for MemError {
 
 impl std::error::Error for MemError {}
 
-/// `E9 rel32` 跳得到的最大距離（留餘裕給跳板本身的長度）。
-pub const NEAR_LIMIT: u64 = 0x7FF0_0000;
+/// [`ProcessMemory::alloc_near`] 離 `near` 的最大距離。
+// stub 區以模組基址為準，跳轉點卻可能在約 57 MB 的映像任何位置，所以比 `E9 rel32` 的 2 GB 留出映像大小的餘裕
+pub const NEAR_LIMIT: u64 = 0x7000_0000;
 
 /// `VirtualAlloc` 指定位址時要求的對齊。
 const ALLOC_ALIGN: u64 = 0x1_0000;

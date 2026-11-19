@@ -3,16 +3,20 @@ use crate::common;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::fake_game::{BASE, RING_SIZE, place_addline, place_cave, place_root_window};
+use common::fake_game::{
+    ADDLINE_NEW_BUILD, BASE, RING_SIZE, ROOT_NEW_BUILD, place_addline, place_root_window,
+};
 use common::log_capture::{capture_logs, log_lines_with};
 use serde_json::Value;
 use wizard101_chat_translator::game::memory::{FakeMemory, MemOp};
 use wizard101_chat_translator::reader::hook::add_line::{self, AddLineHook};
-use wizard101_chat_translator::reader::hook::cave::{
-    AUTOBOT_PATTERN, AUTOBOT_SIZE, AutobotCave, MODULE, RootWindowHook, STUB_EXIT_WAIT,
-};
+use wizard101_chat_translator::reader::hook::cave::{ARENA_SIZE, MODULE, StubArena};
+use wizard101_chat_translator::reader::hook::root_window::{self, RootWindowHook};
 use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::util;
+
+/// FakeMemory 的 `alloc_near` 第一次回傳的位址。
+const ARENA: u64 = BASE - 0x1000_0000;
 
 fn hex_of(v: &Value) -> Vec<u8> {
     util::unhex(v.as_str().unwrap()).unwrap()
@@ -20,69 +24,109 @@ fn hex_of(v: &Value) -> Vec<u8> {
 
 struct Game {
     mem: FakeMemory,
-    cave: u64,
     root_jump: u64,
     addline_jump: u64,
-    cave_bytes: Vec<u8>,
+    /// 跳轉點起的原始位元組。
     root_bytes: Vec<u8>,
     addline_bytes: Vec<u8>,
 }
 
-fn game(cave: u64, root_jump: u64, addline_jump: u64) -> Game {
+/// `addline_jump` 是 `lea` 的位址；函式開頭由 hex 裡 `lea rbp,[rsp+disp32]` 的位置反推。
+fn game(root_jump: u64, root_hex: &str, addline_jump: u64, addline_hex: &str) -> Game {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, BASE);
-    let cave_bytes = place_cave(&mem, cave);
-    let root_bytes = place_root_window(&mem, root_jump);
-    let addline_bytes = place_addline(&mem, addline_jump);
+    let root_bytes = place_root_window(&mem, root_jump, root_hex);
+    let lea = util::unhex(addline_hex)
+        .unwrap()
+        .windows(4)
+        .position(|w| w == [0x48, 0x8D, 0xAC, 0x24])
+        .unwrap();
+    let addline_bytes = place_addline(&mem, addline_jump - lea as u64, addline_hex)[lea..].to_vec();
     Game {
         mem,
-        cave,
         root_jump,
         addline_jump,
-        cave_bytes,
         root_bytes,
         addline_bytes,
     }
 }
 
 fn default_game() -> Game {
-    game(0x1_4000_1000, 0x1_4080_0000, 0x1_4120_0000)
+    game(
+        0x1_4080_0000,
+        ROOT_NEW_BUILD,
+        0x1_4120_0010,
+        ADDLINE_NEW_BUILD,
+    )
 }
 
 fn n(v: &Value) -> u64 {
     v.as_u64().unwrap()
 }
 
-/// 依 golden 案例的位址掛上 cave、root window 與 AddLine，回傳記下的寫入／配置。
+/// 依 golden 案例放好兩處跳轉點，定位後配置 stub 區並掛上兩個 hook，回傳記下的寫入／配置。
 fn install_case(case: &Value) -> Vec<MemOp> {
     let input = &case["input"];
     let g = game(
-        n(&input["cave"]),
         n(&input["root_jump"]),
+        input["root_hex"].as_str().unwrap(),
         n(&input["addline_jump"]),
+        input["addline_hex"].as_str().unwrap(),
     );
-    let mut cave = AutobotCave::install(&g.mem).unwrap();
+    let root = root_window::locate(&g.mem).unwrap();
+    let addline = add_line::locate(&g.mem).unwrap();
+    assert_eq!((root.jump, addline.jump), (g.root_jump, g.addline_jump));
+    let mut arena = StubArena::install(&g.mem).unwrap();
+    assert_eq!(arena.addr(), n(&case["output"]["arena"]));
     g.mem.set_next_alloc(n(&input["export"]));
-    let root = RootWindowHook::install(&g.mem, &mut cave).unwrap();
-    assert_eq!(root.export_addr(), n(&input["export"]));
+    let hook = RootWindowHook::install(&g.mem, &mut arena, &root).unwrap();
+    assert_eq!(hook.export_addr(), n(&input["export"]));
     g.mem.set_next_alloc(n(&input["ring"]));
-    let addline = AddLineHook::install(&g.mem, &mut cave).unwrap();
-    assert_eq!(addline.ring_addr(), n(&input["ring"]));
+    let hook = AddLineHook::install(&g.mem, &mut arena, &addline).unwrap();
+    assert_eq!(hook.ring_addr(), n(&input["ring"]));
     g.mem.ops()
 }
 
 #[test]
-fn addline_stub_bytes_match_golden() {
+fn root_window_stub_and_jump_match_golden() {
     let cases = common::golden("hook_stubs");
-    assert!(!cases.is_empty());
+    assert!(cases.len() >= 3);
     for case in &cases {
         let input = &case["input"];
         let out = &case["output"];
-        let stub = add_line::stub_bytes(n(&input["ring"]));
-        assert_eq!(stub, hex_of(&out["stub_bytes"]));
-        assert!(stub.len() + 5 <= 256);
+        let root = &out["root"];
+        assert!(hex_of(&root["stub"]).len() <= 50);
+        let ops = install_case(case);
+        assert_eq!(
+            ops[..4],
+            [
+                MemOp::Alloc {
+                    addr: n(&out["arena"]),
+                    size: ARENA_SIZE
+                },
+                MemOp::Alloc {
+                    addr: n(&input["export"]),
+                    size: 8
+                },
+                MemOp::Write {
+                    addr: n(&root["stub_addr"]),
+                    bytes: hex_of(&root["stub"])
+                },
+                MemOp::Write {
+                    addr: n(&input["root_jump"]),
+                    bytes: hex_of(&root["jump"])
+                },
+            ]
+        );
+    }
+}
 
-        let addline = &out["addline"];
+#[test]
+fn addline_stub_and_jump_match_golden() {
+    for case in &common::golden("hook_stubs") {
+        let input = &case["input"];
+        let addline = &case["output"]["addline"];
+        assert!(hex_of(&addline["stub"]).len() <= 256);
         let ops = install_case(case);
         assert_eq!(
             ops[4..],
@@ -105,102 +149,68 @@ fn addline_stub_bytes_match_golden() {
 }
 
 #[test]
-fn root_window_stub_and_jump_match_golden() {
-    for case in &common::golden("hook_stubs") {
-        let input = &case["input"];
-        let root = &case["output"]["root"];
-        let ops = install_case(case);
-        assert_eq!(
-            ops[..4],
-            [
-                MemOp::Write {
-                    addr: n(&input["cave"]),
-                    bytes: vec![0; AUTOBOT_SIZE]
-                },
-                MemOp::Alloc {
-                    addr: n(&input["export"]),
-                    size: 8
-                },
-                MemOp::Write {
-                    addr: n(&root["stub_addr"]),
-                    bytes: hex_of(&root["stub"])
-                },
-                MemOp::Write {
-                    addr: n(&input["root_jump"]),
-                    bytes: hex_of(&root["jump"])
-                },
-            ]
-        );
-    }
-}
-
-#[test]
-fn cave_saves_pattern_length_and_zeroes_cave() {
+fn arena_is_allocated_near_the_module_and_sliced_in_order() {
     let g = default_game();
-    let mut cave = AutobotCave::install(&g.mem).unwrap();
+    let mut arena = StubArena::install(&g.mem).unwrap();
     assert_eq!(
         g.mem.ops(),
-        [MemOp::Write {
-            addr: g.cave,
-            bytes: vec![0; AUTOBOT_SIZE]
+        [MemOp::Alloc {
+            addr: ARENA,
+            size: ARENA_SIZE
         }]
     );
-    assert_eq!(
-        cave.restore_ops(),
-        [(g.cave, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec())]
-    );
-    assert_eq!(cave.alloc_stub(50).unwrap(), g.cave);
-    assert_eq!(cave.alloc_stub(256).unwrap(), g.cave + 50);
+    assert_eq!(arena.addr(), ARENA);
+    assert!(arena.restore_ops().is_empty());
+    assert_eq!(arena.alloc_stub(50).unwrap(), ARENA);
+    assert_eq!(arena.alloc_stub(256).unwrap(), ARENA + 50);
 }
 
 struct Installed {
     g: Game,
-    cave: AutobotCave,
+    arena: StubArena,
     export: u64,
     ring: u64,
 }
 
 fn install_all() -> Installed {
     let g = default_game();
-    let mut cave = AutobotCave::install(&g.mem).unwrap();
-    let export = RootWindowHook::install(&g.mem, &mut cave)
+    let root = root_window::locate(&g.mem).unwrap();
+    let addline = add_line::locate(&g.mem).unwrap();
+    let mut arena = StubArena::install(&g.mem).unwrap();
+    let export = RootWindowHook::install(&g.mem, &mut arena, &root)
         .unwrap()
         .export_addr();
-    let ring = AddLineHook::install(&g.mem, &mut cave).unwrap().ring_addr();
+    let ring = AddLineHook::install(&g.mem, &mut arena, &addline)
+        .unwrap()
+        .ring_addr();
     Installed {
         g,
-        cave,
+        arena,
         export,
         ring,
     }
 }
 
 #[test]
-fn uninstall_restores_cave_only_when_different() {
+fn uninstall_restores_jumps_then_frees_after_waiting() {
     let Installed {
         g,
-        cave,
+        arena,
         export,
         ring: _,
     } = install_all();
     assert_eq!(
-        cave.restore_ops(),
+        arena.restore_ops(),
         [
             (g.root_jump, g.root_bytes[..7].to_vec()),
             (g.addline_jump, g.addline_bytes[..8].to_vec()),
-            (g.cave, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
         ]
     );
     let before = g.mem.ops().len();
     let mut waited = None;
-    // 比對內容在等待之前就讀好（同 wizwalker）：等待中被改回也照樣寫回
-    cave.uninstall_with(&g.mem, |d| {
-        waited = Some((d, g.mem.ops().len()));
-        g.mem
-            .set_bytes(g.cave, &g.cave_bytes[..AUTOBOT_PATTERN.len()]);
-    })
-    .unwrap();
-    // export 要等執行點離開 stub 才釋放（刻意與 wizwalker 不同）
+    arena
+        .uninstall_with(&g.mem, |d| waited = Some((d, g.mem.ops().len())))
+        .unwrap();
     assert_eq!(waited, Some((Duration::from_millis(500), before + 2)));
     assert_eq!(
         g.mem.ops()[before..],
@@ -214,40 +224,30 @@ fn uninstall_restores_cave_only_when_different() {
                 bytes: g.addline_bytes[..8].to_vec()
             },
             MemOp::Free(export),
-            MemOp::Write {
-                addr: g.cave,
-                bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
-            },
+            MemOp::Free(ARENA),
         ]
     );
-
-    let g = default_game();
-    let cave = AutobotCave::install(&g.mem).unwrap();
-    g.mem
-        .set_bytes(g.cave, &g.cave_bytes[..AUTOBOT_PATTERN.len()]);
-    let before = g.mem.ops().len();
-    cave.uninstall_with(&g.mem, |_| {}).unwrap();
-    assert_eq!(g.mem.ops().len(), before);
 }
 
 #[test]
 fn ring_is_never_freed() {
     let Installed {
         g,
-        cave,
+        arena,
         export,
         ring,
     } = install_all();
-    cave.uninstall_with(&g.mem, |_| {}).unwrap();
+    arena.uninstall_with(&g.mem, |_| {}).unwrap();
     let ops = g.mem.ops();
     assert!(ops.contains(&MemOp::Free(export)));
     assert!(!ops.contains(&MemOp::Free(ring)));
 
     let g = default_game();
-    let mut cave = AutobotCave::install(&g.mem).unwrap();
-    AddLineHook::install(&g.mem, &mut cave).unwrap();
+    let addline = add_line::locate(&g.mem).unwrap();
+    let mut arena = StubArena::install(&g.mem).unwrap();
+    AddLineHook::install(&g.mem, &mut arena, &addline).unwrap();
     let before = g.mem.ops().len();
-    cave.uninstall_with(&g.mem, |_| {}).unwrap();
+    arena.uninstall_with(&g.mem, |_| {}).unwrap();
     assert_eq!(
         g.mem.ops()[before..],
         [
@@ -255,20 +255,18 @@ fn ring_is_never_freed() {
                 addr: g.addline_jump,
                 bytes: g.addline_bytes[..8].to_vec()
             },
-            MemOp::Write {
-                addr: g.cave,
-                bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
-            },
+            MemOp::Free(ARENA),
         ]
     );
 }
 
 #[test]
 fn uninstall_on_a_closed_game_writes_nothing() {
-    let Installed { g, cave, .. } = install_all();
+    let Installed { g, arena, .. } = install_all();
     let before = g.mem.ops().len();
     g.mem.kill();
-    cave.uninstall_with(&g.mem, |_| panic!("must not wait"))
+    arena
+        .uninstall_with(&g.mem, |_| panic!("must not wait"))
         .unwrap();
     assert_eq!(g.mem.ops().len(), before);
 }
@@ -324,14 +322,13 @@ fn state_file(dir: &Path, pid: u32) -> PathBuf {
 #[test]
 fn repairs_from_python_written_hookstate() {
     let (dir, pid, base, ops) = python_state();
-    assert_eq!(ops.len(), 3);
-    assert_eq!(ops[2].1.len(), 208);
+    assert_eq!(ops.len(), 2);
     let mem = FakeMemory::new();
     mem.add_module(MODULE, base);
     for (addr, original) in &ops {
         mem.set_bytes(*addr, &vec![0xE9; original.len()]);
     }
-    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0, |_| {}), 3);
+    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0), 2);
     let expected: Vec<MemOp> = ops
         .iter()
         .map(|(addr, bytes)| MemOp::Write {
@@ -348,26 +345,9 @@ fn repairs_from_python_written_hookstate() {
     for (addr, original) in &ops {
         mem.set_bytes(*addr, &vec![0xE9; original.len()]);
     }
-    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0, |_| {}), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0), 0);
     assert!(mem.ops().is_empty());
     assert!(!state_file(dir.path(), pid).exists());
-}
-
-#[test]
-fn repair_restores_the_cave_only_after_waiting() {
-    let (dir, pid, base, ops) = python_state();
-    let mem = FakeMemory::new();
-    mem.add_module(MODULE, base);
-    for (addr, original) in &ops {
-        mem.set_bytes(*addr, &vec![0xE9; original.len()]);
-    }
-    let mut waited = None;
-    let written = hook_state::repair(dir.path(), &mem, pid, 0, |d| {
-        waited = Some((d, mem.ops().len()));
-    });
-    assert_eq!(written, 3);
-    assert_eq!(waited, Some((STUB_EXIT_WAIT, 2)), "jumps first, then wait");
-    assert!(matches!(mem.ops().last(), Some(MemOp::Write { addr, .. }) if *addr == ops[2].0));
 }
 
 #[test]
@@ -399,7 +379,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, 0x1000);
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_001, 2, |_| {}), 1);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_001, 2), 1);
     assert_eq!(
         mem.ops(),
         [MemOp::Write {
@@ -427,7 +407,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
 }
 
 #[test]
-fn repair_leaves_the_cave_alone_when_a_jump_write_fails() {
+fn repair_writes_every_op_in_order_without_waiting() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(
@@ -445,31 +425,23 @@ fn repair_leaves_the_cave_alone_when_a_jump_write_fails() {
     mem.add_module(MODULE, 0x1000);
     mem.set_bytes(0x2000, &[0]);
     mem.set_bytes(0x4000, &[0]);
-    let mut waited = false;
-    assert_eq!(
-        hook_state::repair(dir.path(), &mem, 770_004, 3, |_| waited = true),
-        1
-    );
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_004, 3), 2);
     assert_eq!(
         mem.ops(),
-        [MemOp::Write {
-            addr: 0x2000,
-            bytes: vec![0xAB]
-        }],
-        "a jump may still point into the stub, so the cave stays as is"
-    );
-    assert!(!waited);
-    assert_eq!(
-        log_lines_with(
-            "[reader] hook repair skipped restoring the cave at 0x4000 because 1 jump \
-             write(s) failed (slot=3, pid=770004)"
-        )
-        .len(),
-        1
+        [
+            MemOp::Write {
+                addr: 0x2000,
+                bytes: vec![0xAB]
+            },
+            MemOp::Write {
+                addr: 0x4000,
+                bytes: vec![0xEF]
+            },
+        ]
     );
     assert_eq!(
         log_lines_with(
-            "[reader] repaired hooks leaked by previous dirty exit (writes=1, failed=1, slot=3, \
+            "[reader] repaired hooks leaked by previous dirty exit (writes=2, failed=1, slot=3, \
              pid=770004), restart the game if chat stays silent"
         )
         .len(),
@@ -485,7 +457,7 @@ fn repair_skips_and_logs_a_stale_state_file() {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, 0x9000);
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_002, 1, |_| {}), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_002, 1), 0);
     assert!(mem.ops().is_empty());
     let lines = log_lines_with("pid=770002");
     assert!(
@@ -503,7 +475,7 @@ fn repair_without_state_touches_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mem = FakeMemory::new();
     mem.kill();
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_020, 0, |_| {}), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_020, 0), 0);
 }
 
 #[test]
@@ -513,7 +485,7 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
     hook_state::save_state(dir.path(), 770_003, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 4, |_| {}), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 4), 0);
     assert!(mem.ops().is_empty());
     assert!(!state_file(dir.path(), 770_003).exists());
     let lines = log_lines_with("pid=770003");
