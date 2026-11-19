@@ -916,6 +916,37 @@ mod tests {
     }
 
     #[test]
+    fn pick_near_handles_near_below_the_limit() {
+        assert_eq!(
+            pick_near(&[(0x1_0000, 0x10_0000)], 0x1000_0000, 0x1000),
+            Some(0x10_0000)
+        );
+    }
+
+    #[test]
+    fn pick_near_uses_a_free_range_straddling_near() {
+        // 上方對齊點離 near 0x4000、下方 0xC000
+        let free = [(0x1_3FFF_0000, 0x4_0000)];
+        assert_eq!(pick_near(&free, 0x1_4000_C000, 0x1000), Some(0x1_4001_0000));
+    }
+
+    #[test]
+    fn pick_near_prefers_a_closer_slot_above() {
+        let free = [(0x1_2000_0000, 0x1_0000), (0x1_4100_0000, 0x1_0000)];
+        assert_eq!(pick_near(&free, 0x1_4000_0000, 0x1000), Some(0x1_4100_0000));
+    }
+
+    #[test]
+    fn pick_near_picks_the_closest_of_many_regions() {
+        let free = [
+            (0x1_1000_0000, 0x1_0000),
+            (0x1_3F00_0000, 0x1_0000),
+            (0x1_6000_0000, 0x1_0000),
+        ];
+        assert_eq!(pick_near(&free, 0x1_4000_0000, 0x1000), Some(0x1_3F00_0000));
+    }
+
+    #[test]
     fn fake_alloc_near_records_alloc_and_can_fail() {
         let mem = FakeMemory::new();
         assert_eq!(

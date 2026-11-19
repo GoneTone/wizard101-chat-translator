@@ -196,6 +196,21 @@ mod tests {
     }
 
     #[test]
+    fn stub_encodes_rbp_and_rax_bases() {
+        for (base, modrm) in [(5, 0x85), (0, 0x80)] {
+            let site = RootWindowSite {
+                jump: 0,
+                base,
+                original: [0; 7],
+            };
+            assert_eq!(
+                &stub_for(0x2000_0000, &site)[1..8],
+                &[0x48, 0x8B, modrm, 0xD8, 0, 0, 0]
+            );
+        }
+    }
+
+    #[test]
     #[should_panic]
     fn stub_refuses_bases_that_need_a_sib_byte() {
         let site = RootWindowSite {

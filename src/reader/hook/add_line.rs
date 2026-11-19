@@ -416,6 +416,20 @@ mod tests {
     }
 
     #[test]
+    fn decode_prologue_rejects_malformed_prologues() {
+        for bad in [
+            "555555555555555555488dac24e0feffff", // 9 個 push
+            "5548895c2420488dac24e0feffff",       // push 之後才存暫存器
+            "55488dac24e0",                       // lea 被截斷
+            "48895c24",                           // 存暫存器被截斷
+            "",
+            "554855488dac24e0feffff", // push 前的 REX 不是 40／41
+        ] {
+            assert!(decode_prologue(&unhex(bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn stub_return_offset_follows_push_count() {
         let mut site = AddLineSite {
             jump: 0,
@@ -429,6 +443,8 @@ mod tests {
         let five = stub_for(0x3000_0000, &site);
         assert_eq!(five[21], 0x60);
         assert_eq!((&five[..21], &five[22..]), (&stub[..21], &stub[22..]));
+        site.pushes = 8;
+        assert_eq!(stub_for(0x3000_0000, &site)[21], 0x78);
     }
 
     #[test]
