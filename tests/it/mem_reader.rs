@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::time::Duration;
 
 use common::fake_game::{
-    BASE, RING_SIZE, place_addline, place_cave, place_root_window, put_button, put_children,
-    put_name, put_slot, slot_addr,
+    ADDLINE_NEW_BUILD, BASE, RING_SIZE, ROOT_NEW_BUILD, place_addline, place_root_window,
+    put_button, put_children, put_name, put_slot, slot_addr,
 };
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::VirtualClock;
@@ -21,7 +21,7 @@ use wizard101_chat_translator::game::process::{
 };
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook::add_line::SLOTS;
-use wizard101_chat_translator::reader::hook::cave::{AUTOBOT_PATTERN, MODULE, STUB_EXIT_WAIT};
+use wizard101_chat_translator::reader::hook::cave::{ARENA_SIZE, MODULE, STUB_EXIT_WAIT};
 use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
@@ -31,9 +31,12 @@ use wizard101_chat_translator::reader::mem_reader::{
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::util::{self, Clock};
 
-const CAVE: u64 = 0x1_4000_1000;
+/// FakeMemory 的 `alloc_near` 第一次回傳的位址（stub 區）。
+const ARENA: u64 = BASE - 0x1000_0000;
 const ROOT_JUMP: u64 = 0x1_4080_0000;
-const ADDLINE_JUMP: u64 = 0x1_4120_0000;
+/// AddLine 函式開頭；跳轉點是其後第 16 byte 的 `lea`。
+const ADDLINE_FN: u64 = 0x1_4120_0000;
+const ADDLINE_JUMP: u64 = ADDLINE_FN + 16;
 /// FakeMemory 的第一次配置（root window export）與下一次（環形緩衝）。
 const EXPORT: u64 = 0x2000_0000;
 const RING: u64 = 0x2001_0000;
@@ -145,8 +148,8 @@ struct Game {
     state_at_wait: Arc<Mutex<Option<hook_state::RestoreOps>>>,
     opened: Arc<Mutex<Vec<u32>>>,
     root_bytes: Vec<u8>,
+    /// AddLine 跳轉點起的原始位元組。
     addline_bytes: Vec<u8>,
-    cave_bytes: Vec<u8>,
     /// 存活期間擋住「清空警告過的圖示」的測試（連線成功會清）。
     _icons: Option<IconGuard>,
 }
@@ -168,14 +171,15 @@ impl Game {
         capture_logs();
         let mem = FakeMemory::new();
         mem.add_module(MODULE, BASE);
-        let cave_bytes = place_cave(&mem, CAVE);
         let root_bytes = if root_pattern {
-            place_root_window(&mem, ROOT_JUMP)
+            place_root_window(&mem, ROOT_JUMP, ROOT_NEW_BUILD)
         } else {
             Vec::new()
         };
         let addline_bytes = if addline_pattern {
-            place_addline(&mem, ADDLINE_JUMP)
+            place_addline(&mem, ADDLINE_FN, ADDLINE_NEW_BUILD)
+                [(ADDLINE_JUMP - ADDLINE_FN) as usize..]
+                .to_vec()
         } else {
             Vec::new()
         };
@@ -194,7 +198,6 @@ impl Game {
             opened: Arc::default(),
             root_bytes,
             addline_bytes,
-            cave_bytes,
             _icons: None,
         }
     }
@@ -265,7 +268,7 @@ impl Game {
             .expect("ring allocated")
     }
 
-    /// cave 解除時依序的寫回與釋放；`addline` 為 false 表示 AddLine 沒掛上。
+    /// stub 區解除時依序的寫回與釋放；`addline` 為 false 表示 AddLine 沒掛上。
     fn restore_ops(&self, addline: bool) -> Vec<MemOp> {
         let mut ops = vec![MemOp::Write {
             addr: ROOT_JUMP,
@@ -278,10 +281,7 @@ impl Game {
             });
         }
         ops.push(MemOp::Free(EXPORT));
-        ops.push(MemOp::Write {
-            addr: CAVE,
-            bytes: self.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec(),
-        });
+        ops.push(MemOp::Free(ARENA));
         ops
     }
 
@@ -367,21 +367,18 @@ fn connect_order_matches_python() {
         ops_kinds(&g.mem.ops()),
         [
             ("write", ROOT_JUMP), // 修復上次髒退出遺留的 hook
-            ("write", CAVE),
+            ("alloc", ARENA),
             ("alloc", EXPORT),
-            stub(CAVE),
+            stub(ARENA),
             ("write", ROOT_JUMP),
             ("alloc", RING),
-            stub(CAVE + 50),
+            stub(ARENA + 50),
             ("write", ADDLINE_JUMP),
         ]
     );
     assert_eq!(
         g.state_at_wait.lock().unwrap().clone(),
-        Some(vec![
-            (ROOT_JUMP, g.root_bytes[..7].to_vec()),
-            (CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
-        ]),
+        Some(vec![(ROOT_JUMP, g.root_bytes[..7].to_vec())]),
         "hookstate must be saved before waiting for the root hook"
     );
     assert_eq!(
@@ -391,7 +388,6 @@ fn connect_order_matches_python() {
             vec![
                 (ROOT_JUMP, g.root_bytes[..7].to_vec()),
                 (ADDLINE_JUMP, g.addline_bytes[..8].to_vec()),
-                (CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()),
             ]
         )
     );
@@ -400,41 +396,21 @@ fn connect_order_matches_python() {
     for line in [
         format!("[reader] game path: unknown (slot=101, pid={p})"),
         format!(
-            "[reader] AddLine hook installed (slot=101, pid={p}, jump=0x141200000, \
+            "[reader] hook sites located in 0ms (slot=101, pid={p}, root_jump=0x140800000, \
+             root_base=r13, addline_jump=0x141200010, pushes=7, lea_disp=-288)"
+        ),
+        format!(
+            "[reader] AddLine hook installed (slot=101, pid={p}, jump=0x141200010, \
              ring=0x20010000, ring_size=0x80040)"
         ),
         format!(
-            "[reader] attached to game (slot=101, pid={p}, hwnd={:#x}, hook_ready_in=0.3s)",
+            "[reader] attached to game (slot=101, pid={p}, hwnd={:#x}, arena={ARENA:#x}, \
+             hook_ready_in=0.3s)",
             hwnd()
         ),
     ] {
         assert_eq!(logged(101, &line).len(), 1, "{line}");
     }
-}
-
-#[test]
-fn hook_state_is_saved_as_soon_as_the_cave_is_cleared() {
-    let g = Game::new();
-    let (dir, snapshot) = (g.dir.path().to_owned(), Arc::new(Mutex::new(None)));
-    let seen = snapshot.clone();
-    *g.spy.after_read.lock().unwrap() = Some(Box::new(move |_, _, mem| {
-        let cleared = mem
-            .ops()
-            .iter()
-            .any(|op| matches!(op, MemOp::Write { addr: CAVE, .. }));
-        if cleared {
-            seen.lock()
-                .unwrap()
-                .get_or_insert_with(|| hook_state::load_state(&dir, pid()).1);
-        }
-    }));
-    let _r = g.connected(113);
-    let saved = snapshot.lock().unwrap().clone();
-    assert_eq!(
-        saved,
-        Some(vec![(CAVE, g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec())]),
-        "hookstate must exist before the root pattern scan"
-    );
 }
 
 #[test]
@@ -470,59 +446,137 @@ fn open_failure_is_access_denied() {
 }
 
 #[test]
-fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
-    let g = Game::with(true, false);
-    let mut r = g.reader(103);
-    let err = r.read_new().unwrap_err();
-    let GameNotRunning::VersionMismatch(msg) = &err else {
-        panic!("{err:?}");
-    };
-    assert!(
-        msg.starts_with("hook does not match this game build: Pattern b'\\\\x48\\\\x8D"),
-        "{msg}"
-    );
-    assert!(!r.anchored());
-    let ops = g.mem.ops();
-    assert!(
-        !ops.iter()
-            .any(|op| matches!(op, MemOp::Alloc { size, .. } if *size == RING_SIZE))
-    );
-    assert_eq!(ops[ops.len() - 3..], g.restore_ops(false)[..]);
-    assert!(!g.state_file_exists());
-    let failed = logged(103, "[reader] AddLine hook install failed (slot=103, ");
-    assert_eq!(failed.len(), 1);
-    assert!(
-        failed[0].contains("): Pattern b'")
-            && failed[0].ends_with(
-                "; a pattern failure here needs hook::add_line::PATTERN updated in a new release"
-            ),
-        "{failed:?}"
-    );
+fn pattern_failure_is_version_mismatch_and_writes_nothing() {
+    for (root, addline, kind) in [(true, false, "Pattern b'(?:"), (false, true, "Pattern b'[")] {
+        let g = Game::with(root, addline);
+        let mut r = g.reader(103);
+        let err = r.read_new().unwrap_err();
+        let GameNotRunning::VersionMismatch(msg) = &err else {
+            panic!("{err:?}");
+        };
+        assert!(
+            msg.starts_with(&format!("hook does not match this game build: {kind}")),
+            "{msg}"
+        );
+        assert!(!r.anchored());
+        assert!(g.mem.ops().is_empty(), "{:?}", g.mem.ops());
+        assert!(!g.state_file_exists());
+    }
 
     let g = Game::new();
-    place_root_window(&g.mem, ROOT_JUMP + 0x1000);
+    place_root_window(&g.mem, ROOT_JUMP + 0x1000, ROOT_NEW_BUILD);
     let mut r = g.reader(103);
     let err = r.read_new().unwrap_err();
     assert!(
         matches!(&err, GameNotRunning::VersionMismatch(msg) if msg.contains(": Got 2 results for b'")),
         "{err:?}"
     );
+    assert!(g.mem.ops().is_empty());
+}
 
-    let g = Game::with(false, true);
-    let mut r = g.reader(103);
-    assert!(matches!(
-        r.read_new(),
-        Err(GameNotRunning::VersionMismatch(_))
-    ));
-    let ops = g.mem.ops();
-    assert_eq!(
-        ops.last(),
-        Some(&MemOp::Write {
-            addr: CAVE,
-            bytes: g.cave_bytes[..AUTOBOT_PATTERN.len()].to_vec()
-        })
+#[test]
+fn mismatch_in_either_site_writes_nothing() {
+    let inconsistent_root = Game::with(false, true);
+    place_root_window(
+        &inconsistent_root.mem,
+        ROOT_JUMP,
+        "498b8dd8000000488b01498b97c8000000ff507084c0",
+    );
+    let unaligned_addline = Game::with(true, false);
+    place_addline(&unaligned_addline.mem, ADDLINE_FN + 8, ADDLINE_NEW_BUILD);
+    for (g, check) in [
+        (&inconsistent_root, "base register differs"),
+        (&unaligned_addline, "not 16-byte aligned"),
+    ] {
+        let mut r = g.reader(115);
+        let err = r.read_new().unwrap_err();
+        let GameNotRunning::VersionMismatch(msg) = &err else {
+            panic!("{err:?}");
+        };
+        assert!(
+            msg.starts_with("hook site does not fit this game build")
+                && msg.contains(check)
+                && msg.ends_with(&format!("(pid={})", pid())),
+            "{msg}"
+        );
+        assert!(
+            !g.mem
+                .ops()
+                .iter()
+                .any(|op| matches!(op, MemOp::Write { .. } | MemOp::Alloc { .. })),
+            "{:?}",
+            g.mem.ops()
+        );
+        assert!(!g.state_file_exists());
+    }
+}
+
+#[test]
+fn no_room_near_module_is_not_a_version_mismatch() {
+    let g = Game::new();
+    g.mem.fail_alloc_near();
+    let mut r = g.reader(116);
+    for _ in 0..3 {
+        assert_eq!(
+            r.read_new().unwrap_err(),
+            GameNotRunning::Missing(format!(
+                "failed to attach to game: no free 4096-byte slot within 0x70000000 of {BASE:#x} \
+                 (pid={})",
+                pid()
+            ))
+        );
+    }
+    let lines = logged(116, "[reader] stub arena allocation failed");
+    let line = format!(
+        "[reader] stub arena allocation failed (slot=116, pid={}): no free 4096-byte slot within \
+         0x70000000 of {BASE:#x}",
+        pid()
+    );
+    assert!(lines.len() == 1 && lines[0].ends_with(&line), "{lines:?}");
+    assert!(
+        !g.mem
+            .ops()
+            .iter()
+            .any(|op| matches!(op, MemOp::Write { .. }))
     );
     assert!(!g.state_file_exists());
+}
+
+#[test]
+fn root_timeout_frees_arena_before_retry() {
+    let g = Game::new();
+    g.fires.store(false, Ordering::SeqCst);
+    let mut r = g.reader(117);
+    assert!(matches!(
+        r.read_new(),
+        Err(GameNotRunning::HookNotFiring(_))
+    ));
+    let ops = g.mem.ops();
+    assert!(ops.contains(&MemOp::Free(EXPORT)) && ops.contains(&MemOp::Free(ARENA)));
+
+    g.fires.store(true, Ordering::SeqCst);
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    assert_eq!(
+        g.mem.ops()[ops.len()],
+        MemOp::Alloc {
+            addr: ARENA + 0x1_0000,
+            size: ARENA_SIZE
+        },
+        "a retry allocates a fresh arena"
+    );
+}
+
+#[test]
+fn uninstall_frees_arena_after_wait() {
+    let g = Game::new();
+    let mut r = g.connected(118);
+    let before = g.mem.ops().len();
+    let (mem, waits) = (g.mem.clone(), Arc::new(Mutex::new(Vec::new())));
+    let seen = waits.clone();
+    r.clock.sleep = Box::new(move |d| seen.lock().unwrap().push((d, mem.ops().len())));
+    r.close();
+    assert_eq!(*waits.lock().unwrap(), [(STUB_EXIT_WAIT, before + 2)]);
+    assert_eq!(g.mem.ops()[before..], g.restore_ops(true)[..]);
 }
 
 #[test]
@@ -561,7 +615,7 @@ fn repeated_attach_failures_log_the_same_reason_once() {
         ));
     }
     assert_eq!(logged(152, "[reader] game path:").len(), 1);
-    assert_eq!(logged(152, "[reader] AddLine hook install failed").len(), 1);
+    assert!(logged(152, "[reader] hook sites located").is_empty());
 
     let g = Game::new();
     g.fires.store(false, Ordering::SeqCst);
@@ -570,6 +624,7 @@ fn repeated_attach_failures_log_the_same_reason_once() {
         assert!(r.read_new().is_err());
     }
     assert_eq!(logged(153, "[reader] game path:").len(), 1);
+    assert_eq!(logged(153, "[reader] hook sites located").len(), 1);
     assert_eq!(
         logged(153, "[reader] root window hook never fired").len(),
         1
@@ -583,9 +638,11 @@ fn readiness_timeout_is_a_hook_not_firing_mismatch() {
     let mut r = g.reader(104);
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::HookNotFiring(
-            "hook does not match this game build: root window hook did not fire within 15s".into()
-        )
+        GameNotRunning::HookNotFiring(format!(
+            "hook does not match this game build: root window hook did not fire within 15s \
+             (pid={})",
+            pid()
+        ))
     );
     let waited = g.clock.elapsed();
     assert!(waited >= HOOK_READY_TIMEOUT, "{waited:?}");
@@ -666,9 +723,10 @@ fn other_attach_failure_stays_game_not_running() {
     r.state_dir = dir.path().to_owned();
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::Missing(
-            "failed to attach to game: WizardGraphicalClient.exe module not found.".into()
-        )
+        GameNotRunning::Missing(format!(
+            "failed to attach to game: WizardGraphicalClient.exe module not found. (pid={})",
+            pid()
+        ))
     );
 }
 
@@ -700,8 +758,15 @@ fn unhook_failure_keeps_hook_state_for_repair() {
     let g = Game::new();
     let mut r = g.connected(107);
     g.spy.fail_writes.store(true, Ordering::SeqCst);
+    let before = g.mem.ops().len();
     r.close();
     assert!(g.state_file_exists());
+    assert!(
+        !g.mem.ops()[before..]
+            .iter()
+            .any(|op| matches!(op, MemOp::Free(_))),
+        "a jump may still point into the arena"
+    );
     assert_eq!(
         logged(
             107,
@@ -736,7 +801,7 @@ fn hook_state_save_failure_is_logged() {
     assert_eq!(r.read_new().unwrap(), vec![]);
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
-    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines.len(), 2, "{lines:?}");
     for (line, ops) in lines.iter().zip(1..) {
         assert!(line.contains(&format!("(slot=109, pid={p}, ops={ops}): ")));
     }

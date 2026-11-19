@@ -1,37 +1,21 @@
-//! 改寫遊戲機器碼的 hook：autobot code cave 與 root window hook（比照 wizwalker `HookHandler`／`SimpleHook`）。
+//! 改寫遊戲機器碼的共用部分：模組附近配置的 stub 區、跳轉編碼與 [`SimpleHook`] 的掛入順序。
 //!
-//! 位元組必須與 wizwalker 寫入的逐一相同，錯一個就會讓遊戲當掉。
+//! stub 在遊戲執行緒上執行，錯一個位元組就會讓遊戲當掉。
 
 use std::fmt;
 use std::time::Duration;
 
 use crate::game::memory::{MemError, ProcessMemory};
-use crate::game::pattern::{self, ScanError};
+use crate::game::pattern::ScanError;
 
 /// 所有 hook 掃描的模組。
 pub const MODULE: &str = crate::game::process::PROCESS_NAME;
 
-/// autobot 函式的 pattern；pattern 字串長度即要保存的位元組數（沿用 wizwalker 慣例）。
-pub const AUTOBOT_PATTERN: &str = concat!(
-    r"\x48\x8B\xC4\x55\x41\x54\x41\x55\x41\x56\x41\x57",
-    r"\x48\x8D\xA8\x18\xFE\xFF\xFF\x48\x81\xEC\xC0\x02\x00\x00",
-    r"\x48\xC7\x45\xC8\xFE\xFF\xFF\xFF",
-    r"\x48\x89\x58\x10\x48\x89\x70\x18\x48\x89\x78\x20",
-    r"\x48\x8B\x05....\x48\x33\xC4\x48\x89\x85\xB0\x01\x00\x00",
-    r"\x4C\x8B\xE9\x48\x8B\x05....\x80\xB8\xCE\x1D\x02\x00\x00\x0F\x84....",
-);
-
-/// cave 清成 0 的大小；不可超過 autobot 函式本身（改版時以 exe 的 `.pdata` 確認函式長度）。
-pub const AUTOBOT_SIZE: usize = 3900;
+/// stub 區大小（一頁）。
+pub const ARENA_SIZE: usize = 0x1000;
 
 /// 跳轉點寫回原碼後，等遊戲執行點離開 stub 的時間。
 pub const STUB_EXIT_WAIT: Duration = Duration::from_millis(500);
-
-/// root window hook 的跳轉點 pattern；暫存器寫死，改版換暫存器時比對失敗而不是讓 stub 讀錯暫存器當掉遊戲。
-pub const ROOT_WINDOW_PATTERN: &str = concat!(
-    r"\x49\x8B\x8F\xD8\x00\x00\x00\x48\x8B\x01",
-    r"\x49\x8B\x97\xC8\x00\x00\x00\xFF\x50\x70\x84",
-);
 
 /// hook 掛入錯誤。
 #[derive(Debug)]
@@ -40,10 +24,12 @@ pub enum HookError {
     Scan(ScanError),
     /// 讀寫或配置失敗。
     Mem(MemError),
-    /// cave 放不下更多 stub（對應 wizwalker 的 `RuntimeError`）。
+    /// stub 區放不下更多 stub。
     CaveFull,
     /// 跳轉距離超出 rel32。
     JumpOutOfRange,
+    /// 比對到的位置與已知的 hook 形狀不符，不寫入遊戲。
+    Mismatch(String),
 }
 
 impl fmt::Display for HookError {
@@ -51,8 +37,11 @@ impl fmt::Display for HookError {
         match self {
             Self::Scan(err) => err.fmt(f),
             Self::Mem(err) => err.fmt(f),
-            Self::CaveFull => f.write_str("Somehow went over autobot size"),
+            Self::CaveFull => f.write_str("stub arena is full"),
             Self::JumpOutOfRange => f.write_str("jump distance does not fit in rel32"),
+            Self::Mismatch(detail) => {
+                write!(f, "hook site does not fit this game build: {detail}")
+            }
         }
     }
 }
@@ -80,7 +69,7 @@ fn jmp(from: u64, to: u64) -> Result<[u8; 5], HookError> {
     Ok(out)
 }
 
-/// 已寫入的跳轉：解除時寫回原碼，有 export 要釋放就在 cave 等待後釋放；只由 cave 持有與解除。
+/// 已寫入的跳轉：解除時寫回原碼，有 export 要釋放就在等待後釋放；只由 stub 區持有與解除。
 #[derive(Debug)]
 struct JumpPatch {
     addr: u64,
@@ -88,9 +77,8 @@ struct JumpPatch {
     free: Option<u64>,
 }
 
-/// wizwalker `SimpleHook` 的參數。
+/// 一個跳轉式 hook 的參數。
 pub(crate) struct SimpleHook {
-    pub pattern: &'static str,
     pub instruction_length: u64,
     pub noops: usize,
     pub stub_size: usize,
@@ -100,17 +88,17 @@ pub(crate) struct SimpleHook {
 }
 
 impl SimpleHook {
-    /// 照 `SimpleHook.hook()` 的順序掛上並登記到 cave（之後只能由 cave 解除），回傳（跳轉點, export）位址。
+    /// 在 `jump` 掛上並登記到 stub 區（之後只能由 stub 區解除），回傳 export 位址。
     ///
     /// `body` 由 export 位址產生 stub（不含回跳）。
     pub(crate) fn install(
         &self,
         mem: &dyn ProcessMemory,
-        cave: &mut AutobotCave,
+        arena: &mut StubArena,
+        jump: u64,
         body: impl FnOnce(u64) -> Vec<u8>,
-    ) -> Result<(u64, u64), HookError> {
-        let jump = pattern::scan(mem, MODULE, self.pattern)?;
-        let hook = cave.alloc_stub(self.stub_size)?;
+    ) -> Result<u64, HookError> {
+        let hook = arena.alloc_stub(self.stub_size)?;
         let export = mem.alloc(self.export_size)?;
         let mut stub = body(export);
         stub.extend(jmp(
@@ -122,40 +110,41 @@ impl SimpleHook {
         let original = mem.read(jump, jump_bytes.len())?;
         mem.write(hook, &stub)?;
         mem.write(jump, &jump_bytes)?;
-        cave.hooks.push(JumpPatch {
+        arena.hooks.push(JumpPatch {
             addr: jump,
             original,
             free: self.free_export.then_some(export),
         });
-        Ok((jump, export))
+        Ok(export)
     }
 }
 
-/// autobot code cave：遊戲裡一段被清成 0、用來放 hook stub 的函式。
-pub struct AutobotCave {
+/// 在遊戲模組附近配置、用來放 hook stub 的一頁可執行記憶體。
+pub struct StubArena {
     addr: u64,
-    original: Vec<u8>,
     pos: usize,
     hooks: Vec<JumpPatch>,
 }
 
-impl AutobotCave {
-    /// 掃 autobot 函式，保存開頭（pattern 字串長度）的位元組後清成 `AUTOBOT_SIZE` 個 0。
+impl StubArena {
+    /// 在模組基址的 rel32 範圍內配置 `ARENA_SIZE` bytes。
     pub fn install(mem: &dyn ProcessMemory) -> Result<Self, HookError> {
-        let addr = pattern::scan(mem, MODULE, AUTOBOT_PATTERN)?;
-        let original = mem.read(addr, AUTOBOT_PATTERN.len())?;
-        mem.write(addr, &[0; AUTOBOT_SIZE])?;
+        let addr = mem.alloc_near(mem.module_base(MODULE)?, ARENA_SIZE)?;
         Ok(Self {
             addr,
-            original,
             pos: 0,
             hooks: Vec::new(),
         })
     }
 
+    /// stub 區的起點。
+    pub fn addr(&self) -> u64 {
+        self.addr
+    }
+
     /// 依序切出 `size` bytes 放 stub（不回收）。
     pub fn alloc_stub(&mut self, size: usize) -> Result<u64, HookError> {
-        if self.pos + size > AUTOBOT_SIZE {
+        if self.pos + size > ARENA_SIZE {
             return Err(HookError::CaveFull);
         }
         let addr = self.addr + self.pos as u64;
@@ -163,89 +152,40 @@ impl AutobotCave {
         Ok(addr)
     }
 
-    /// hookstate 用的還原操作：各 hook 的跳轉原碼在前、cave 原本的位元組在最後。
-    ///
-    /// 依序寫回：先還原 cave 的話，仍指向它的跳轉點會跑進被改回的原始程式碼。
+    /// hookstate 用的還原操作：各跳轉點的原碼，依掛入順序。
     pub fn restore_ops(&self) -> Vec<(u64, Vec<u8>)> {
         self.hooks
             .iter()
             .map(|h| (h.addr, h.original.clone()))
-            .chain([(self.addr, self.original.clone())])
             .collect()
     }
 
-    /// 依掛入順序寫回各跳轉點，等 0.5 秒（由 `wait` 執行）後釋放 export、在內容不同時還原 cave 原本的位元組；唯一的解除途徑。
+    /// 依掛入順序寫回各跳轉點，等 `STUB_EXIT_WAIT`（由 `wait` 執行）後釋放 export 與 stub 區；唯一的解除途徑。
     pub fn uninstall_with(
         self,
         mem: &dyn ProcessMemory,
         wait: impl FnOnce(Duration),
     ) -> Result<(), MemError> {
-        // 遊戲已關就沒有東西要還原（同 wizwalker `Client.close`）
         if !mem.is_alive() {
             return Ok(());
         }
+        // 有一處寫不回就什麼都不釋放：仍指向 stub 的跳轉會跑進已釋放的頁面
         for hook in &self.hooks {
             mem.write(hook.addr, &hook.original)?;
         }
-        let current = mem.read(self.addr, self.original.len())?;
-        // 讓執行點離開 stub
+        // 仍在 stub 裡的遊戲執行緒會寫 export 與執行 stub 區，等它離開才釋放
         wait(STUB_EXIT_WAIT);
-        // wizwalker 在等待前就釋放 export，仍在 stub 裡的遊戲執行緒會寫進已釋放的頁面
         for addr in self.hooks.iter().filter_map(|h| h.free) {
             mem.free(addr);
         }
-        if current != self.original {
-            mem.write(self.addr, &self.original)?;
-        }
+        mem.free(self.addr);
         Ok(())
-    }
-}
-
-const ROOT_WINDOW: SimpleHook = SimpleHook {
-    pattern: ROOT_WINDOW_PATTERN,
-    instruction_length: 7,
-    noops: 2,
-    stub_size: 50,
-    export_size: 8,
-    free_export: true,
-};
-
-/// root window hook：把目前的 root window 位址寫到 export。
-pub struct RootWindowHook {
-    export: u64,
-}
-
-impl RootWindowHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall_with`] 解除）。
-    pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
-        let (_, export) = ROOT_WINDOW.install(mem, cave, |export| {
-            [
-                &[0x50][..],                                 // push rax
-                &[0x49, 0x8B, 0x87, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r15+D8]
-                &[0x48, 0xA3],                               // mov [export],rax
-                &export.to_le_bytes(),
-                &[0x58],                                     // pop rax
-                &[0x49, 0x8B, 0x8F, 0xD8, 0x00, 0x00, 0x00], // mov rcx,[r15+D8]（原指令）
-            ]
-            .concat()
-        })?;
-        Ok(Self { export })
-    }
-
-    /// 存放 root window 位址的 8 bytes。
-    pub fn export_addr(&self) -> u64 {
-        self.export
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn autobot_pattern_is_308_chars() {
-        assert_eq!(AUTOBOT_PATTERN.len(), 308);
-    }
 
     #[test]
     fn jmp_encodes_rel32_both_directions() {
@@ -263,15 +203,14 @@ mod tests {
     }
 
     #[test]
-    fn alloc_stub_refuses_to_overflow_the_cave() {
-        let mut cave = AutobotCave {
+    fn alloc_stub_refuses_to_overflow_the_arena() {
+        let mut arena = StubArena {
             addr: 0x1000,
-            original: Vec::new(),
             pos: 0,
             hooks: Vec::new(),
         };
-        assert_eq!(cave.alloc_stub(AUTOBOT_SIZE).unwrap(), 0x1000);
-        let err = cave.alloc_stub(1).unwrap_err();
-        assert_eq!(err.to_string(), "Somehow went over autobot size");
+        assert_eq!(arena.alloc_stub(ARENA_SIZE).unwrap(), 0x1000);
+        let err = arena.alloc_stub(1).unwrap_err();
+        assert_eq!(err.to_string(), "stub arena is full");
     }
 }

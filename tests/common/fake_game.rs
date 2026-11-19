@@ -1,28 +1,12 @@
-//! 在 `FakeMemory` 裡擺出遊戲的樣子：pattern 命中與 UI 樹控件。
+//! 在 `FakeMemory` 裡擺出遊戲的樣子：hook 跳轉點的位元組與 UI 樹控件。
 #![allow(dead_code)]
 
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
 use wizard101_chat_translator::game::memory::{FakeMemory, ProcessMemory, Region};
 use wizard101_chat_translator::reader::chat_tabs::LABEL_OFFSET;
-use wizard101_chat_translator::reader::hook::add_line::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
-use wizard101_chat_translator::reader::hook::cave::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
-
-/// 依 pattern 原文造一段命中位元組（同 golden exporter 的 `_pattern_instance`）。
-pub fn pattern_instance(pattern: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut rest = pattern;
-    while !rest.is_empty() {
-        if let Some(hex) = rest.strip_prefix(r"\x") {
-            out.push(u8::from_str_radix(&hex[..2], 16).unwrap());
-            rest = &hex[2..];
-        } else {
-            assert!(rest.starts_with('.'), "unsupported token in {pattern}");
-            out.push(0x0A);
-            rest = &rest[1..];
-        }
-    }
-    out
-}
+use wizard101_chat_translator::reader::hook::add_line::{DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
+use wizard101_chat_translator::reader::hook::cave::MODULE;
+use wizard101_chat_translator::util::unhex;
 
 /// 遊戲模組的載入位址。
 pub const BASE: u64 = 0x1_4000_0000;
@@ -30,24 +14,43 @@ pub const BASE: u64 = 0x1_4000_0000;
 /// 聊天環形緩衝的配置大小。
 pub const RING_SIZE: usize = 0x80040;
 
-/// 在 `addr` 放 autobot 洞穴的 pattern 命中，回傳整段內容。
-pub fn place_cave(mem: &FakeMemory, addr: u64) -> Vec<u8> {
-    place(mem, addr, AUTOBOT_PATTERN, 0x1100)
+/// 新版 root window 跳轉點附近的位元組（base 為 r13）。
+pub const ROOT_NEW_BUILD: &str = "498b8dd8000000488b01498b95c8000000ff507084db";
+
+/// 新版 `ChatBox::AddLine` 的函式開頭（7 個 push，`lea` 在第 16 byte）。
+pub const ADDLINE_NEW_BUILD: &str = concat!(
+    "48895c2420",
+    "5556574154415541564157",
+    "488dac24e0feffff",
+    "4881ec20020000",
+    "488b051240c302",
+    "4833c4",
+    "48898518010000",
+    "4489442458",
+    "48895588",
+    "488bf9",
+    "48895590",
+    "4183f805",
+    "7c14",
+    "4963f0",
+    "4883ee05",
+    "48c1e605",
+    "4803b148080000",
+);
+
+/// 在 `addr` 放 root window 跳轉點的位元組，回傳整段內容。
+pub fn place_root_window(mem: &FakeMemory, addr: u64, hex: &str) -> Vec<u8> {
+    place(mem, addr, hex, 0x40)
 }
 
-/// 在 `addr` 放 root window hook 的 pattern 命中，回傳整段內容。
-pub fn place_root_window(mem: &FakeMemory, addr: u64) -> Vec<u8> {
-    place(mem, addr, ROOT_WINDOW_PATTERN, 0x40)
+/// 在 `addr`（函式開頭）放 AddLine 的位元組，回傳整段內容。
+pub fn place_addline(mem: &FakeMemory, addr: u64, hex: &str) -> Vec<u8> {
+    place(mem, addr, hex, 0x80)
 }
 
-/// 在 `addr` 放 AddLine hook 的 pattern 命中，回傳整段內容。
-pub fn place_addline(mem: &FakeMemory, addr: u64) -> Vec<u8> {
-    place(mem, addr, add_line::PATTERN, 0x80)
-}
-
-/// 在模組裡加一個可掃描區段並放入 pattern 命中，回傳整段內容。
-fn place(mem: &FakeMemory, addr: u64, pattern: &str, size: usize) -> Vec<u8> {
-    let mut bytes = pattern_instance(pattern);
+/// 在模組裡加一個可掃描區段並放入位元組（不足 `size` 補 `CC`），回傳整段內容。
+fn place(mem: &FakeMemory, addr: u64, hex: &str, size: usize) -> Vec<u8> {
+    let mut bytes = unhex(hex).expect("valid hex");
     bytes.resize(size, 0xCC);
     mem.add_region(
         MODULE,
