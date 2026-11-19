@@ -93,11 +93,12 @@ pub const NEAR_LIMIT: u64 = 0x7000_0000;
 /// `VirtualAlloc` 指定位址時要求的對齊。
 const ALLOC_ALIGN: u64 = 0x1_0000;
 
-/// 從空閒區段（起點, 長度）挑出離 `near` 最近、64 KB 對齊、整塊都在 `NEAR_LIMIT` 內的起點。
-pub fn pick_near(free: &[(u64, u64)], near: u64, size: u64) -> Option<u64> {
+/// 從空閒區段（起點, 長度）列出 64 KB 對齊、整塊都在 `NEAR_LIMIT` 內的起點，離 `near` 近的在前。
+pub fn near_candidates(free: &[(u64, u64)], near: u64, size: u64) -> Vec<u64> {
     let align_down = |v: u64| v & !(ALLOC_ALIGN - 1);
     let align_up = |v: u64| v.saturating_add(ALLOC_ALIGN - 1) & !(ALLOC_ALIGN - 1);
-    free.iter()
+    let mut starts: Vec<u64> = free
+        .iter()
         .flat_map(|&(base, len)| {
             let end = base.saturating_add(len);
             let below = end
@@ -113,7 +114,11 @@ pub fn pick_near(free: &[(u64, u64)], near: u64, size: u64) -> Option<u64> {
             start.abs_diff(near) <= NEAR_LIMIT
                 && start.saturating_add(size).abs_diff(near) <= NEAR_LIMIT
         })
-        .min_by_key(|&start| start.abs_diff(near))
+        .collect();
+    // 同一區段的上下兩個候選可能相同；穩定排序後兩者必相鄰
+    starts.sort_by_key(|&start| start.abs_diff(near));
+    starts.dedup();
+    starts
 }
 
 /// 與 wizwalker `read_bytes` 相同的位址檢查。
@@ -384,23 +389,25 @@ impl ProcessMemory for WinProcess {
             }
             addr = base + mbi.RegionSize as u64;
         }
-        let Some(addr) = pick_near(&free, near, size as u64) else {
-            return Err(self.failure(MemError::NoRoomNear { near, size }));
-        };
-        let allocated = unsafe {
-            VirtualAllocEx(
-                self.handle,
-                addr as *const _,
-                size,
-                MEM_RESERVE | MEM_COMMIT,
-                PAGE_EXECUTE_READWRITE,
-            )
-        };
-        if allocated.is_null() {
+        let mut last = Err(MemError::NoRoomNear { near, size });
+        // 查詢到配置之間空位可能被別的執行緒搶走，失敗就換下一個候選
+        for addr in near_candidates(&free, near, size as u64) {
+            let allocated = unsafe {
+                VirtualAllocEx(
+                    self.handle,
+                    addr as *const _,
+                    size,
+                    MEM_RESERVE | MEM_COMMIT,
+                    PAGE_EXECUTE_READWRITE,
+                )
+            };
+            if !allocated.is_null() {
+                return Ok(allocated as u64);
+            }
             let code = unsafe { GetLastError() };
-            return Err(self.failure(MemError::AllocAt { addr, size, code }));
+            last = Err(MemError::AllocAt { addr, size, code });
         }
-        Ok(allocated as u64)
+        last.map_err(|err| self.failure(err))
     }
 
     fn free(&self, addr: u64) {
@@ -647,8 +654,12 @@ mod fake {
             if state.fail_near {
                 return Err(MemError::NoRoomNear { near, size });
             }
-            let addr = state.next_near.unwrap_or(near - FAKE_NEAR_OFFSET);
-            state.next_near = Some(addr + ALLOC_GRANULARITY);
+            let addr = state.next_near.unwrap_or_else(|| {
+                near.checked_sub(FAKE_NEAR_OFFSET)
+                    .unwrap_or(near + FAKE_NEAR_OFFSET)
+            });
+            state.next_near =
+                Some(addr + (size as u64).div_ceil(ALLOC_GRANULARITY).max(1) * ALLOC_GRANULARITY);
             state.put(addr, &vec![0; size]);
             state.allocs.insert(addr, size);
             state.ops.push(MemOp::Alloc { addr, size });
@@ -898,52 +909,102 @@ mod tests {
     }
 
     #[test]
-    fn pick_near_prefers_closest_aligned_slot() {
+    fn near_candidates_prefers_closest_aligned_slot() {
         let near = 0x1_4000_0000;
         // 模組下方有一段空位、上方較遠處也有
         let free = [(0x1_3000_0000, 0x0800_0000), (0x1_9000_0000, 0x1000_0000)];
-        assert_eq!(pick_near(&free, near, 0x1000), Some(0x1_37FF_0000));
+        assert_eq!(
+            near_candidates(&free, near, 0x1000).first().copied(),
+            Some(0x1_37FF_0000)
+        );
     }
 
     #[test]
-    fn pick_near_rejects_slots_beyond_limit_and_unaligned_tails() {
+    fn near_candidates_rejects_slots_beyond_limit_and_unaligned_tails() {
         let near = 0x1_4000_0000;
         assert_eq!(
-            pick_near(&[(near + NEAR_LIMIT, 0x10_0000)], near, 0x1000),
+            near_candidates(&[(near + NEAR_LIMIT, 0x10_0000)], near, 0x1000)
+                .first()
+                .copied(),
             None
         );
-        assert_eq!(pick_near(&[(0x1_3000_8000, 0x8000)], near, 0x1000), None); // 區段內沒有 64 KB 對齊點
+        assert_eq!(
+            near_candidates(&[(0x1_3000_8000, 0x8000)], near, 0x1000)
+                .first()
+                .copied(),
+            None
+        ); // 區段內沒有 64 KB 對齊點
     }
 
     #[test]
-    fn pick_near_handles_near_below_the_limit() {
+    fn near_candidates_handles_near_below_the_limit() {
         assert_eq!(
-            pick_near(&[(0x1_0000, 0x10_0000)], 0x1000_0000, 0x1000),
+            near_candidates(&[(0x1_0000, 0x10_0000)], 0x1000_0000, 0x1000)
+                .first()
+                .copied(),
             Some(0x10_0000)
         );
     }
 
     #[test]
-    fn pick_near_uses_a_free_range_straddling_near() {
+    fn near_candidates_uses_a_free_range_straddling_near() {
         // 上方對齊點離 near 0x4000、下方 0xC000
         let free = [(0x1_3FFF_0000, 0x4_0000)];
-        assert_eq!(pick_near(&free, 0x1_4000_C000, 0x1000), Some(0x1_4001_0000));
+        assert_eq!(
+            near_candidates(&free, 0x1_4000_C000, 0x1000)
+                .first()
+                .copied(),
+            Some(0x1_4001_0000)
+        );
     }
 
     #[test]
-    fn pick_near_prefers_a_closer_slot_above() {
+    fn near_candidates_prefers_a_closer_slot_above() {
         let free = [(0x1_2000_0000, 0x1_0000), (0x1_4100_0000, 0x1_0000)];
-        assert_eq!(pick_near(&free, 0x1_4000_0000, 0x1000), Some(0x1_4100_0000));
+        assert_eq!(
+            near_candidates(&free, 0x1_4000_0000, 0x1000)
+                .first()
+                .copied(),
+            Some(0x1_4100_0000)
+        );
     }
 
     #[test]
-    fn pick_near_picks_the_closest_of_many_regions() {
+    fn near_candidates_orders_many_regions_by_distance() {
         let free = [
             (0x1_1000_0000, 0x1_0000),
             (0x1_3F00_0000, 0x1_0000),
             (0x1_6000_0000, 0x1_0000),
         ];
-        assert_eq!(pick_near(&free, 0x1_4000_0000, 0x1000), Some(0x1_3F00_0000));
+        assert_eq!(
+            near_candidates(&free, 0x1_4000_0000, 0x1000),
+            [0x1_3F00_0000, 0x1_6000_0000, 0x1_1000_0000]
+        );
+    }
+
+    #[test]
+    fn near_candidates_drops_duplicate_starts() {
+        // near 已對齊且落在區段內：上下兩個候選都是 near
+        let free = [(0x1_3FFF_0000, 0x4_0000)];
+        assert_eq!(
+            near_candidates(&free, 0x1_4000_0000, 0x1000),
+            [0x1_4000_0000]
+        );
+    }
+
+    #[test]
+    fn fake_alloc_near_steps_by_size_and_never_underflows() {
+        let mem = FakeMemory::new();
+        assert_eq!(
+            mem.alloc_near(0x1_4000_0000, 0x2_8000).unwrap(),
+            0x1_3000_0000
+        );
+        assert_eq!(
+            mem.alloc_near(0x1_4000_0000, 0x1000).unwrap(),
+            0x1_3003_0000
+        );
+        let low = FakeMemory::new();
+        assert_eq!(low.alloc_near(0x100_0000, 0x1000).unwrap(), 0x1100_0000);
     }
 
     #[test]
