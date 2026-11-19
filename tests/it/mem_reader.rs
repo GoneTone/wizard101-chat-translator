@@ -599,6 +599,7 @@ fn repeated_attach_failures_log_the_same_reason_once() {
         ));
     }
     assert_eq!(logged(152, "[reader] game path:").len(), 1);
+    assert!(logged(152, "[reader] hook sites located").is_empty());
 
     let g = Game::new();
     g.fires.store(false, Ordering::SeqCst);
@@ -607,6 +608,7 @@ fn repeated_attach_failures_log_the_same_reason_once() {
         assert!(r.read_new().is_err());
     }
     assert_eq!(logged(153, "[reader] game path:").len(), 1);
+    assert_eq!(logged(153, "[reader] hook sites located").len(), 1);
     assert_eq!(
         logged(153, "[reader] root window hook never fired").len(),
         1

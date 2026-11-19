@@ -177,6 +177,8 @@ pub struct WizChatReader {
     pid: u32,
     /// 已記過安裝路徑的 PID：重試連線時不重複寫。
     path_logged_for: u32,
+    /// 已記過跳轉點定位結果的 PID：等不到 root 就緒的重試不重複寫。
+    sites_logged_for: u32,
     /// 上次記下的掛入失敗原因：同一原因的重試不重複寫 log。
     last_attach_failure: Option<String>,
     edit_node: Option<Window>,
@@ -220,6 +222,7 @@ impl WizChatReader {
             attached: None,
             pid: 0,
             path_logged_for: 0,
+            sites_logged_for: 0,
             last_attach_failure: None,
             edit_node: None,
             edit_missing_at: None,
@@ -686,18 +689,21 @@ impl WizChatReader {
         let root = root_window::locate(mem)?;
         let addline = add_line::locate(mem)?;
         let base = mem.module_base(MODULE).map_err(HookError::from)?;
-        let lea_disp = i32::from_le_bytes(addline.original[4..].try_into().expect("4 bytes"));
-        log(format!(
-            "[reader] hook sites located in {}ms (slot={}, pid={}, root_jump={:#x}, \
-             root_base={}, addline_jump={:#x}, pushes={}, lea_disp={lea_disp})",
-            ((self.clock.now)() - started).as_millis(),
-            self.slot,
-            self.pid,
-            root.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
-            reg_name(root.base),
-            addline.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
-            addline.pushes
-        ));
+        if self.sites_logged_for != self.pid {
+            self.sites_logged_for = self.pid;
+            let lea_disp = i32::from_le_bytes(addline.original[4..].try_into().expect("4 bytes"));
+            log(format!(
+                "[reader] hook sites located in {}ms (slot={}, pid={}, root_jump={:#x}, \
+                 root_base={}, addline_jump={:#x}, pushes={}, lea_disp={lea_disp})",
+                ((self.clock.now)() - started).as_millis(),
+                self.slot,
+                self.pid,
+                root.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
+                reg_name(root.base),
+                addline.jump.wrapping_sub(base).wrapping_add(IMAGE_BASE),
+                addline.pushes
+            ));
+        }
         conn.arena = Some(StubArena::install(mem)?);
         self.save_hook_state();
         let conn = self.attached.as_mut().expect("process is open");
@@ -758,8 +764,7 @@ impl WizChatReader {
             Err(err) => {
                 if remember(&mut self.last_attach_failure, &format!("addline: {err}")) {
                     log(format!(
-                        "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {err}; \
-                         a mismatch here means the game changed more than registers or stack size"
+                        "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {err}"
                     ));
                 }
                 return Err(err);
