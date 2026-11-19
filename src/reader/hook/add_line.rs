@@ -2,9 +2,11 @@
 //!
 //! stub 在遊戲執行緒上執行，錯一個位元組就會讓遊戲當掉。
 
-use super::cave::{AutobotCave, HookError, SimpleHook};
+use super::cave::{AutobotCave, HookError, MODULE, SimpleHook};
 use crate::game::memory::{MemError, ProcessMemory, decode_utf16le};
+use crate::game::pattern;
 use crate::reader::chat_tabs::MAX_BROADCAST_RECORDS;
+use crate::util::hex;
 
 /// 環形緩衝的槽位數。
 pub const SLOTS: u64 = 256;
@@ -24,6 +26,93 @@ pub const PATTERN: &str = concat!(
     r"\x4D\x63\xF0\x4C\x8B\xEA\x48\x89\x54\x24.\x48\x8B\xF9\x48\x89\x54\x24.",
     r"\x33\xDB\x89\x5C\x24.\x41\x83\xFE\x05\x7C",
 );
+
+/// 從函式開頭到 `lea rbp,[rsp-disp32]` 的穩定特徵；`lea` 之後的堆疊大小與暫存器存取順序會隨編譯改變，不在其中。
+pub const ANCHOR_PATTERN: &str = concat!(
+    r"(?:[\x48\x4C]\x89[\x44\x4C\x54\x5C\x6C\x74\x7C]\x24.)*",
+    r"(?:[\x40\x41]?[\x50-\x57]){1,8}",
+    r"\x48\x8D\xAC\x24....",
+    r".{0,96}?\x83[\xF8-\xFF]\x05\x7C",
+    r".{0,40}?\x48\x08\x00\x00",
+);
+
+/// 解析函式開頭所需讀取的位元組數。
+pub const PROLOGUE_READ: usize = 48;
+
+/// 定位並解碼後的跳轉點。
+pub struct AddLineSite {
+    /// 跳轉點位址（被覆寫的 `lea rbp,[rsp-disp32]` 起點）。
+    pub jump: u64,
+    /// 函式開頭的 push 數，決定 stub 內回傳位址的位移。
+    pub pushes: u8,
+    /// 被覆寫的 8 bytes 原指令。
+    pub original: [u8; 8],
+}
+
+/// 解析函式開頭，回傳（push 數, `lea` 在 bytes 內的位移）；`lea` 之前出現其他指令就回錯誤。
+pub fn decode_prologue(bytes: &[u8]) -> Result<(u8, usize), String> {
+    let mut at = 0;
+    // 存暫存器到 home 空間：REX.W 89 ModRM(rsp 相對) 24 disp8
+    while let [
+        0x48 | 0x4C,
+        0x89,
+        0x44 | 0x4C | 0x54 | 0x5C | 0x6C | 0x74 | 0x7C,
+        0x24,
+        _,
+        ..,
+    ] = bytes[at..]
+    {
+        at += 5;
+    }
+    let mut pushes = 0u8;
+    while pushes < 8 {
+        match bytes[at..] {
+            [0x40 | 0x41, 0x50..=0x57, ..] => at += 2,
+            [0x50..=0x57, ..] => at += 1,
+            _ => break,
+        }
+        pushes += 1;
+    }
+    if pushes == 0 {
+        return Err(format!("no push found at offset {at}"));
+    }
+    match bytes[at..] {
+        [0x48, 0x8D, 0xAC, 0x24, _, _, _, _, ..] => Ok((pushes, at)),
+        [b, ..] => Err(format!("unexpected byte {b:#04x} at offset {at}")),
+        [] => Err(format!("prologue ends at offset {at} without lea")),
+    }
+}
+
+/// 掃描並解碼跳轉點；位址未 16 對齊或開頭解析失敗回 [`HookError::Mismatch`]。
+pub fn locate(mem: &dyn ProcessMemory) -> Result<AddLineSite, HookError> {
+    let addr = pattern::scan(mem, MODULE, ANCHOR_PATTERN)?;
+    if !addr.is_multiple_of(16) {
+        return Err(HookError::Mismatch(format!(
+            "AddLine match at {addr:#x} is not 16-byte aligned"
+        )));
+    }
+    let bytes = mem.read(addr, PROLOGUE_READ)?;
+    let (pushes, lea) = decode_prologue(&bytes).map_err(|why| {
+        HookError::Mismatch(format!(
+            "AddLine at {addr:#x}: {why} (bytes={})",
+            hex(&bytes)
+        ))
+    })?;
+    Ok(AddLineSite {
+        jump: addr + lea as u64,
+        pushes,
+        original: bytes[lea..lea + 8].try_into().expect("slice of 8"),
+    })
+}
+
+/// 依 push 數與原指令組出 stub（不含回跳）。
+pub fn stub_for(ring: u64, site: &AddLineSite) -> Vec<u8> {
+    let mut stub = stub_bytes(ring);
+    stub[..8].copy_from_slice(&site.original);
+    // 函式的 push 加上 stub 自己的 7 個 push（含 pushfq）
+    stub[21] = 8 * site.pushes + 0x38;
+    stub
+}
 
 /// AddLine hook 的 stub 機器碼（不含回跳）。
 pub fn stub_bytes(ring: u64) -> Vec<u8> {
@@ -242,4 +331,127 @@ pub fn pending_broadcast(records: &[HookRecord]) -> usize {
         }
     }
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
+
+    use super::*;
+    use crate::game::memory::{FakeMemory, Region};
+
+    fn unhex(s: &str) -> Vec<u8> {
+        crate::util::unhex(s).unwrap()
+    }
+
+    const NEW_BUILD: &str = concat!(
+        "48895c2420",
+        "5556574154415541564157",
+        "488dac24e0feffff",
+        "4881ec20020000",
+        "488b051240c302",
+        "4833c4",
+        "48898518010000",
+        "4489442458",
+        "48895588",
+        "488bf9",
+        "48895590",
+        "4183f805",
+        "7c14",
+        "4963f0",
+        "4883ee05",
+        "48c1e605",
+        "4803b148080000",
+    );
+    const NOV12_BUILD: &str = concat!(
+        "40555657415441554156415748",
+        "8dac24d0feffff",
+        "4881ecc0020000",
+        "48c7442440feffffff",
+        "48899c2410030000",
+        "488b050a0a0a0a",
+        "4833c4",
+        "4889850a0a0a0a",
+        "4d63f0",
+        "4c8bea",
+        "4889542440",
+        "488bf9",
+        "4889542448",
+        "33db",
+        "895c2420",
+        "4183fe057c0a",
+        "90909090",
+        "4803b148080000",
+    );
+
+    fn memory_with(base: u64, bytes: &[u8]) -> FakeMemory {
+        let mem = FakeMemory::new();
+        mem.add_module(MODULE, 0x1_4000_0000);
+        mem.add_region(
+            MODULE,
+            Region {
+                base: base & !0xF,
+                size: 0x100,
+                protect: PAGE_EXECUTE_READ,
+                state: MEM_COMMIT,
+            },
+        );
+        mem.set_bytes(base & !0xF, &[0; 0x100]);
+        mem.set_bytes(base, bytes);
+        mem
+    }
+
+    #[test]
+    fn pattern_matches_both_builds_from_function_start() {
+        let re = pattern::compile(ANCHOR_PATTERN).unwrap();
+        for hex in [NEW_BUILD, NOV12_BUILD] {
+            let bytes = [&[0xCC; 16][..], &unhex(hex)].concat();
+            assert_eq!(re.find(&bytes).unwrap().start(), 16, "{hex}");
+        }
+    }
+
+    #[test]
+    fn decode_prologue_counts_pushes_and_finds_lea() {
+        assert_eq!(decode_prologue(&unhex(NEW_BUILD)).unwrap(), (7, 16));
+        assert_eq!(decode_prologue(&unhex(NOV12_BUILD)).unwrap(), (7, 12));
+    }
+
+    #[test]
+    fn decode_prologue_rejects_other_instructions_before_lea() {
+        // push rbp; mov rbp,rcx; lea：push 與 lea 之間混入會改暫存器的指令
+        assert!(decode_prologue(&unhex("554889cd488dac24e0feffff")).is_err());
+        assert!(decode_prologue(&unhex("48895c2420488dac24e0feffff")).is_err());
+    }
+
+    #[test]
+    fn stub_return_offset_follows_push_count() {
+        let mut site = AddLineSite {
+            jump: 0,
+            pushes: 7,
+            original: unhex("488dac24e0feffff").try_into().unwrap(),
+        };
+        let stub = stub_for(0x3000_0000, &site);
+        assert_eq!(&stub[..8], &site.original);
+        assert_eq!(&stub[17..22], &[0x4C, 0x8B, 0x4C, 0x24, 0x70]);
+        assert_eq!(stub[8..], stub_bytes(0x3000_0000)[8..]);
+        site.pushes = 5;
+        assert_eq!(stub_for(0x3000_0000, &site)[21], 0x60);
+    }
+
+    #[test]
+    fn locate_rejects_unaligned_match() {
+        let mem = memory_with(0x1_4075_8CF8, &unhex(NEW_BUILD));
+        let Err(HookError::Mismatch(msg)) = locate(&mem) else {
+            panic!("expected Mismatch");
+        };
+        assert!(msg.contains("not 16-byte aligned"), "{msg}");
+    }
+
+    #[test]
+    fn locate_returns_lea_address_and_pushes() {
+        let mem = memory_with(0x1_4075_8CF0, &unhex(NEW_BUILD));
+        let site = locate(&mem).unwrap();
+        assert_eq!((site.jump, site.pushes), (0x1_4075_8D00, 7));
+        assert_eq!(site.original.to_vec(), unhex("488dac24e0feffff"));
+    }
 }
