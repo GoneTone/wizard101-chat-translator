@@ -2,4 +2,5 @@
 
 pub mod add_line;
 pub mod cave;
+pub mod root_window;
 pub mod state;

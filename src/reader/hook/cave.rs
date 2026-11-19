@@ -44,6 +44,8 @@ pub enum HookError {
     CaveFull,
     /// 跳轉距離超出 rel32。
     JumpOutOfRange,
+    /// 比對到的位置與已知的 hook 形狀不符，不寫入遊戲。
+    Mismatch(String),
 }
 
 impl fmt::Display for HookError {
@@ -53,6 +55,9 @@ impl fmt::Display for HookError {
             Self::Mem(err) => err.fmt(f),
             Self::CaveFull => f.write_str("Somehow went over autobot size"),
             Self::JumpOutOfRange => f.write_str("jump distance does not fit in rel32"),
+            Self::Mismatch(detail) => {
+                write!(f, "hook site does not fit this game build: {detail}")
+            }
         }
     }
 }
