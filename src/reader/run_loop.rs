@@ -33,6 +33,8 @@ pub const TAB_POLL_INTERVAL: Duration = Duration::from_millis(400);
 pub const GAME_MISSING_INTERVAL: Duration = Duration::from_secs(5);
 /// 掛入點與遊戲版本對不上時的重試間隔：重試也不會自己好起來，不必每 5 秒重掃一次。
 pub const VERSION_MISMATCH_INTERVAL: Duration = Duration::from_secs(60);
+/// 自己的訊息出現前這段時間內偵測過輸入框開關，就算是經由偵測到的聊天框送出。
+const INPUT_SEEN_WINDOW: Duration = Duration::from_secs(5);
 /// 長時間等待切成這麼長的片段，停止時最多延遲一段才醒來。
 const WAIT_SLICE: Duration = Duration::from_millis(50);
 
@@ -79,6 +81,8 @@ pub trait ChatSource: Send {
     fn input_open(&mut self) -> bool;
     /// 遊戲聊天輸入框的螢幕矩形 `(x, y, w, h)`。
     fn input_box_screen_rect(&mut self) -> Option<(i32, i32, i32, i32)>;
+    /// 診斷用的輸入框節點摘要（寫進 log）。
+    fn input_diagnostics(&mut self) -> String;
     /// 是否輸出系統訊息。
     fn set_emit_system(&mut self, emit: bool);
     /// 解除 hook、關閉連線。
@@ -103,6 +107,9 @@ impl ChatSource for WizChatReader {
     }
     fn input_box_screen_rect(&mut self) -> Option<(i32, i32, i32, i32)> {
         WizChatReader::input_box_screen_rect(self)
+    }
+    fn input_diagnostics(&mut self) -> String {
+        WizChatReader::input_diagnostics(self)
     }
     fn set_emit_system(&mut self, emit: bool) {
         self.emit_system = emit;
@@ -174,6 +181,7 @@ pub fn reader_loop<R: ChatSource>(
         reader,
         contexts,
         input_open: false,
+        input_changed_at: None,
         game_issue: None,
         reported_tabs: None,
         tabs_polled_at: None,
@@ -191,6 +199,8 @@ struct ClientLoop<R: ChatSource> {
     reader: R,
     contexts: Arc<ClientContexts>,
     input_open: bool,
+    /// 上次偵測到輸入框開或關的時刻。
+    input_changed_at: Option<Instant>,
     /// 遊戲端問題的橫幅文案 key（`None`＝遊戲正常）。
     game_issue: Option<&'static str>,
     reported_tabs: Option<TabState>,
@@ -224,6 +234,7 @@ impl<R: ChatSource> ClientLoop<R> {
             };
             self.sync_tabs();
             for event in events {
+                self.note_undetected_send(&event);
                 self.dispatch(event);
             }
             self.report_activity();
@@ -383,6 +394,7 @@ impl<R: ChatSource> ClientLoop<R> {
             return;
         }
         self.input_open = now_open;
+        self.input_changed_at = Some((self.env.clock.now)());
         if now_open {
             let rect = self.reader.input_box_screen_rect();
             let anchor = match rect {
@@ -400,6 +412,30 @@ impl<R: ChatSource> ClientLoop<R> {
         } else {
             self.log_input_closed();
         }
+    }
+
+    /// 自己的訊息出現、近期卻沒偵測到聊天框開關：記下輸入框節點狀態，追查輸入框沒跳出、原文直接送出的情況。
+    fn note_undetected_send(&mut self, event: &ChatEvent) {
+        if !event.line.own || event.line.system || self.input_open {
+            return;
+        }
+        let now = (self.env.clock.now)();
+        let ago = self
+            .input_changed_at
+            .map(|at| now.saturating_duration_since(at));
+        if ago.is_some_and(|ago| ago < INPUT_SEEN_WINDOW) {
+            return;
+        }
+        let ago = ago.map_or("never".to_owned(), |ago| {
+            format!("{:.1}s ago", ago.as_secs_f32())
+        });
+        let diagnostics = self.reader.input_diagnostics();
+        log(format!(
+            "[reader] own message without a detected game chat input (slot={}, tabs={:?}, last_input_change={ago}, chars={}): {diagnostics}",
+            self.slot,
+            event.tabs,
+            event.line.text.chars().count()
+        ));
     }
 
     /// 遊戲斷線＝輸入框已不存在：開著就同步收回。

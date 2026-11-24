@@ -113,6 +113,11 @@ impl InputBox {
         self.open
     }
 
+    /// 輸入欄目前的字數。
+    pub fn text_chars(&self) -> usize {
+        self.text.chars().count()
+    }
+
     /// 呼出當下記住的前景遊戲視窗（譯文要打回去的那個）；未呼出過為 0。
     pub fn target_hwnd(&self) -> isize {
         self.target
