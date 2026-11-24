@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockGuard, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::local::LocalSettings;
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
@@ -659,14 +659,22 @@ async fn mount_repo(hf: &MockServer, files: &[(&str, Vec<u8>)]) {
 }
 
 /// 下一次下載 `name` 時回應延遲很久，讓測試能在下載途中動作。
-async fn stall_next_download(hf: &MockServer, name: &str) {
+async fn stall_next_download(hf: &MockServer, name: &str) -> MockGuard {
     Mock::given(method("GET"))
         .and(path(format!("/{REPO}/resolve/main/{name}")))
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(60)))
         .up_to_n_times(1)
+        .expect(1)
         .with_priority(1)
-        .mount(hf)
-        .await;
+        .mount_as_scoped(hf)
+        .await
+}
+
+/// 等卡住的請求真的送到伺服器；`.part` 在請求之前就建好，只看它會太早取消。
+async fn wait_for_stalled_request(stall: &MockGuard) {
+    tokio::time::timeout(Duration::from_secs(10), stall.wait_until_satisfied())
+        .await
+        .expect("timed out waiting for the download request");
 }
 
 async fn query(f: &Fixture) -> RepoInfo {
@@ -721,11 +729,10 @@ async fn cancel_pauses_and_resume_completes() {
     let f = fixture(|root| drop(add_engine(root, "b11871")), |_| false).await;
     mount_repo(&f.hf, &[("model-Q4_K_M.gguf", tiny_gguf())]).await;
     query(&f).await;
-    stall_next_download(&f.hf, "model-Q4_K_M.gguf").await;
+    let stall = stall_next_download(&f.hf, "model-Q4_K_M.gguf").await;
     let id = store::model_id(REPO, "Q4_K_M");
     f.local.command(download(0));
-    let part = model_dir(&f, &id).join("model-Q4_K_M.gguf.part");
-    wait_for("download started", || part.exists()).await;
+    wait_for_stalled_request(&stall).await;
     f.local.command(Command::CancelDownload(id.clone()));
     wait_for("paused", || {
         matches!(
@@ -866,12 +873,11 @@ async fn delete_during_download_removes_the_folder() {
     let f = fixture(|root| drop(add_engine(root, "b11871")), |_| false).await;
     mount_repo(&f.hf, &[("model-Q4_K_M.gguf", tiny_gguf())]).await;
     query(&f).await;
-    stall_next_download(&f.hf, "model-Q4_K_M.gguf").await;
+    let stall = stall_next_download(&f.hf, "model-Q4_K_M.gguf").await;
     let id = store::model_id(REPO, "Q4_K_M");
     f.local.command(download(0));
     let dir = model_dir(&f, &id);
-    let part = dir.join("model-Q4_K_M.gguf.part");
-    wait_for("download started", || part.exists()).await;
+    wait_for_stalled_request(&stall).await;
     f.local.command(Command::Delete(id.clone()));
     wait_for("folder removed", || !dir.exists()).await;
     wait_for("state cleared", || {
