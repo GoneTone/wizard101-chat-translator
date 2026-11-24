@@ -215,7 +215,7 @@ pub fn recognize_with(
     Ok(lines.join("\n"))
 }
 
-/// rten 推論執行緒數：使用者設了 `RTEN_NUM_THREADS` 就不動（回 None），否則用一半的實體核心。
+/// OCR 推論執行緒數：使用者自己設了執行緒數就不動（回 None），否則用一半的實體核心。
 pub fn inference_threads(user_set: bool, physical_cores: usize) -> Option<usize> {
     (!user_set).then_some((physical_cores / 2).max(1))
 }

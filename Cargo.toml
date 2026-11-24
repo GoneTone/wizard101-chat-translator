@@ -33,7 +33,7 @@ regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "json", "system-proxy", "http2"] }
 rfd = "0.18.0"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
-rusto-rs = "0.3.1"
+rusto-rs = "0.4.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 sha1 = "0.11.0"
@@ -58,15 +58,9 @@ wizard101-chat-translator = { path = ".", features = ["test-support"] }
 embed-resource = "3.0.12"
 
 # 推論在未最佳化的 debug 建置下一張圖要十幾秒，測試與開發時跑不動。
-[profile.dev.package.rten]
+[profile.dev.package.rusto-nn]
 opt-level = 3
-[profile.dev.package.rten-gemm]
-opt-level = 3
-[profile.dev.package.rten-simd]
-opt-level = 3
-[profile.dev.package.rten-vecmath]
-opt-level = 3
-[profile.dev.package.rten-tensor]
+[profile.dev.package.rusto-core]
 opt-level = 3
 [profile.dev.package.rusto-rs]
 opt-level = 3
