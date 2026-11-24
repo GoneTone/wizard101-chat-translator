@@ -49,18 +49,23 @@ use wizard101_chat_translator::ui::update_host::UpdateHost;
 use wizard101_chat_translator::ui::win32::cursor_pos;
 use wizard101_chat_translator::util::{Clock, read, sweep_stale_temps, write};
 
+/// rusto-nn 依序讀的執行緒數環境變數；使用者設了任一個就不覆寫。
+const OCR_THREAD_VARS: [&str; 2] = ["RUSTO_NUM_THREADS", "RAYON_NUM_THREADS"];
+
 /// 更新後重啟時等舊程序放掉單一實例鎖的上限。
 const AFTER_UPDATE_WAIT: Duration = Duration::from_secs(10);
 
 fn main() {
-    // rten 預設用滿實體核心、框選 OCR 時與遊戲搶 CPU；它只在第一次建立執行緒池時讀這個變數
+    // OCR 執行緒數固定為一半實體核心，不跟套件預設：太多會與遊戲搶 CPU；rusto-nn 只在第一次建立執行緒池時讀這個變數
     let ocr_threads = ocr::inference_threads(
-        std::env::var_os("RTEN_NUM_THREADS").is_some(),
+        OCR_THREAD_VARS
+            .iter()
+            .any(|var| std::env::var_os(var).is_some()),
         num_cpus::get_physical(),
     );
     if let Some(threads) = ocr_threads {
         // SAFETY: 還沒建立任何執行緒，沒有人同時讀寫環境變數
-        unsafe { std::env::set_var("RTEN_NUM_THREADS", threads.to_string()) };
+        unsafe { std::env::set_var(OCR_THREAD_VARS[0], threads.to_string()) };
     }
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
     let after_update = std::env::args().any(|arg| arg == AFTER_UPDATE_ARG);
@@ -97,9 +102,13 @@ fn main() {
     logs::forward_library_logs();
     // 版本先印：app.log 分段標頭後第一行就是版本
     log(format!("[app] version={}", env!("CARGO_PKG_VERSION")));
+    let thread_vars: Vec<String> = OCR_THREAD_VARS
+        .iter()
+        .map(|var| format!("{var}={}", std::env::var(var).unwrap_or_default()))
+        .collect();
     log(format!(
-        "[region] OCR inference threads: RTEN_NUM_THREADS={} ({})",
-        std::env::var("RTEN_NUM_THREADS").unwrap_or_default(),
+        "[region] OCR inference threads: {} ({})",
+        thread_vars.join(" "),
         if ocr_threads.is_some() {
             "default, half the physical cores"
         } else {
