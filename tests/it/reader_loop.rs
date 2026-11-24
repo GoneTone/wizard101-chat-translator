@@ -172,6 +172,10 @@ impl ChatSource for FakeReader {
         self.input_rect
     }
 
+    fn input_diagnostics(&mut self) -> String {
+        "fake diagnostics".to_owned()
+    }
+
     fn set_emit_system(&mut self, emit: bool) {
         self.emit_system = emit;
     }
@@ -734,6 +738,33 @@ fn game_input_edges_are_logged_once_per_change() {
     assert_eq!(
         log_lines_with("[reader] game chat input closed (slot=17, hwnd=0xabc)").len(),
         1
+    );
+}
+
+fn own(text: &str) -> ChatEvent {
+    let mut event = ev(text);
+    event.line.own = true;
+    event
+}
+
+#[test]
+fn own_message_without_a_detected_chat_input_is_logged_with_diagnostics() {
+    let mut s = Setup::new();
+    s.slot = 29;
+    let mut reader = s.reader(vec![
+        Read::Lines(vec![own("[me] typed raw")]),
+        lines(&[]),
+        Read::Lines(vec![own("[me] sent through the box")]),
+        lines(&[]),
+    ]);
+    reader.inputs = vec![false, true, false, false];
+    s.run_reader(reader);
+    let logged = log_lines_with("[reader] own message without a detected game chat input (slot=29");
+    assert_eq!(logged.len(), 1, "{logged:?}");
+    assert!(
+        logged[0].ends_with("tabs=[0], last_input_change=never, chars=14): fake diagnostics"),
+        "{}",
+        logged[0]
     );
 }
 

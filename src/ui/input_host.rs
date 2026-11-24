@@ -10,6 +10,7 @@ use eframe::egui::{
 
 use crate::config::py::truthy;
 use crate::config::{Config, app_name};
+use crate::game::process;
 use crate::input::dispatch::{GameInputEvents, InputBoxControl};
 use crate::logs::log;
 use crate::ui::events::UiEvent;
@@ -70,6 +71,10 @@ pub struct InputHost {
     content_dip: f32,
     /// 開始等觸發鍵放開的時間；沒在等是 `None`。
     release_wait: Option<Instant>,
+    /// 上一幀輸入框視窗是否有鍵盤焦點；還不知道是 `None`。
+    focused: Option<bool>,
+    /// 這次開窗期間失去過焦點。
+    focus_lost: bool,
 }
 
 impl InputHost {
@@ -87,6 +92,8 @@ impl InputHost {
             above: false,
             content_dip: 0.0,
             release_wait: None,
+            focused: None,
+            focus_lost: false,
         }
     }
 
@@ -116,6 +123,16 @@ impl InputHost {
                 self.events.opened(hwnd, anchor, auto_show, &mut self.input);
             }
             UiEvent::GameInputClosed { hwnd } => {
+                if self.input.is_open() {
+                    // 追查輸入框開著、字卻打進遊戲聊天框直接送出的情況
+                    log(format!(
+                        "[input] game chat closed while the box was open (game_hwnd={hwnd:#x}, box_hwnd={:#x}, box_focused={:?}, box_chars={}, foreground={:#x})",
+                        self.hwnd,
+                        self.focused,
+                        self.input.text_chars(),
+                        process::foreground_window()
+                    ));
+                }
                 let auto_show = self.auto_show();
                 self.events.closed(hwnd, auto_show, &mut self.input);
             }
@@ -136,6 +153,7 @@ impl InputHost {
             // shortcut: 同一輪 logic 先關後開時沿用原視窗與位置（Python 會重建、重新貼齊）；實機遇到再改成關閉就換新的 viewport id
             (self.hwnd, self.created, self.shown, self.raise) = (0, false, false, false);
             self.release_wait = None;
+            (self.focused, self.focus_lost) = (None, false);
             if let Some(target) = self.input.take_restore_foreground() {
                 (self.desktop.force_foreground)(target);
             }
@@ -163,16 +181,18 @@ impl InputHost {
         let mut before = viewport::windows_before(self.hwnd);
         let input = &mut self.input;
         let id = ViewportId::from_hash_of("input_box");
-        let Some((height, ppp)) =
+        let Some((height, ppp, focused)) =
             viewport::show_immediate(ctx, id, "input box", builder, &mut before, |ui, _| {
                 if reveal {
                     ui.ctx().send_viewport_cmd(ViewportCommand::Visible(true));
                 }
-                (content(ui, input), ui.ctx().pixels_per_point())
+                let focused = ui.ctx().input(|i| i.viewport().focused);
+                (content(ui, input), ui.ctx().pixels_per_point(), focused)
             })
         else {
             return;
         };
+        self.log_focus_change(focused);
         self.created = true;
         self.shown |= reveal;
         if !self.input.is_open() {
@@ -205,6 +225,24 @@ impl InputHost {
             }
             self.raise = false;
         }
+    }
+
+    /// 開著的輸入框焦點變化依 [`focus_change`] 記一筆。
+    ///
+    /// 不附前景視窗：焦點切換的當下 Windows 回報的前景是 0（實機確認）。
+    fn log_focus_change(&mut self, focused: Option<bool>) {
+        let Some(now) = focused else {
+            return;
+        };
+        let prev = self.focused.replace(now);
+        let Some(change) = focus_change(prev, now, self.focus_lost) else {
+            return;
+        };
+        self.focus_lost |= !now;
+        log(format!(
+            "[input] box {change} keyboard focus (box_hwnd={:#x})",
+            self.hwnd
+        ));
     }
 
     /// 拿掉系統外框、工作列按鈕與開關動畫，依內容高度（DIP）貼齊錨點或游標。
@@ -271,6 +309,15 @@ fn drag_strip(ui: &mut egui::Ui, bar: egui::Rect) -> bool {
         close
     })
     .inner
+}
+
+/// 焦點從 `prev` 變成 `now` 要記成什麼：失去，或失去過之後再拿回；剛開窗第一次拿到焦點不記。
+fn focus_change(prev: Option<bool>, now: bool, lost_before: bool) -> Option<&'static str> {
+    match (prev, now) {
+        (Some(true), false) => Some("lost"),
+        (Some(false), true) if lost_before => Some("regained"),
+        _ => None,
+    }
 }
 
 /// 要顯示或搶前景（`pending`）時，熱鍵吞掉的觸發鍵還按著就先等，最多等 [`RELEASE_WAIT`]；回 true 表示這幀先別動。
@@ -385,6 +432,15 @@ mod tests {
             height
         };
         assert!(height_at(460.0) > height_at(1400.0), "the hint must wrap");
+    }
+
+    #[test]
+    fn focus_change_skips_the_first_gain_and_logs_losses_and_regains() {
+        assert_eq!(focus_change(None, false, false), None);
+        assert_eq!(focus_change(Some(false), true, false), None, "first gain");
+        assert_eq!(focus_change(Some(true), true, false), None);
+        assert_eq!(focus_change(Some(true), false, false), Some("lost"));
+        assert_eq!(focus_change(Some(false), true, true), Some("regained"));
     }
 
     #[test]

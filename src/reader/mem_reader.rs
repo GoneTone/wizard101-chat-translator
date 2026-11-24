@@ -184,6 +184,10 @@ pub struct WizChatReader {
     edit_node: Option<Window>,
     /// 上次搜不到輸入框的時刻：`INPUT_RECHECK` 內不重搜。
     edit_missing_at: Option<Instant>,
+    /// 上次記下的輸入框搜尋結果：結果沒變就不重記。
+    edit_logged: Option<String>,
+    /// 輸入框旗標讀取失敗已記過：讀成功前不重記，免得每次輪詢都灌一行。
+    edit_read_failed: bool,
     last_seq: u64,
     chatbox: Option<u64>,
     /// 上次搜不到（或搜尋失敗）ChatBox 的時刻：分頁輪詢在 `INPUT_RECHECK` 內不重搜（讀取畫面期間）。
@@ -226,6 +230,8 @@ impl WizChatReader {
             last_attach_failure: None,
             edit_node: None,
             edit_missing_at: None,
+            edit_logged: None,
+            edit_read_failed: false,
             last_seq: 0,
             chatbox: None,
             chatbox_missing_at: None,
@@ -539,10 +545,51 @@ impl WizChatReader {
                 .map(|flags| flags & FLAG_VISIBLE != 0),
             None => Ok(false),
         });
-        visible.unwrap_or_else(|_| {
-            self.edit_node = None;
-            false
-        })
+        match visible {
+            Ok(visible) => {
+                self.edit_read_failed = false;
+                visible
+            }
+            Err(err) => {
+                if !std::mem::replace(&mut self.edit_read_failed, true) {
+                    let at = self
+                        .edit_node
+                        .map_or("none".to_owned(), |n| format!("{:#x}", n.addr));
+                    log(format!(
+                        "[reader] game chat input state read failed (slot={}, node={at}): {err}",
+                        self.slot
+                    ));
+                }
+                self.edit_node = None;
+                false
+            }
+        }
+    }
+
+    /// 診斷用：全樹重搜聊天輸入框，列出快取的節點與每個符合節點的可見旗標。
+    pub fn input_diagnostics(&mut self) -> String {
+        if self.attached.is_none() {
+            return "not attached".to_owned();
+        }
+        let cached = self
+            .edit_node
+            .map_or("none".to_owned(), |n| format!("{:#x}", n.addr));
+        let found = self
+            .root()
+            .and_then(|root| find_by_name(self.conn().mem.as_ref(), root, INPUT_CONTAINER));
+        let nodes = match found {
+            Ok(nodes) => nodes,
+            Err(err) => return format!("cached={cached}, search failed: {err}"),
+        };
+        let mem = self.conn().mem.as_ref();
+        let listed: Vec<String> = nodes
+            .iter()
+            .map(|node| match node.flags(mem) {
+                Ok(flags) => format!("{:#x}(visible={})", node.addr, flags & FLAG_VISIBLE != 0),
+                Err(err) => format!("{:#x}(flags unreadable: {err})", node.addr),
+            })
+            .collect();
+        format!("cached={cached}, containers=[{}]", listed.join(", "))
     }
 
     /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取，找不到或搜尋失敗後 `INPUT_RECHECK` 內直接回 None。
@@ -561,6 +608,22 @@ impl WizChatReader {
             self.edit_node = found.as_ref().ok().and_then(|f| f.first().copied());
             // 讀取錯誤也算沒找到：持續讀壞時同樣不必每次輪詢都走整棵樹
             self.edit_missing_at = self.edit_node.is_none().then_some(now);
+            let outcome = match &found {
+                Ok(nodes) if nodes.is_empty() => "not found".to_owned(),
+                Ok(nodes) => {
+                    let addrs: Vec<String> =
+                        nodes.iter().map(|n| format!("{:#x}", n.addr)).collect();
+                    format!("found [{}], watching the first", addrs.join(", "))
+                }
+                Err(err) => format!("search failed: {err}"),
+            };
+            if self.edit_logged.as_ref() != Some(&outcome) {
+                log(format!(
+                    "[reader] game chat input node {outcome} (slot={}, pid={})",
+                    self.slot, self.pid
+                ));
+                self.edit_logged = Some(outcome);
+            }
             found?;
         }
         Ok(self.edit_node)
@@ -844,6 +907,8 @@ impl WizChatReader {
         // 序號與 ChatBox 位址都屬於單一連線：重連後是新的 hook 與緩衝
         self.edit_node = None;
         self.edit_missing_at = None;
+        self.edit_logged = None;
+        self.edit_read_failed = false;
         self.last_seq = 0;
         self.chatbox = None;
         self.chatbox_missing_at = None;
