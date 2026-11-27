@@ -38,7 +38,9 @@ use crate::launcher::Account;
 use crate::launcher::accounts::{set_launch_selection, stored};
 use crate::launcher::install::{detect_installs, installs_with};
 use crate::launcher::launch::LaunchError;
-use crate::launcher::orchestrate::{Failure, LaunchStatus, SystemDeps, launch_accounts};
+use crate::launcher::orchestrate::{
+    Failure, LaunchStatus, StatusSink, SystemDeps, launch_accounts,
+};
 use crate::launcher::running::running_accounts;
 use crate::local::engine::RELEASES_API;
 use crate::local::hf::HF_BASE;
@@ -615,15 +617,9 @@ fn launch(
         })
         .await
         .unwrap_or_default();
-        let status_ui = ui.clone();
         let deps = SystemDeps {
             installs,
-            on_status: Box::new(move |id, status| {
-                status_ui.post(UiEvent::LaunchStatus {
-                    id: id.to_owned(),
-                    status: status.clone(),
-                })
-            }),
+            on_status: status_sink(ui.clone(), Arc::clone(&in_flight)),
         };
         let outcome = AssertUnwindSafe(launch_accounts(&accounts, &deps))
             .catch_unwind()
@@ -677,6 +673,19 @@ fn claim(in_flight: &Mutex<HashSet<String>>, accounts: Vec<Account>) -> Vec<Acco
             fresh
         })
         .collect()
+}
+
+/// 進度送回 UI；帳號一有結果就放掉，同一批其他帳號還在跑時也能重開它。
+fn status_sink(ui: UiPoster, in_flight: Arc<Mutex<HashSet<String>>>) -> StatusSink {
+    Box::new(move |id, status| {
+        if *status != LaunchStatus::LoggingIn {
+            lock(&in_flight).remove(id);
+        }
+        ui.post(UiEvent::LaunchStatus {
+            id: id.to_owned(),
+            status: status.clone(),
+        });
+    })
 }
 
 fn release(in_flight: &Mutex<HashSet<String>>, accounts: &[Account]) {
@@ -1232,6 +1241,40 @@ mod tests {
         assert_eq!(claim(&in_flight, accounts(&["a", "b"])), accounts(&["b"]));
         release(&in_flight, &accounts(&["a"]));
         assert_eq!(claim(&in_flight, accounts(&["a"])), accounts(&["a"]));
+    }
+
+    #[test]
+    fn an_account_is_freed_as_soon_as_it_has_a_result() {
+        let in_flight = Arc::new(Mutex::new(HashSet::new()));
+        claim(&in_flight, accounts(&["a", "b"]));
+        let (ui, rx) = UiPoster::for_test();
+        let sink = status_sink(ui, Arc::clone(&in_flight));
+        sink("a", &LaunchStatus::LoggingIn);
+        assert!(
+            claim(&in_flight, accounts(&["a"])).is_empty(),
+            "still logging in"
+        );
+        let failed = LaunchStatus::Failed(Failure::Password);
+        sink("a", &failed);
+        assert_eq!(claim(&in_flight, accounts(&["a"])), accounts(&["a"]));
+        assert!(
+            claim(&in_flight, accounts(&["b"])).is_empty(),
+            "b untouched"
+        );
+        let posted: Vec<UiEvent> = rx.try_iter().collect();
+        assert_eq!(
+            posted,
+            [
+                UiEvent::LaunchStatus {
+                    id: "a".into(),
+                    status: LaunchStatus::LoggingIn
+                },
+                UiEvent::LaunchStatus {
+                    id: "a".into(),
+                    status: failed
+                },
+            ]
+        );
     }
 
     #[test]
