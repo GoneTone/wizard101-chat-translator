@@ -1,4 +1,4 @@
-//! 「遊戲帳號」分頁：遊戲安裝位置卡、帳號清單（執行中標記、單獨啟動、編輯、刪除）、啟動後自動關窗的開關與底部的 Steam 限制說明。
+//! 「遊戲帳號」分頁：遊戲安裝位置卡、啟動後自動關窗的開關與 Steam 限制等說明，接著是帳號清單（執行中標記、單獨啟動、編輯、刪除）。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -187,6 +187,16 @@ impl AccountsPane {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
             self.location_card(ui, env);
+            // 設定與說明放在清單前，帳號一多也不會被擠到最下面
+            card(ui, |ui| {
+                let label = t("accounts.auto_close", &[]);
+                let hint = t("accounts.auto_close_hint", &[]);
+                setting_row(ui, &label, Some(&hint), |ui| {
+                    toggle(ui, &mut self.auto_close, &label);
+                });
+            });
+            hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
+            hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             ui.add_space(6.0);
             ui.add(Label::new(
                 RichText::new(t("accounts.my_accounts", &[])).font(theme::bold(theme::TEXT_SIZE)),
@@ -203,15 +213,6 @@ impl AccountsPane {
                     .collect();
                 self.dialog = Dialog::Edit(Box::new(AccountDialog::new(new_id(&ids))));
             }
-            card(ui, |ui| {
-                let label = t("accounts.auto_close", &[]);
-                let hint = t("accounts.auto_close_hint", &[]);
-                setting_row(ui, &label, Some(&hint), |ui| {
-                    toggle(ui, &mut self.auto_close, &label);
-                });
-            });
-            hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
-            hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             match action {
                 Some(CardAction::Launch(id)) => {
                     log(format!("[launch] launch requested from settings: {id}"));
