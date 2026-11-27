@@ -4,6 +4,7 @@ use std::process::Command;
 
 use super::AccountKind;
 use super::install::{Install, InstallSource, PROCESS_NAME};
+use super::steam::WIZARD101_APP_ID;
 use crate::logs::log;
 
 const LOGIN_HOST: &str = "login.us.wizard101.com";
@@ -73,12 +74,16 @@ pub fn build_args(
 fn client_command(install: &Install, args: &[String]) -> Command {
     let bin = install.root.join("Bin");
     let mut command = Command::new(bin.join(PROCESS_NAME));
-    // 取 Steam 票據時本程序暫設了這兩個變數，同時開的用戶端不可繼承
-    command
-        .args(args)
-        .current_dir(bin)
-        .env_remove("SteamAppId")
-        .env_remove("SteamGameId");
+    command.args(args).current_dir(bin);
+    for key in ["SteamAppId", "SteamGameId"] {
+        // 帶 -ST 卻沒有這組變數時，用戶端會請 Steam 重開自己並跳出自訂參數確認窗；
+        // 其餘情況不可繼承取票據時本程序暫設的值
+        if args.iter().any(|a| a == "-ST") {
+            command.env(key, WIZARD101_APP_ID);
+        } else {
+            command.env_remove(key);
+        }
+    }
     command
 }
 
@@ -206,6 +211,17 @@ mod tests {
             .collect();
         assert!(removed.contains(&"SteamAppId".to_string()), "{removed:?}");
         assert!(removed.contains(&"SteamGameId".to_string()), "{removed:?}");
+    }
+
+    #[test]
+    fn steam_client_is_told_it_was_started_for_wizard101() {
+        let command = client_command(&install(InstallSource::Steam), &["-ST".into()]);
+        let set: Vec<_> = command
+            .get_envs()
+            .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+            .collect();
+        assert!(set.contains(&("SteamAppId", "799960")), "{set:?}");
+        assert!(set.contains(&("SteamGameId", "799960")), "{set:?}");
     }
 
     #[test]

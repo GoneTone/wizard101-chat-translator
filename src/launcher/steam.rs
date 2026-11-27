@@ -12,7 +12,7 @@ use super::install::{Install, STEAM_API_DLL};
 use crate::game::process::{process_exe_path, process_ids};
 use crate::logs::log;
 
-const WIZARD101_APP_ID: &str = "799960";
+pub(super) const WIZARD101_APP_ID: &str = "799960";
 const TICKET_IDENTITY: &[u8] = b"Wizard101\0";
 /// GetTicketForWebApiResponse_t 的 callback 編號。
 const TICKET_CALLBACK: i32 = 168;
