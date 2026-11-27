@@ -19,10 +19,8 @@ use crate::config::services::new_id;
 use crate::i18n::t;
 use crate::launcher::accounts::{self, Account};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
+use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
-
-/// 重新掃描執行中帳號的間隔（秒）；掃描要列舉程序，不能每幀做。
-const RUNNING_REFRESH_SECS: f64 = 3.0;
 
 enum Dialog {
     Closed,

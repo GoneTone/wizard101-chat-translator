@@ -3,6 +3,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use crate::launcher::orchestrate::LaunchStatus;
 use crate::reader::chat_tabs::TabState;
 use crate::region::capture::CaptureError;
 use crate::region::pipeline::RegionResult;
@@ -88,6 +89,10 @@ pub enum UiEvent {
     LocalChanged,
     /// 本地模型開始載入（`Some(顯示名)`）或載入結束（`None`）。
     LocalLoading(Option<String>),
+    /// 某帳號的開啟進度有變。
+    LaunchStatus { id: String, status: LaunchStatus },
+    /// 重新掃描到的執行中帳號名稱。
+    RunningAccounts(Vec<String>),
     /// 結束程式。
     Quit,
 }

@@ -1,5 +1,6 @@
 //! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）、熱鍵與貼上、套用設定、關閉流程。
 
+use std::collections::HashSet;
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,12 @@ use crate::input::dispatch::{
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
+use crate::launcher::Account;
+use crate::launcher::accounts::{set_launch_selection, stored};
+use crate::launcher::install::{detect_installs, installs_with};
+use crate::launcher::launch::LaunchError;
+use crate::launcher::orchestrate::{Failure, LaunchStatus, SystemDeps, launch_accounts};
+use crate::launcher::running::running_accounts;
 use crate::local::engine::RELEASES_API;
 use crate::local::hf::HF_BASE;
 use crate::local::server::RealLauncher;
@@ -58,6 +65,7 @@ use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
 use crate::ui::input_box::OutgoingRequest;
+use crate::ui::overlay::launch_popup::MenuAction;
 use crate::ui::region::flow::{CaptureKind, RegionCapturer, RegionDesktop, RegionRunner, Shot};
 use crate::ui::region::selector;
 use crate::ui::win32::{cursor_pos, force_foreground, monitor_rect_at};
@@ -96,7 +104,14 @@ pub fn claim_instance<L>(
 
 /// 使用者拖過視窗／泡泡就立刻落地，不等按儲存。
 pub fn save_field(settings: &RwLock<Config>, path: &Path, key: &str, value: Value, ui: &UiPoster) {
-    let saved = set_then_save(settings, key, value, |cfg| save_config(path, cfg));
+    let saved = edit_then_save(
+        settings,
+        key,
+        |cfg| {
+            cfg.insert(key.to_owned(), value);
+        },
+        |cfg| save_config(path, cfg),
+    );
     report_save(ui, saved.is_ok());
 }
 
@@ -109,16 +124,16 @@ pub fn report_save(ui: &UiPoster, saved: bool) {
     });
 }
 
-/// 寫鎖只包住插入：鍵盤 hook 每次 Ctrl+V 都要讀設定，存檔的 I/O 卡住它會被 Windows 拔掉。
-fn set_then_save(
+/// 寫鎖只包住修改：鍵盤 hook 每次 Ctrl+V 都要讀設定，存檔的 I/O 卡住它會被 Windows 拔掉。
+fn edit_then_save(
     settings: &RwLock<Config>,
     key: &str,
-    value: Value,
+    edit: impl FnOnce(&mut Config),
     save: impl FnOnce(&Config) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     let cfg = {
         let mut cfg = write(settings);
-        cfg.insert(key.to_owned(), value);
+        edit(&mut cfg);
         cfg.clone()
     };
     save(&cfg).inspect_err(|e| log(format!("[config] could not save {key} to config.json: {e}")))
@@ -536,6 +551,145 @@ pub fn outgoing_translate(
             });
         });
     })
+}
+
+/// 一鍵開啟的回呼（交給 [`crate::ui::app::App::set_on_launch`]）：勾選變動存進 `path`，開啟在 `rt` 上跑、進度以 `UiEvent::LaunchStatus` 送回。
+pub fn launch_actions(
+    settings: Arc<RwLock<Config>>,
+    path: PathBuf,
+    rt: Handle,
+    ui: UiPoster,
+) -> impl FnMut(MenuAction) {
+    let in_flight = Arc::new(Mutex::new(HashSet::new()));
+    move |action| match action {
+        MenuAction::SelectionChanged(ids) => {
+            let saved = edit_then_save(
+                &settings,
+                "launch_selection",
+                |cfg| set_launch_selection(cfg, &ids),
+                |cfg| save_config(&path, cfg),
+            );
+            report_save(&ui, saved.is_ok());
+        }
+        MenuAction::Launch(ids) => launch(&settings, &rt, &ui, &in_flight, &ids),
+        // App 自己開設定視窗
+        MenuAction::OpenSettings => {}
+    }
+}
+
+fn launch(
+    settings: &RwLock<Config>,
+    rt: &Handle,
+    ui: &UiPoster,
+    in_flight: &Arc<Mutex<HashSet<String>>>,
+    ids: &[String],
+) {
+    let (known, game_path) = {
+        let cfg = read(settings);
+        let game_path = cfg
+            .get("game_path")
+            .and_then(Value::as_str)
+            .map(PathBuf::from);
+        (stored(&cfg), game_path)
+    };
+    let mut accounts = Vec::new();
+    for id in ids {
+        match known.iter().find(|a| a.id == *id) {
+            Some(account) => accounts.push(account.clone()),
+            None => log(format!("[launch] unknown account id {id}; skipped")),
+        }
+    }
+    let accounts = claim(in_flight, accounts);
+    if accounts.is_empty() {
+        return;
+    }
+    log(format!(
+        "[launch] launch requested: accounts={}",
+        accounts.len()
+    ));
+    let (in_flight, ui, handle) = (Arc::clone(in_flight), ui.clone(), rt.clone());
+    rt.spawn(async move {
+        // 偵測要探測各磁碟，不能卡住非同步執行緒
+        let installs = tokio::task::spawn_blocking(move || {
+            installs_with(detect_installs(), game_path.as_deref())
+        })
+        .await
+        .unwrap_or_default();
+        let status_ui = ui.clone();
+        let deps = SystemDeps {
+            installs,
+            on_status: Box::new(move |id, status| {
+                status_ui.post(UiEvent::LaunchStatus {
+                    id: id.to_owned(),
+                    status: status.clone(),
+                })
+            }),
+        };
+        let outcome = AssertUnwindSafe(launch_accounts(&accounts, &deps))
+            .catch_unwind()
+            .await;
+        release(&in_flight, &accounts);
+        match outcome {
+            Ok(results) => {
+                let count =
+                    |f: fn(&LaunchStatus) -> bool| results.iter().filter(|(_, s)| f(s)).count();
+                log(format!(
+                    "[launch] launch finished: opened={} already_running={} failed={}",
+                    count(|s| *s == LaunchStatus::Opened),
+                    count(|s| *s == LaunchStatus::SkippedRunning),
+                    count(|s| matches!(s, LaunchStatus::Failed(_)))
+                ));
+            }
+            Err(panic) => {
+                let message = panic_message(panic.as_ref());
+                log(format!(
+                    "[launch] launch panicked (accounts={}): {message}",
+                    accounts.len()
+                ));
+                // 不送結果的話這些帳號會一直停在登入中、勾不回來
+                for account in &accounts {
+                    ui.post(UiEvent::LaunchStatus {
+                        id: account.id.clone(),
+                        status: LaunchStatus::Failed(Failure::Launch(LaunchError::Spawn(
+                            message.clone(),
+                        ))),
+                    });
+                }
+            }
+        }
+        scan_running(&handle, &ui);
+    });
+}
+
+/// 排除已在開啟中的帳號、其餘標成開啟中；設定頁的〔開啟〕不經選單，重複開啟靠這裡擋。
+fn claim(in_flight: &Mutex<HashSet<String>>, accounts: Vec<Account>) -> Vec<Account> {
+    let mut busy = lock(in_flight);
+    accounts
+        .into_iter()
+        .filter(|account| {
+            let fresh = busy.insert(account.id.clone());
+            if !fresh {
+                log(format!(
+                    "[launch] account {} is already launching; skipped",
+                    account.id
+                ));
+            }
+            fresh
+        })
+        .collect()
+}
+
+fn release(in_flight: &Mutex<HashSet<String>>, accounts: &[Account]) {
+    let mut busy = lock(in_flight);
+    for account in accounts {
+        busy.remove(&account.id);
+    }
+}
+
+/// 在背景掃描執行中的帳號，結果以 `UiEvent::RunningAccounts` 送回。
+pub fn scan_running(rt: &Handle, ui: &UiPoster) {
+    let ui = ui.clone();
+    rt.spawn_blocking(move || ui.post(UiEvent::RunningAccounts(running_accounts())));
 }
 
 static CONSOLE_QUIT: OnceLock<UiPoster> = OnceLock::new();
@@ -1060,14 +1214,41 @@ mod tests {
         );
     }
 
+    fn accounts(ids: &[&str]) -> Vec<Account> {
+        ids.iter()
+            .map(|&id| Account {
+                id: id.into(),
+                name: id.into(),
+                kind: crate::launcher::AccountKind::Official,
+                password_dpapi: String::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_account_already_launching_is_not_claimed_again() {
+        let in_flight = Mutex::new(HashSet::new());
+        assert_eq!(claim(&in_flight, accounts(&["a"])), accounts(&["a"]));
+        assert_eq!(claim(&in_flight, accounts(&["a", "b"])), accounts(&["b"]));
+        release(&in_flight, &accounts(&["a"]));
+        assert_eq!(claim(&in_flight, accounts(&["a"])), accounts(&["a"]));
+    }
+
     #[test]
     fn save_field_releases_the_settings_lock_before_saving() {
         let settings = RwLock::new(Config::new());
-        let saved = set_then_save(&settings, "k", Value::from(1), |cfg| {
-            assert!(settings.try_write().is_ok(), "lock held during save");
-            assert_eq!(cfg["k"], 1);
-            Ok(())
-        });
+        let saved = edit_then_save(
+            &settings,
+            "k",
+            |cfg| {
+                cfg.insert("k".into(), Value::from(1));
+            },
+            |cfg| {
+                assert!(settings.try_write().is_ok(), "lock held during save");
+                assert_eq!(cfg["k"], 1);
+                Ok(())
+            },
+        );
         assert!(saved.is_ok());
         assert_eq!(read(&settings)["k"], 1);
     }

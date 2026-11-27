@@ -1,6 +1,6 @@
 //! overlay 的開啟遊戲入口：等待遊戲時的中央按鈕、標題列 ▶ 與兩者共用的帳號勾選選單。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use eframe::egui::accesskit::Role;
@@ -14,7 +14,7 @@ use wizard101_chat_translator::launcher::login::LoginError;
 use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::ui::app::{App, channel};
-use wizard101_chat_translator::ui::events::UiEvent;
+use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::overlay::frame::{BAR_HEIGHT, Frame};
 use wizard101_chat_translator::ui::overlay::launch_popup::MenuAction;
@@ -50,6 +50,18 @@ fn overlay(
     selection: &[&str],
     running: &[&str],
 ) -> (Harness<'static, App>, Actions) {
+    let (h, actions, _) = overlay_with_poster(size, status, accounts, selection, running);
+    (h, actions)
+}
+
+/// 同 [`overlay`]，另回傳 UI 事件的投遞端。
+fn overlay_with_poster(
+    size: Vec2,
+    status: &'static str,
+    accounts: Vec<Account>,
+    selection: &[&str],
+    running: &[&str],
+) -> (Harness<'static, App>, Actions, UiPoster) {
     let (poster, inbox) = channel();
     poster.post(UiEvent::SetStatus(status));
     let actions = Actions::default();
@@ -65,7 +77,7 @@ fn overlay(
         app
     });
     h.run_steps(3);
-    (h, actions)
+    (h, actions, poster)
 }
 
 fn click(h: &mut Harness<App>, role: Role, label: &str) {
@@ -281,4 +293,38 @@ fn no_accounts_points_to_the_settings_page() {
     click(&mut h, Role::Button, &tr("launch.open_settings"));
     assert!(actions.borrow().is_empty(), "the app opens settings itself");
     assert!(h.query_by_label(&tr("launch.no_accounts")).is_none());
+}
+
+#[test]
+fn launch_progress_and_running_scans_reach_the_menu() {
+    let (mut h, _, poster) = overlay_with_poster(big(), "waiting_game", three(), &["a"], &[]);
+    poster.post(UiEvent::LaunchStatus {
+        id: "a".into(),
+        status: LaunchStatus::Opened,
+    });
+    poster.post(UiEvent::RunningAccounts(ids(&["carol"])));
+    click(&mut h, Role::Button, &center_button());
+    h.get_by_label(&tr("launch.opened"));
+    let carol = h.get_by_role_and_label(Role::CheckBox, "Carol");
+    assert!(carol.accesskit_node().is_disabled(), "Carol is running");
+}
+
+#[test]
+fn the_open_menu_rescans_running_accounts_every_few_seconds_not_every_frame() {
+    let (mut h, _) = overlay(big(), "waiting_game", three(), &[], &[]);
+    let scans = Rc::new(Cell::new(0));
+    let counter = Rc::clone(&scans);
+    h.state_mut()
+        .set_on_scan_running(move || counter.set(counter.get() + 1));
+    h.run_steps(5);
+    assert_eq!(scans.get(), 0, "a closed menu does not scan");
+    // kittest 每步前進 0.25 秒
+    click(&mut h, Role::Button, &center_button());
+    h.run_steps(4);
+    assert_eq!(scans.get(), 1, "one scan on open");
+    h.run_steps(8);
+    assert_eq!(scans.get(), 2, "another after the interval");
+    click(&mut h, Role::Button, &center_button());
+    click(&mut h, Role::Button, &center_button());
+    assert_eq!(scans.get(), 3, "reopening scans again");
 }

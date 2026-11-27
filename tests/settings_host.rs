@@ -338,6 +338,24 @@ fn gear_opens_settings_and_save_applies_to_the_overlay() {
 }
 
 #[test]
+fn saving_reloads_the_launch_menu_from_the_shared_config() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let mut cfg = settings_cfg();
+    cfg.insert(
+        "accounts".into(),
+        json!([{"id": "a", "name": "Alice", "kind": "official", "password_dpapi": ""}]),
+    );
+    cfg.insert("launch_selection".into(), json!(["a"]));
+    let (mut h, _wired) = settings_app(cfg);
+    open_settings(&mut h);
+    click(&mut h, Role::Button, &tr("button.save"));
+    click(&mut h, Role::Button, "▶");
+    h.get_by_role_and_label(Role::CheckBox, "Alice");
+    h.get_by_role_and_label(Role::Button, &t("launch.open_count", &[("count", "1")]));
+}
+
+#[test]
 fn save_without_a_registered_region_hotkey_shows_the_saved_one() {
     let _lock = language_lock();
     i18n::set_language("en-US");

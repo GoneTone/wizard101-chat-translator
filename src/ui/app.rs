@@ -4,7 +4,7 @@ use std::io;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, OpenUrl, UiBuilder, ViewportCommand, ViewportId, WindowLevel};
 
@@ -14,6 +14,8 @@ use crate::config::py::py_bool;
 use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
+use crate::launcher::accounts::{launch_selection, stored};
+use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
 use crate::runtime::self_update::{replace_exe, request_relaunch};
 use crate::runtime::updater::Release;
@@ -132,6 +134,9 @@ pub struct App {
     overlay_level: WindowLevel,
     launch_menu: LaunchMenu,
     on_launch: Box<dyn FnMut(MenuAction)>,
+    on_scan_running: Box<dyn FnMut()>,
+    /// 選單開著期間上次要求掃描執行中帳號的時間；選單關著時是 `None`。
+    running_scanned_at: Option<f64>,
 }
 
 impl App {
@@ -180,6 +185,8 @@ impl App {
             on_launch: Box::new(|action| {
                 log(format!("[launch] launch action not wired yet: {action:?}"))
             }),
+            on_scan_running: Box::new(|| {}),
+            running_scanned_at: None,
         }
     }
 
@@ -388,6 +395,42 @@ impl App {
     /// 接上一鍵開啟：overlay 選單與設定頁的「開啟」、勾選變動都交給 `on_launch`（「開啟設定」由 App 自己處理）。
     pub fn set_on_launch(&mut self, on_launch: impl FnMut(MenuAction) + 'static) {
         self.on_launch = Box::new(on_launch);
+    }
+
+    /// 接上執行中帳號的掃描：選單打開時與開著期間每隔幾秒呼叫，結果經 `UiEvent::RunningAccounts` 送回。
+    pub fn set_on_scan_running(&mut self, scan: impl FnMut() + 'static) {
+        self.on_scan_running = Box::new(scan);
+    }
+
+    /// 從設定換上開啟選單的帳號清單與上次的勾選。
+    pub fn load_accounts(&mut self, cfg: &Config) {
+        self.launch_menu
+            .set_accounts(stored(cfg), &launch_selection(cfg));
+    }
+
+    /// 存檔後選單跟上共用設定：儲存動作只帶視窗管的鍵，不含勾選。
+    fn reload_accounts(&mut self) {
+        if let Some(wiring) = &self.settings {
+            let cfg = read(&wiring.cfg).clone();
+            self.load_accounts(&cfg);
+        }
+    }
+
+    /// 選單開著時讓執行中名單保持新鮮：打開當下掃一次，之後每隔幾秒一次。
+    fn scan_running_while_open(&mut self, ctx: &egui::Context) {
+        if !self.launch_menu.is_open() {
+            self.running_scanned_at = None;
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        if self
+            .running_scanned_at
+            .is_none_or(|at| now - at >= RUNNING_REFRESH_SECS)
+        {
+            (self.on_scan_running)();
+            self.running_scanned_at = Some(now);
+        }
+        ctx.request_repaint_after(Duration::from_secs_f64(RUNNING_REFRESH_SECS));
     }
 
     /// 錯誤與更新橫幅（更新檢查經 `offer_update` 提示新版）。
@@ -604,6 +647,8 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
+            UiEvent::LaunchStatus { id, status } => self.launch_menu.set_launch_status(&id, status),
+            UiEvent::RunningAccounts(names) => self.launch_menu.set_running(names),
             UiEvent::LocalLoading(model) => {
                 self.banners.set_local_loading(model);
                 ctx.request_repaint();
@@ -728,12 +773,14 @@ impl App {
                 };
                 let region_hotkey = (wiring.on_save)(cfg.clone());
                 self.apply_settings(ctx, &cfg, region_hotkey);
+                self.reload_accounts();
                 self.close_settings();
             }
             SettingsAction::Commit(cfg) => {
                 if let Some(wiring) = &mut self.settings {
                     (wiring.on_save)(cfg);
                 }
+                self.reload_accounts();
             }
             SettingsAction::LaunchAccounts(ids) => (self.on_launch)(MenuAction::Launch(ids)),
             SettingsAction::Cancel => {
@@ -856,6 +903,7 @@ impl App {
             Some(action) => (self.on_launch)(action),
             None => {}
         }
+        self.scan_running_while_open(&ctx);
         if self.banners.take_update_click() {
             self.open_update(&ctx);
         }

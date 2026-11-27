@@ -11,6 +11,9 @@ use crate::game::process::{
 use crate::logs::log;
 use crate::util::lock;
 
+/// 介面開著時重新掃描執行中帳號的間隔（秒）；掃描要列舉程序，不能每幀做。
+pub const RUNNING_REFRESH_SECS: f64 = 3.0;
+
 /// 依用戶端的切法拆命令列。
 fn split_args(cmdline: &str) -> Vec<String> {
     // 空字串會被 CommandLineToArgvW 換成本程式路徑
