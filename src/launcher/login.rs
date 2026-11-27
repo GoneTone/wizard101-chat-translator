@@ -53,7 +53,7 @@ pub struct LoginOutcome {
 }
 
 /// 登入失敗；訊息不含帳密、ck2 或票據。
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoginError {
     /// 連不上或連線中斷、逾時。
     Connect(String),
