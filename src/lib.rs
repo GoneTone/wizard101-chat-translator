@@ -7,6 +7,7 @@ pub mod game;
 pub mod glossary;
 pub mod i18n;
 pub mod input;
+pub mod launcher;
 pub mod local;
 pub mod logs;
 pub mod net;
