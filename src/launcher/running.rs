@@ -1,5 +1,7 @@
 //! 執行中帳號偵測：讀遊戲程序的命令列，取出 `-U` 末段的帳號名。
 
+use std::sync::Mutex;
+
 use windows_sys::Win32::Foundation::LocalFree;
 use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
 
@@ -7,6 +9,7 @@ use crate::game::process::{
     is_game_process_path, process_command_line, process_exe_path, process_ids,
 };
 use crate::logs::log;
+use crate::util::lock;
 
 /// 依用戶端的切法拆命令列。
 fn split_args(cmdline: &str) -> Vec<String> {
@@ -49,10 +52,16 @@ pub fn running_accounts() -> Vec<String> {
         .filter(|&pid| process_exe_path(pid).is_some_and(|p| is_game_process_path(&p)))
         .filter_map(|pid| account_in_command_line(&process_command_line(pid)?))
         .collect();
-    log(format!(
-        "[launch] {} running account(s): {names:?}",
-        names.len()
-    ));
+    // 設定頁會定時輪詢，只在清單變動時記錄
+    static LAST: Mutex<Option<Vec<String>>> = Mutex::new(None);
+    let mut last = lock(&LAST);
+    if last.as_ref() != Some(&names) {
+        log(format!(
+            "[launch] {} running account(s): {names:?}",
+            names.len()
+        ));
+        *last = Some(names.clone());
+    }
     names
 }
 
