@@ -3,6 +3,7 @@
 use eframe::egui::{Color32, Rect, Ui, Vec2};
 
 use crate::ui::palette::OUTLINE;
+use crate::ui::text_select::on_own_layer;
 
 /// 捲軸寬度（DIP）。
 pub const WIDTH: f32 = 8.0;
@@ -71,7 +72,7 @@ impl Scrollbar {
         let pos = pos?;
         let y = f64::from(pos.y - track.min.y);
         let shown = thumb_span(self.view.0, self.view.1, height as i32, MIN_THUMB).is_some();
-        if pressed && shown && track.contains(pos) {
+        if pressed && shown && track.contains(pos) && on_own_layer(ui, pos) {
             self.grab = Some(y / height.max(1.0) - self.view.0);
         }
         self.grab.map(|grab| scroll_fraction(y, grab, height))

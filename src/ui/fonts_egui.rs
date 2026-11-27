@@ -30,7 +30,7 @@ const EMOJI_FILE: &str = "seguiemj.ttf";
 const EMOJI_SCALE: f32 = 0.9;
 /// emoji 下移的比例（乘字級）：egui 混用字型時按行高置中而不是對齊基線，emoji 會比文字高。
 const EMOJI_Y_OFFSET: f32 = 0.15;
-/// 最後的 fallback：⛶⚙─✕ 等符號。
+/// 最後的 fallback：▶⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
 const ICON_FILES: [&str; 2] = ["SegoeIcons.ttf", "segmdl2.ttf"];
@@ -406,7 +406,7 @@ mod tests {
         let center = Pos2::new(50.0, 40.0);
         for _ in 0..2 {
             let mut output = ctx.run_ui(Default::default(), |ui| {
-                for glyph in ["✕", "─", "⚙", "⛶"] {
+                for glyph in ["✕", "─", "⚙", "⛶", "▶"] {
                     for size in [tk_pt(9.0), tk_pt(10.0)] {
                         let galley = ui.painter().layout_no_wrap(
                             glyph.to_owned(),

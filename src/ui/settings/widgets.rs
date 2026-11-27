@@ -714,7 +714,7 @@ const PROGRESS_EASE: std::time::Duration = crate::local::PROGRESS_TICK;
 const SKELETON_PERIOD: f64 = 1.4;
 
 /// 圓角小標籤（`PILL_BG` 底）。
-pub(super) fn pill(ui: &mut Ui, text: &str) {
+pub(crate) fn pill(ui: &mut Ui, text: &str) {
     Frame::new()
         .fill(theme::PILL_BG)
         .corner_radius(10)
@@ -1066,6 +1066,17 @@ pub fn primary_icon_button(ui: &mut Ui, text: &str, glyph: char) -> Response {
         Some(theme::ACCENT),
         theme::ON_ACCENT,
         Some(Glyph::Trailing(glyph)),
+    )
+}
+
+/// 主要按鈕，文字前有一個圖示；無障礙名稱只取文字。
+pub fn primary_leading_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
+    styled_button(
+        ui,
+        text,
+        Some(theme::ACCENT),
+        theme::ON_ACCENT,
+        Some(Glyph::Leading(glyph)),
     )
 }
 

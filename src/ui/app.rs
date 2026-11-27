@@ -26,6 +26,7 @@ use crate::ui::overlay::bubble::{
     Action, BUBBLE_SIZE, Bubble, MinimizeGuard, bubble_alpha, initial_position,
 };
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Shell, Win32Shell, describe};
+use crate::ui::overlay::launch_popup::{LaunchMenu, MenuAction};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
 use crate::ui::overlay::selection::Selection;
@@ -129,6 +130,8 @@ pub struct App {
     replace_exe: fn(&Path) -> io::Result<()>,
     /// overlay 根視窗與泡泡目前的疊放層級；設定、更新或本版說明視窗開著時降為一般層級。
     overlay_level: WindowLevel,
+    launch_menu: LaunchMenu,
+    on_launch: Box<dyn FnMut(MenuAction)>,
 }
 
 impl App {
@@ -173,6 +176,10 @@ impl App {
             latest_url: None,
             replace_exe,
             overlay_level: WindowLevel::AlwaysOnTop,
+            launch_menu: LaunchMenu::default(),
+            on_launch: Box::new(|action| {
+                log(format!("[launch] launch action not wired yet: {action:?}"))
+            }),
         }
     }
 
@@ -373,6 +380,16 @@ impl App {
         self.status
     }
 
+    /// 開啟遊戲的帳號選單：換帳號清單、執行中名單與逐帳號進度。
+    pub fn launch_menu_mut(&mut self) -> &mut LaunchMenu {
+        &mut self.launch_menu
+    }
+
+    /// 接上一鍵開啟：overlay 選單與設定頁的「開啟」、勾選變動都交給 `on_launch`（「開啟設定」由 App 自己處理）。
+    pub fn set_on_launch(&mut self, on_launch: impl FnMut(MenuAction) + 'static) {
+        self.on_launch = Box::new(on_launch);
+    }
+
     /// 錯誤與更新橫幅（更新檢查經 `offer_update` 提示新版）。
     pub fn banners_mut(&mut self) -> &mut Banners {
         &mut self.banners
@@ -433,6 +450,7 @@ impl App {
         }
         if minimized {
             self.selection.clear("minimized to bubble");
+            self.launch_menu.close();
         } else {
             self.bubble = None;
         }
@@ -619,8 +637,8 @@ impl App {
             .collect()
     }
 
-    /// 標題列以下：分頁列（沒有分頁時隱藏）、底部橫幅與其間的訊息清單（含框選與右鍵選單）。
-    fn content(&mut self, ui: &mut egui::Ui) {
+    /// 標題列以下：分頁列（沒有分頁時隱藏）、底部橫幅與其間的訊息清單（含框選與右鍵選單）；回傳清單範圍。
+    fn content(&mut self, ui: &mut egui::Ui) -> egui::Rect {
         let mut rect = ui.max_rect();
         rect.min.y += BAR_HEIGHT;
         let mut content = ui.new_child(UiBuilder::new().max_rect(rect));
@@ -639,6 +657,7 @@ impl App {
         );
         self.list
             .show(ui, rect, &self.model, self.status, self.selection.span());
+        rect
     }
 
     /// 縮小期間每幀在根視窗畫泡泡、處理它的點擊／拖曳，並每 300ms 檢查一次是否該自動展開。
@@ -716,10 +735,7 @@ impl App {
                     (wiring.on_save)(cfg);
                 }
             }
-            SettingsAction::LaunchAccounts(ids) => log(format!(
-                "[launch] launch request for {} account(s) not wired yet",
-                ids.len()
-            )),
+            SettingsAction::LaunchAccounts(ids) => (self.on_launch)(MenuAction::Launch(ids)),
             SettingsAction::Cancel => {
                 if let Some(wiring) = &mut self.settings {
                     (wiring.on_cancel)();
@@ -821,9 +837,25 @@ impl App {
             }
             // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
             Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
+            Some(Clicked::Launch) => self.launch_menu.toggle(),
             None => {}
         }
-        self.content(ui);
+        let list = self.content(ui);
+        let mut body = ui.max_rect();
+        body.min.y += BAR_HEIGHT;
+        // 中央按鈕掛在置中的狀態大字下方；有訊息時沒有大字，改掛在清單正中
+        let waiting = (self.status == Some("waiting_game")).then(|| {
+            let below = self
+                .list
+                .placeholder_rect()
+                .map_or(list.center(), |r| r.center_bottom());
+            egui::pos2(list.center().x, below.y)
+        });
+        match self.launch_menu.show(ui, body, waiting) {
+            Some(MenuAction::OpenSettings) => self.open_settings(),
+            Some(action) => (self.on_launch)(action),
+            None => {}
+        }
         if self.banners.take_update_click() {
             self.open_update(&ctx);
         }
@@ -1513,6 +1545,77 @@ mod tests {
         harness.drop_at(to);
         harness.step();
         assert_eq!(root.shell.borrow().focused, 1);
+    }
+
+    /// 塞滿長訊息、有一個帳號的 overlay；`open` 時按 ▶ 打開開啟選單。
+    fn menu_over_messages(open: bool) -> Harness<'static, App> {
+        let (poster, inbox) = channel();
+        for i in 0..40 {
+            poster.post(long_message(i));
+        }
+        let (mut harness, _root) = root_harness(inbox, (None, None), 1.0);
+        let account = crate::launcher::Account {
+            id: "a".into(),
+            name: "alice".into(),
+            kind: crate::launcher::AccountKind::Official,
+            password_dpapi: String::new(),
+        };
+        let menu = harness.state_mut().launch_menu_mut();
+        menu.set_accounts(vec![account], &[]);
+        harness.get_by_label("▶").click();
+        harness.run_steps(3);
+        if !open {
+            harness.get_by_label("▶").click();
+            harness.run_steps(3);
+        }
+        harness
+    }
+
+    fn drag_left(harness: &mut Harness<App>, from: egui::Pos2) {
+        let to = egui::pos2(20.0, from.y);
+        harness.hover_at(from);
+        harness.drag_at(from);
+        harness.step();
+        harness.hover_at(to);
+        harness.step();
+        harness.drop_at(to);
+        harness.step();
+    }
+
+    #[test]
+    fn dragging_on_the_launch_menu_selects_no_text_underneath() {
+        let mut harness = menu_over_messages(true);
+        let header = harness
+            .get_by_label(&crate::i18n::t("launch.select_all", &[]))
+            .rect();
+        // 選單左側內距、底下正好有一行字：不是元件，按下去只有直接讀指標的框選會收到
+        let line = harness
+            .state()
+            .list
+            .rows()
+            .iter()
+            .map(|r| r.lines[0].0.y + 5.0);
+        let y = line.filter(|y| *y > header.max.y).fold(f32::MAX, f32::min);
+        let from = egui::pos2(header.min.x - 4.0, y);
+        drag_left(&mut harness, from);
+        assert_eq!(harness.state().selection.span(), None);
+        assert!(harness.state().launch_menu.is_open());
+
+        let mut closed = menu_over_messages(false);
+        drag_left(&mut closed, from);
+        assert!(closed.state().selection.span().is_some(), "precondition");
+    }
+
+    #[test]
+    fn minimizing_closes_the_launch_menu() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        harness.step();
+        harness.get_by_label("▶").click();
+        harness.run_steps(3);
+        assert!(harness.state().launch_menu.is_open());
+        harness.state_mut().set_minimized(true);
+        assert!(!harness.state().launch_menu.is_open());
     }
 
     const TOP_RIGHT: Rect = (100 + 640 - 48, 200, 48, 48);

@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use eframe::egui::text::CharIndex;
-use eframe::egui::{Context, Event, Galley, Key, MouseWheelUnit, Rect, Ui};
+use eframe::egui::{Context, Event, Galley, Key, MouseWheelUnit, Pos2, Rect, Ui};
 
 use crate::logs::log;
 
@@ -98,6 +98,13 @@ pub fn take_focus_for_copy(log_prefix: &str, force_foreground: impl FnOnce() -> 
             "{log_prefix} selection focus failed: SetForegroundWindow refused"
         ));
     }
+}
+
+/// `p` 是否落在 `ui` 自己的圖層上、沒被彈出的選單蓋住；直接讀指標的元件要自己問，egui 元件會自動判斷。
+pub fn on_own_layer(ui: &Ui, p: Pos2) -> bool {
+    ui.ctx()
+        .layer_id_at(p)
+        .is_none_or(|layer| layer == ui.layer_id())
 }
 
 /// 本幀的滾輪量換成內容位移（DIP）：一格捲視口高度的十分之一，與 Tk 的 `yview_scroll(units)` 相同。

@@ -167,6 +167,7 @@ pub mod icon {
     pub const CLOSE: char = '\u{E8BB}';
     pub const NEW_DOCUMENT: char = '\u{E8A5}';
     pub const IMPORT: char = '\u{E8B5}';
+    pub const PLAY: char = '\u{E768}';
 }
 
 /// 粗體字型；要先 `fonts_egui::install`，否則 egui 找不到字族會 panic。

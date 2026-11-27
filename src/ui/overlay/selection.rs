@@ -11,7 +11,8 @@ use crate::ui::overlay::message_list::{MessageList, Row};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
 use crate::ui::text_select::{
-    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, copy_text, is_copy, take_focus_for_copy,
+    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, copy_text, is_copy, on_own_layer,
+    take_focus_for_copy,
 };
 
 /// 選取端點：第幾則訊息、該則第幾行（0＝原文、1＝譯文）、行內第幾個字元；欄位順序即閱讀順序。
@@ -194,6 +195,10 @@ impl Selection {
                 i.events.iter().any(is_copy),
             )
         });
+        let (pressed, secondary) = (
+            pressed.filter(|&p| on_own_layer(ui, p)),
+            secondary.filter(|&p| on_own_layer(ui, p)),
+        );
         if let Some(p) = pressed
             && !self.menu.contains(p)
         {
