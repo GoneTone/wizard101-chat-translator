@@ -93,7 +93,7 @@ Add your own accounts in the settings window once, and the software logs each of
 - **Game location**: the official and Steam installs are found automatically; if yours is not, pick the game folder in the settings window.
 - **Passwords**: stored in `config.json`, encrypted with Windows DPAPI, so only the same Windows user on the same computer can decrypt them — copied to another computer or Windows user, they have to be entered again. Passwords are never written to the logs.
 - **Steam accounts**: the Steam client must be running and logged into the Steam account the game account is bound to, and they can only be launched with the Steam install of the game. Official accounts work with either install.
-- **Game updates are not handled**: the software does not patch the game. After a game update, update once through the official launcher or Steam; until then the server refuses the login, and its message is shown in the account list.
+- **Game updates are not handled**: the software does not patch the game. If logging in or entering the game fails after a game update, update once through the official launcher or Steam. When the server refuses a login, its original message is shown.
 - **Risk**: as noted under ⚠ Important above, this feature implements the login protocol itself and goes against the Terms of Use more directly than reading chat. Use it at your own risk.
 
 ## Features
