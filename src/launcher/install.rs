@@ -5,8 +5,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
-use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
 
+use super::hkcu_string;
 pub use crate::game::process::PROCESS_NAME;
 use crate::logs::log;
 
@@ -43,27 +43,7 @@ pub fn parse_steam_libraries(vdf: &str) -> Vec<PathBuf> {
 }
 
 fn steam_path() -> Option<PathBuf> {
-    let key: Vec<u16> = r"Software\Valve\Steam".encode_utf16().chain([0]).collect();
-    let value: Vec<u16> = "SteamPath".encode_utf16().chain([0]).collect();
-    let mut buf = [0u16; 1024];
-    let mut size = std::mem::size_of_val(&buf) as u32;
-    // SAFETY：字串皆以 NUL 結尾，size 是 buf 的位元組數。
-    let status = unsafe {
-        RegGetValueW(
-            HKEY_CURRENT_USER,
-            key.as_ptr(),
-            value.as_ptr(),
-            RRF_RT_REG_SZ,
-            std::ptr::null_mut(),
-            buf.as_mut_ptr().cast(),
-            &mut size,
-        )
-    };
-    if status != 0 {
-        return None;
-    }
-    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
-    Some(PathBuf::from(String::from_utf16_lossy(&buf[..end])))
+    hkcu_string(r"Software\Valve\Steam", "SteamPath").map(PathBuf::from)
 }
 
 fn steam_install() -> Option<PathBuf> {
