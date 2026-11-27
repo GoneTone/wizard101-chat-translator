@@ -43,9 +43,15 @@ struct CallbackMsg {
     param_size: i32,
 }
 
+/// 初始化函式：SDK 1.59 起有 `SteamAPI_InitFlat`，遊戲附的舊版 dll 只有 `SteamAPI_InitSafe`。
+enum Init {
+    Flat(unsafe extern "C" fn(*mut c_char) -> i32),
+    Safe(unsafe extern "C" fn() -> bool),
+}
+
 /// 用到的 flat API；全部在載入時一次解析，缺任何一個就當介面不可用。
 struct Api {
-    init: unsafe extern "C" fn(*mut c_char) -> i32,
+    init: Init,
     shutdown: unsafe extern "C" fn(),
     user: unsafe extern "C" fn() -> *mut c_void,
     steam_id: unsafe extern "C" fn(*mut c_void) -> u64,
@@ -62,15 +68,33 @@ impl Api {
     // transmute 的目標型別就是各欄位宣告的函式型別
     #[allow(clippy::missing_transmute_annotations)]
     fn load(module: HMODULE) -> Option<Self> {
+        macro_rules! opt {
+            ($name:literal) => {
+                // SAFETY：名稱以 NUL 結尾；函式型別照 steam_api_flat.h 宣告。
+                unsafe { GetProcAddress(module, concat!($name, "\0").as_ptr()) }.map(|f| unsafe {
+                    std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(f)
+                })
+            };
+        }
         macro_rules! sym {
             ($name:literal) => {{
-                // SAFETY：名稱以 NUL 結尾；函式型別照 steam_api_flat.h 宣告。
-                let f = unsafe { GetProcAddress(module, concat!($name, "\0").as_ptr()) }?;
-                unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, _>(f) }
+                let Some(f) = opt!($name) else {
+                    log(concat!("[launch] steam api missing export ", $name));
+                    return None;
+                };
+                f
             }};
         }
+        let init = match (opt!("SteamAPI_InitFlat"), opt!("SteamAPI_InitSafe")) {
+            (Some(f), _) => Init::Flat(f),
+            (None, Some(f)) => Init::Safe(f),
+            (None, None) => {
+                log("[launch] steam api missing export SteamAPI_InitFlat/SteamAPI_InitSafe");
+                return None;
+            }
+        };
         Some(Self {
-            init: sym!("SteamAPI_InitFlat"),
+            init,
             shutdown: sym!("SteamAPI_Shutdown"),
             user: sym!("SteamAPI_SteamUser_v023"),
             steam_id: sym!("SteamAPI_ISteamUser_GetSteamID"),
@@ -203,9 +227,16 @@ pub fn acquire_ticket(install: &Install) -> Result<SteamSession, SteamError> {
     };
     let code = {
         let _env = AppIdEnv::set();
-        let mut message = [0 as c_char; 1024];
-        // SAFETY：緩衝區即 SteamErrMsg（1024 bytes）。
-        unsafe { (api.init)(message.as_mut_ptr()) }
+        match api.init {
+            Init::Flat(init) => {
+                let mut message = [0 as c_char; 1024];
+                // SAFETY：緩衝區即 SteamErrMsg（1024 bytes）。
+                unsafe { init(message.as_mut_ptr()) }
+            }
+            // 舊版只回成功與否，失敗當 k_ESteamAPIInitResult_FailedGeneric（1）
+            // SAFETY：無參數的初始化。
+            Init::Safe(init) => i32::from(!unsafe { init() }),
+        }
     };
     if code != 0 {
         let running = steam_running();
