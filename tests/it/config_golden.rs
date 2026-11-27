@@ -397,8 +397,10 @@ fn config_round_trips_accounts() {
     let mut cfg = config::default_config();
     accounts::store(&mut cfg, &list);
     accounts::set_launch_selection(&mut cfg, &["b2".to_string()]);
+    accounts::set_launch_auto_close(&mut cfg, false);
     save_config(&path, &cfg).unwrap();
     let loaded = load_config(&path);
     assert_eq!(accounts::stored(&loaded), list);
     assert_eq!(accounts::launch_selection(&loaded), vec!["b2".to_string()]);
+    assert!(!accounts::launch_auto_close(&loaded));
 }
