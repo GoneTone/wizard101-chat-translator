@@ -169,11 +169,15 @@ impl AccountDialog {
         });
     }
 
-    /// 名稱沒過的原因：空白，或與其他帳號同名（不分 ASCII 大小寫）。
+    /// 名稱沒過的原因：空白、含空格或非 ASCII 字元，或與其他帳號同名（不分 ASCII 大小寫）。
     fn name_error(&self, accounts: &[Account]) -> Option<&'static str> {
         let name = pystr::strip(&self.name);
         if name.is_empty() {
             return Some("error.need_name");
+        }
+        // 登入訊息以空格分隔帳號名，啟動參數也以空格切段
+        if !name.chars().all(|c| c.is_ascii_graphic()) {
+            return Some("error.account_name_invalid");
         }
         accounts
             .iter()

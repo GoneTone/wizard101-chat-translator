@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eframe::egui::{Pos2, Rect, Vec2};
 
 use crate::launcher::Account;
-use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
 
 /// 「全選」勾選框的三態。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,13 +42,16 @@ impl MenuState {
         state
     }
 
-    /// 換上新的帳號清單與勾選（設定存檔後）；執行中名單與開啟進度保留。
+    /// 換上新的帳號清單與勾選（設定存檔後）；執行中名單與現有帳號的開啟進度保留。
     pub fn set_accounts(&mut self, accounts: Vec<Account>, selection: &[String]) {
         self.checked = selection
             .iter()
             .filter(|id| accounts.iter().any(|a| &a.id == *id))
             .cloned()
             .collect();
+        // 刪掉的帳號不留進度，免得同 id 卡在登入中
+        self.statuses
+            .retain(|id, _| accounts.iter().any(|a| &a.id == id));
         self.accounts = accounts;
     }
 
@@ -59,6 +62,7 @@ impl MenuState {
 
     /// 換上執行中的帳號名稱（不分大小寫比對）。
     pub fn set_running(&mut self, names: Vec<String>) {
+        forget_exited(&mut self.statuses, &self.accounts, &self.running, &names);
         self.running = names;
     }
 
@@ -158,11 +162,6 @@ impl MenuState {
             self.set_status(id, LaunchStatus::LoggingIn);
         }
         ids
-    }
-
-    /// 是否有帳號被伺服器拒絕登入（要顯示更新提示）。
-    pub fn any_rejected(&self) -> bool {
-        self.statuses.values().any(LaunchStatus::is_rejected)
     }
 }
 
@@ -283,6 +282,26 @@ mod tests {
     }
 
     #[test]
+    fn a_deleted_account_does_not_keep_its_progress() {
+        let mut state = MenuState::new(three(), &ids(&["a"]));
+        state.begin_launch();
+        let rest: Vec<Account> = three().into_iter().filter(|a| a.id != "a").collect();
+        state.set_accounts(rest, &[]);
+        assert_eq!(state.status("a"), None);
+    }
+
+    #[test]
+    fn opened_is_cleared_once_the_game_exits() {
+        let mut state = MenuState::new(three(), &[]);
+        let name = three()[0].name.clone();
+        state.set_status("a", LaunchStatus::Opened);
+        state.set_running(vec![name]);
+        assert_eq!(state.status("a"), Some(&LaunchStatus::Opened));
+        state.set_running(Vec::new());
+        assert_eq!(state.status("a"), None);
+    }
+
+    #[test]
     fn a_new_launch_clears_the_old_result() {
         let mut state = MenuState::new(three(), &ids(&["a"]));
         let raw = "Bad password".to_owned();
@@ -290,9 +309,8 @@ mod tests {
             "a",
             LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
         );
-        assert!(state.any_rejected());
         state.begin_launch();
-        assert!(!state.any_rejected());
+        assert_eq!(state.status("a"), Some(&LaunchStatus::LoggingIn));
     }
 
     fn avail() -> Rect {

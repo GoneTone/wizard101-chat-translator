@@ -20,7 +20,7 @@ use crate::config::services::new_id;
 use crate::i18n::t;
 use crate::launcher::accounts::{self, Account};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
-use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
 use crate::ui::overlay::launch_popup::{status_color, status_text};
@@ -136,6 +136,7 @@ impl AccountsPane {
                 self.detecting = false;
             }
             SettingsEvent::RunningAccounts { names } => {
+                forget_exited(&mut self.statuses, &self.accounts, &self.running, names);
                 self.running = names.clone();
                 self.scanning = false;
             }
@@ -194,6 +195,7 @@ impl AccountsPane {
                 self.dialog = Dialog::Edit(Box::new(AccountDialog::new(new_id(&ids))));
             }
             hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
+            hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             match action {
                 Some(CardAction::Launch(id)) => {
                     log(format!("[launch] launch requested from settings: {id}"));
@@ -297,9 +299,6 @@ impl AccountsPane {
         );
         if let Some(status) = status {
             hint(ui, &status_text(status), status_color(status));
-            if status.is_rejected() {
-                hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
-            }
         }
         let id = account.id.clone();
         if launch {

@@ -9,7 +9,10 @@ use windows_sys::Win32::Security::Cryptography::{
     CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
 };
 
+use zeroize::{Zeroize, Zeroizing};
+
 use crate::config::Config;
+use crate::logs::log;
 use crate::util::{hex, unhex};
 
 /// 帳號類型：官網註冊，或透過 Steam 建立／綁定。
@@ -21,7 +24,7 @@ pub enum AccountKind {
 }
 
 /// 一筆帳號；`name` 就是登入帳號名，也是啟動參數 `-U` 末段的比對鍵。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     pub id: String,
     pub name: String,
@@ -30,13 +33,28 @@ pub struct Account {
     pub password_dpapi: String,
 }
 
+// 手寫 Debug：除錯輸出不帶加密後的密碼
+impl std::fmt::Debug for Account {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Account")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("kind", &self.kind)
+            .finish_non_exhaustive()
+    }
+}
+
 /// config 裡的全部帳號，依存放順序；形狀不對的那筆略過。
 pub fn stored(cfg: &Config) -> Vec<Account> {
     cfg.get("accounts")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|v| serde_json::from_value(v.clone()).ok())
+        .filter_map(|v| {
+            serde_json::from_value(v.clone())
+                .inspect_err(|e| log(format!("[launch] skipped malformed account entry: {e}")))
+                .ok()
+        })
         .collect()
 }
 
@@ -83,12 +101,14 @@ fn blob(bytes: &[u8]) -> CRYPT_INTEGER_BLOB {
     }
 }
 
-/// 取出 DPAPI 配置的輸出並以 `LocalFree` 釋放。
+/// 取出 DPAPI 配置的輸出，歸零後以 `LocalFree` 釋放。
 ///
 /// # Safety
 /// `out` 必須是 DPAPI 剛成功填好的 blob。
 unsafe fn take(out: CRYPT_INTEGER_BLOB) -> Vec<u8> {
-    let bytes = unsafe { std::slice::from_raw_parts(out.pbData, out.cbData as usize) }.to_vec();
+    let raw = unsafe { std::slice::from_raw_parts_mut(out.pbData, out.cbData as usize) };
+    let bytes = raw.to_vec();
+    raw.zeroize();
     unsafe { LocalFree(out.pbData.cast()) };
     bytes
 }
@@ -124,8 +144,8 @@ pub fn encrypt_password(plain: &str) -> Result<String, CryptError> {
     Ok(hex(&unsafe { take(out) }))
 }
 
-/// 解開 [`encrypt_password`] 存下的密碼。
-pub fn decrypt_password(stored: &str) -> Result<String, CryptError> {
+/// 解開 [`encrypt_password`] 存下的密碼；用完即歸零。
+pub fn decrypt_password(stored: &str) -> Result<Zeroizing<String>, CryptError> {
     let bytes = unhex(stored).ok_or_else(|| CryptError("stored password is not hex".into()))?;
     let input = blob(&bytes);
     let mut out = CRYPT_INTEGER_BLOB {
@@ -147,7 +167,11 @@ pub fn decrypt_password(stored: &str) -> Result<String, CryptError> {
         return Err(last_error("CryptUnprotectData"));
     }
     String::from_utf8(unsafe { take(out) })
-        .map_err(|_| CryptError("decrypted password is not UTF-8".into()))
+        .map(Zeroizing::new)
+        .map_err(|e| {
+            e.into_bytes().zeroize();
+            CryptError("decrypted password is not UTF-8".into())
+        })
 }
 
 #[cfg(test)]
@@ -157,7 +181,20 @@ mod tests {
     #[test]
     fn encrypt_then_decrypt_round_trips() {
         let stored = encrypt_password("hunter2").unwrap();
-        assert_eq!(decrypt_password(&stored).unwrap(), "hunter2");
+        assert_eq!(decrypt_password(&stored).unwrap().as_str(), "hunter2");
+    }
+
+    #[test]
+    fn debug_output_leaves_out_the_encrypted_password() {
+        let account = Account {
+            id: "a".into(),
+            name: "alice".into(),
+            kind: AccountKind::Official,
+            password_dpapi: "c1a55ed".into(),
+        };
+        let shown = format!("{account:?}");
+        assert!(shown.contains("alice"));
+        assert!(!shown.contains("c1a55ed"));
     }
 
     #[test]

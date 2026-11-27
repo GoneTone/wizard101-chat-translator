@@ -35,16 +35,18 @@ const MSG_USER_AUTHEN_RSP: u8 = 14;
 const MSG_USER_AUTHEN_V3: u8 = 27;
 /// V3 在 Rec1 之後的欄位（Version 起到 SteamAuthTicket），版本相關欄位皆為空。
 ///
-/// 依序：Version／Revision／DataRevision／CRC 空字串、MachineID GID、Locale "en-US"、
+/// 依序：Version／Revision／DataRevision／CRC 空字串、MachineID GID（換成 [`adapter_mac`]）、Locale "en-US"、
 /// PatchClientID 佔位（換成 [`machine_id`]）、IsSteamPatcher、ConsoleType、PlatformChatID、
 /// SteamID、SteamAuthTicket，最後一個 0 byte。
-const REST_OFFICIAL: &str = "0000000000000000722bb7a642e600000500656e2d555349007b30303030303030302d303030302d303030302d303030302d3030303030303030303030307d3a7b30303030303030303030303030303030303030303030303030303030303030307d00000000000000010030000000";
+const REST_OFFICIAL: &str = "000000000000000000000000000000000500656e2d555349007b30303030303030302d303030302d303030302d303030302d3030303030303030303030307d3a7b30303030303030303030303030303030303030303030303030303030303030307d00000000000000010030000000";
 /// 同 [`REST_OFFICIAL`]，但 IsSteamPatcher=1，SteamID 佔 17 字元、SteamAuthTicket 預留 234 bytes。
-const REST_STEAM_HEAD: &str = "0000000000000000722bb7a642e600000500656e2d555349007b30303030303030302d303030302d303030302d303030302d3030303030303030303030307d3a7b30303030303030303030303030303030303030303030303030303030303030307d0100000000000011003030303030303030303030303030303030ea00";
+const REST_STEAM_HEAD: &str = "000000000000000000000000000000000500656e2d555349007b30303030303030302d303030302d303030302d303030302d3030303030303030303030307d3a7b30303030303030303030303030303030303030303030303030303030303030307d0100000000000011003030303030303030303030303030303030ea00";
 /// Steam 範本中票據本體的起點；前 2 bytes 是票據長度，再往前是 SteamID 字串。
 const STEAM_TICKET_OFFSET: usize = 126;
 const STEAM_TICKET_PLACEHOLDER: usize = 234;
 const STEAM_ID_LEN: usize = 17;
+/// MachineID GID 在範本中的位置（四個空字串之後）。
+const MACHINE_GID_AT: usize = 8;
 
 /// 登入成功取得的憑證；刻意不實作 `Debug`，免得 ck2 被印進 log。
 pub struct LoginOutcome {
@@ -191,6 +193,7 @@ fn build_authentication(
     password: &str,
     offer: &Offer,
     machine: &str,
+    mac: u64,
     steam: Option<&SteamTicket>,
 ) -> Result<Vec<u8>, LoginError> {
     let mut encoded = latin1(&format!(
@@ -215,6 +218,7 @@ fn build_authentication(
     if slot.len() == machine.len() {
         rest[slot].copy_from_slice(&latin1(machine));
     }
+    rest[MACHINE_GID_AT..MACHINE_GID_AT + 8].copy_from_slice(&mac.to_le_bytes());
     if let Some(ticket) = steam {
         insert_steam_ticket(&mut rest, ticket)?;
     }
@@ -283,6 +287,7 @@ async fn sign_in_on<S: AsyncRead + AsyncWrite + Unpin>(
     account: &str,
     password: &str,
     machine: &str,
+    mac: u64,
     steam: Option<&SteamTicket>,
 ) -> Result<LoginOutcome, LoginError> {
     let io = |e: std::io::Error| LoginError::Connect(e.to_string());
@@ -301,7 +306,7 @@ async fn sign_in_on<S: AsyncRead + AsyncWrite + Unpin>(
         .write_all(&frame(&build_session_accept(&offer, now)))
         .await
         .map_err(io)?;
-    let auth = build_authentication(account, password, &offer, machine, steam)?;
+    let auth = build_authentication(account, password, &offer, machine, mac, steam)?;
     stream.write_all(&frame(&auth)).await.map_err(io)?;
     log(format!(
         "[login] sent authentication ({} bytes, steam={})",
@@ -338,7 +343,7 @@ pub async fn sign_in(
             log(format!("[login] connect {LOGIN_ADDR} failed: {e}"));
             LoginError::Connect(e.to_string())
         })?;
-        sign_in_on(stream, account, password, machine, steam).await
+        sign_in_on(stream, account, password, machine, adapter_mac(), steam).await
     };
     let result = tokio::time::timeout(TIMEOUT, run)
         .await
@@ -350,6 +355,37 @@ pub async fn sign_in(
         log(format!("[login] sign-in failed: {e:?}"));
     }
     result
+}
+
+/// MAC 位址轉成 MachineID GID：前 6 bytes 當 48 位元大端數字，不足補 0。
+fn mac_gid(address: &[u8]) -> u64 {
+    let mut b = [0u8; 8];
+    let len = address.len().min(6);
+    b[2..2 + len].copy_from_slice(&address[..len]);
+    u64::from_be_bytes(b)
+}
+
+/// 照官方啟動器的 MachineID：GetAdaptersInfo 列出的最後一張網卡的 MAC，取不到為 0。
+fn adapter_mac() -> u64 {
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetAdaptersInfo, IP_ADAPTER_INFO};
+    let mut size = 0u32;
+    // SAFETY：先以空緩衝區取所需大小，再配足夠且對齊的緩衝區；串列只在緩衝區存活時走訪。
+    unsafe {
+        GetAdaptersInfo(std::ptr::null_mut(), &mut size);
+        let mut buf = vec![0u64; (size as usize).div_ceil(8)];
+        let head = buf.as_mut_ptr().cast::<IP_ADAPTER_INFO>();
+        if size == 0 || GetAdaptersInfo(head, &mut size) != 0 {
+            log("[login] no network adapter for machine id");
+            return 0;
+        }
+        let mut mac = 0;
+        let mut node: *const IP_ADAPTER_INFO = head;
+        while let Some(adapter) = node.as_ref() {
+            mac = mac_gid(&adapter.Address[..adapter.AddressLength.min(8) as usize]);
+            node = adapter.Next;
+        }
+        mac
+    }
 }
 
 fn is_machine_id(s: &str) -> bool {
@@ -411,6 +447,7 @@ mod tests {
     };
     const MACHINE: &str =
         "{0123ABCD-0000-1111-2222-333344445555}:{00112233445566778899AABBCCDDEEFF}";
+    const MAC: u64 = 0x0000_E642_A6B7_2B72;
 
     fn offer_body() -> Vec<u8> {
         let mut body = vec![0u8; 120];
@@ -476,8 +513,42 @@ mod tests {
     }
 
     #[test]
+    fn transform_matches_key_layout_spelled_out_by_hand() {
+        // 金鑰 23..55，依 sid=0xBB、秒=0x6B019610、毫秒=0xBD 逐 byte 改寫；IV 為 182 遞減
+        let key: [u8; 32] = [
+            0x17, 0x18, 0x19, 0x1a, 0xbb, 0x00, 0x00, 0x1e, 0x10, 0x01, 0x21, 0x22, 0x96, 0x6b,
+            0xbd, 0x00, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32,
+            0x33, 0x34, 0x35, 0x36,
+        ];
+        let cipher = Twofish::new_from_slice(&key).unwrap();
+        let mut stream = Block::<Twofish>::from([
+            0xb6, 0xb5, 0xb4, 0xb3, 0xb2, 0xb1, 0xb0, 0xaf, 0xae, 0xad, 0xac, 0xab, 0xaa, 0xa9,
+            0xa8, 0xa7,
+        ]);
+        let mut expected = Vec::new();
+        for _ in 0..2 {
+            cipher.encrypt_block(&mut stream);
+            expected.extend_from_slice(&stream);
+        }
+        let mut data = vec![0u8; 32];
+        transform(&mut data, &OFFER);
+        assert_eq!(data, expected);
+    }
+
+    #[test]
+    fn mac_gid_matches_the_official_layout() {
+        assert_eq!(mac_gid(&[0xe6, 0x42, 0xa6, 0xb7, 0x2b, 0x72]), MAC);
+        assert_eq!(
+            mac_gid(&[0xe6, 0x42, 0xa6, 0xb7, 0x2b, 0x72, 0xff, 0xff]),
+            MAC
+        );
+        assert_eq!(mac_gid(&[0x12, 0x34]), 0x1234_0000_0000);
+        assert_eq!(mac_gid(&[]), 0);
+    }
+
+    #[test]
     fn authentication_frame_has_v3_header_and_machine_id() {
-        let body = build_authentication("alice", "hunter2", &OFFER, MACHINE, None).unwrap();
+        let body = build_authentication("alice", "hunter2", &OFFER, MACHINE, MAC, None).unwrap();
         assert_eq!(body[..6], [0, 0, 0, 0, 7, 27]);
         let encoded_len = u16::from_le_bytes([body[8], body[9]]) as usize;
         let total = u16::from_le_bytes([body[6], body[7]]) as usize;
@@ -488,6 +559,7 @@ mod tests {
         let expected = format!("187 alice {}", client_hash("hunter2", &OFFER));
         assert_eq!(encoded, expected.as_bytes());
         assert!(rest.windows(MACHINE.len()).any(|w| w == MACHINE.as_bytes()));
+        assert_eq!(rest[MACHINE_GID_AT..MACHINE_GID_AT + 8], MAC.to_le_bytes());
         assert!(!body.windows(7).any(|w| w == b"hunter2"));
     }
 
@@ -497,7 +569,8 @@ mod tests {
             steam_id: "76561198000000001".into(),
             ticket: vec![0xAB; 300],
         };
-        let body = build_authentication("alice", "pw", &OFFER, MACHINE, Some(&ticket)).unwrap();
+        let body =
+            build_authentication("alice", "pw", &OFFER, MACHINE, MAC, Some(&ticket)).unwrap();
         let encoded_len = u16::from_le_bytes([body[8], body[9]]) as usize;
         let rest = &body[10 + encoded_len..];
         let at = STEAM_TICKET_OFFSET;
@@ -509,7 +582,7 @@ mod tests {
             steam_id: "123".into(),
             ..ticket
         };
-        assert!(build_authentication("alice", "pw", &OFFER, MACHINE, Some(&bad)).is_err());
+        assert!(build_authentication("alice", "pw", &OFFER, MACHINE, MAC, Some(&bad)).is_err());
     }
 
     #[test]
@@ -568,7 +641,7 @@ mod tests {
                 .await
                 .unwrap();
         });
-        let outcome = sign_in_on(client, "alice", "pw", MACHINE, None)
+        let outcome = sign_in_on(client, "alice", "pw", MACHINE, MAC, None)
             .await
             .unwrap();
         server.await.unwrap();
@@ -581,7 +654,7 @@ mod tests {
         let (client, mut server) = tokio::io::duplex(64);
         server.write_all(&[1, 2, 0, 0]).await.unwrap();
         assert!(matches!(
-            sign_in_on(client, "alice", "pw", MACHINE, None).await,
+            sign_in_on(client, "alice", "pw", MACHINE, MAC, None).await,
             Err(LoginError::Protocol(_))
         ));
     }

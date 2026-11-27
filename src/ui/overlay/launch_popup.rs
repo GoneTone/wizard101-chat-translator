@@ -245,11 +245,7 @@ impl LaunchMenu {
                 })
             })
             .collect();
-        let rejected = self
-            .state
-            .any_rejected()
-            .then(|| hint("launch.update_hint", &[]));
-        let footer = line + rejected.as_ref().map_or(0.0, |g| g.size().y + GAP);
+        let footer = line;
         let rows: Vec<f32> = statuses
             .iter()
             .map(|s| line + s.as_ref().map_or(0.0, |g| g.size().y + GAP / 2.0))
@@ -290,7 +286,7 @@ impl LaunchMenu {
                 match variant {
                     Variant::NoAccounts => no_accounts(ui, inner, empty),
                     Variant::Compact => self.compact(ui, inner, taller),
-                    Variant::Full => self.full(ui, inner, &accounts, statuses, &rows, rejected),
+                    Variant::Full => self.full(ui, inner, &accounts, statuses, &rows),
                 }
             })
             .inner
@@ -303,7 +299,6 @@ impl LaunchMenu {
         accounts: &[Account],
         statuses: Vec<Option<Arc<Galley>>>,
         rows: &[f32],
-        rejected: Option<Arc<Galley>>,
     ) -> Option<MenuAction> {
         let line = theme::CONTROL_HEIGHT;
         let mut action = None;
@@ -320,15 +315,7 @@ impl LaunchMenu {
         }
 
         let button = Rect::from_min_max(Pos2::new(inner.min.x, inner.max.y - line), inner.max);
-        let mut list_bottom = button.min.y - GAP;
-        if let Some(hint) = rejected {
-            list_bottom -= hint.size().y + GAP;
-            let at = Pos2::new(inner.min.x, button.min.y - GAP - hint.size().y);
-            ui.put(
-                Rect::from_min_size(at, hint.size()),
-                Label::new(hint).selectable(false),
-            );
-        }
+        let list_bottom = button.min.y - GAP;
         let list = Rect::from_min_max(
             Pos2::new(inner.min.x, header.max.y + GAP),
             Pos2::new(inner.max.x, list_bottom),

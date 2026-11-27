@@ -1,9 +1,11 @@
 //! 一鍵開啟：官網帳號並行、Steam 帳號逐一，逐帳號回報結果；單一帳號失敗不影響其他帳號。
 
 use std::borrow::Borrow;
+use std::collections::HashMap;
 use std::future::Future;
 
 use futures_util::future::join_all;
+use zeroize::Zeroizing;
 
 use super::accounts::decrypt_password;
 use super::install::Install;
@@ -33,13 +35,25 @@ pub enum LaunchStatus {
     Failed(Failure),
 }
 
-impl LaunchStatus {
-    /// 登入伺服器拒絕了這個帳號（遊戲沒更新時也是這樣）。
-    pub fn is_rejected(&self) -> bool {
-        matches!(
-            self,
-            Self::Failed(Failure::Login(LoginError::Rejected { .. }))
-        )
+/// 遊戲關掉後撤掉「已開啟／已在執行」：上次掃描還在執行、這次不在的帳號。
+pub fn forget_exited(
+    statuses: &mut HashMap<String, LaunchStatus>,
+    accounts: &[Account],
+    before: &[String],
+    after: &[String],
+) {
+    let listed =
+        |names: &[String], a: &Account| names.iter().any(|n| n.eq_ignore_ascii_case(&a.name));
+    for account in accounts
+        .iter()
+        .filter(|a| listed(before, a) && !listed(after, a))
+    {
+        if matches!(
+            statuses.get(&account.id),
+            Some(LaunchStatus::Opened | LaunchStatus::SkippedRunning)
+        ) {
+            statuses.remove(&account.id);
+        }
     }
 }
 
@@ -50,7 +64,7 @@ pub trait LauncherDeps: Sync {
 
     fn installs(&self) -> Vec<Install>;
     fn running_accounts(&self) -> Vec<String>;
-    fn password(&self, account: &Account) -> Option<String>;
+    fn password(&self, account: &Account) -> Option<Zeroizing<String>>;
     fn machine_id(&self) -> String;
     fn acquire_ticket(
         &self,
@@ -86,7 +100,7 @@ impl LauncherDeps for SystemDeps {
     fn running_accounts(&self) -> Vec<String> {
         running::running_accounts()
     }
-    fn password(&self, account: &Account) -> Option<String> {
+    fn password(&self, account: &Account) -> Option<Zeroizing<String>> {
         decrypt_password(&account.password_dpapi)
             .inspect_err(|e| log(format!("[launch] account {}: {}", account.id, e.0)))
             .ok()
@@ -278,8 +292,8 @@ mod tests {
         fn running_accounts(&self) -> Vec<String> {
             self.running.clone()
         }
-        fn password(&self, _: &Account) -> Option<String> {
-            Some("pw".into())
+        fn password(&self, _: &Account) -> Option<Zeroizing<String>> {
+            Some(Zeroizing::new("pw".into()))
         }
         fn machine_id(&self) -> String {
             "machine".into()
@@ -447,5 +461,25 @@ mod tests {
             .map(|(id, _)| id)
             .collect();
         assert_eq!(ids, ["s", "o"]);
+    }
+
+    #[test]
+    fn forget_exited_clears_only_accounts_that_stopped_running() {
+        let accounts = [
+            account("a", AccountKind::Official),
+            account("b", AccountKind::Official),
+            account("c", AccountKind::Official),
+        ];
+        let mut statuses = HashMap::from([
+            ("a".to_owned(), LaunchStatus::Opened),
+            ("b".to_owned(), LaunchStatus::SkippedRunning),
+            ("c".to_owned(), LaunchStatus::Opened),
+        ]);
+        let before = ["A-NAME".to_owned(), "b-name".to_owned()];
+        forget_exited(&mut statuses, &accounts, &before, &["b-name".to_owned()]);
+        assert_eq!(statuses.get("a"), None);
+        assert_eq!(statuses.get("b"), Some(&LaunchStatus::SkippedRunning));
+        // 還沒被掃描看到過的剛開帳號不清
+        assert_eq!(statuses.get("c"), Some(&LaunchStatus::Opened));
     }
 }

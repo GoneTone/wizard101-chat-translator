@@ -44,6 +44,10 @@ fn split_args(cmdline: &str) -> Vec<String> {
 pub fn account_in_command_line(cmdline: &str) -> Option<String> {
     let args = split_args(cmdline);
     let u = args.iter().position(|a| a == "-U")?;
+    // 其他啟動器參數順序可能不同，UserID 段不對就不當帳號名
+    if !args.get(u + 1)?.starts_with("..") {
+        return None;
+    }
     args.get(u + 3).cloned()
 }
 
@@ -105,5 +109,9 @@ mod tests {
         );
         assert_eq!(account_in_command_line("x.exe -U ..1 ck2"), None);
         assert_eq!(account_in_command_line(""), None);
+        assert_eq!(
+            account_in_command_line("x.exe -U alice 1234 ck2 extra"),
+            None
+        );
     }
 }

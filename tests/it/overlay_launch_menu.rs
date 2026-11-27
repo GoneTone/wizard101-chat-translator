@@ -273,7 +273,7 @@ fn a_long_list_scrolls_with_the_wheel() {
 }
 
 #[test]
-fn a_rejected_login_shows_the_server_text_and_the_update_hint() {
+fn a_rejected_login_shows_only_the_server_text() {
     let (mut h, _) = overlay(big(), "waiting_game", three(), &["a"], &[]);
     let raw = "Your client is out of date (code 7)".to_owned();
     let failed = LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw: raw.clone() }));
@@ -282,7 +282,7 @@ fn a_rejected_login_shows_the_server_text_and_the_update_hint() {
         .set_launch_status("a", failed);
     click(&mut h, Role::Button, &center_button());
     h.get_by_label(&raw);
-    h.get_by_label(&tr("launch.update_hint"));
+    assert!(h.query_by_label(&tr("launch.update_hint")).is_none());
 }
 
 #[test]

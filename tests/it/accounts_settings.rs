@@ -151,6 +151,7 @@ fn accounts_page_lists_saved_accounts() {
         &card_label("bob", &[tr("accounts.kind_steam")])
     ));
     assert!(has_label(&h, &tr("accounts.steam_limit")));
+    assert!(has_label(&h, &tr("launch.update_hint")));
 }
 
 #[test]
@@ -163,6 +164,22 @@ fn blank_name_blocks_save() {
     let error = tr("error.need_name");
     assert_eq!(text_sections(&h, &error)[0].1, theme::ERROR);
     assert!(dialog_save_disabled(&h, &title));
+}
+
+#[test]
+fn name_with_a_space_or_non_ascii_blocks_save() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    click_nth(&mut h, &tr("button.edit"), 0);
+    let title = tr("accounts.edit_title");
+    let error = tr("error.account_name_invalid");
+    for bad in ["al ice", "alicé", "ali	ce"] {
+        replace_text(&mut h, &tr("accounts.field_name"), bad);
+        assert_eq!(text_sections(&h, &error)[0].1, theme::ERROR, "{bad:?}");
+        assert!(dialog_save_disabled(&h, &title));
+    }
+    replace_text(&mut h, &tr("accounts.field_name"), " alice.2 ");
+    assert!(!has_label(&h, &error));
+    assert!(!dialog_save_disabled(&h, &title));
 }
 
 #[test]
@@ -207,7 +224,10 @@ fn saving_a_new_account_commits_it_with_an_encrypted_password() {
         ("carol", AccountKind::Steam)
     );
     assert_ne!(carol.password_dpapi, "s3cret");
-    assert_eq!(decrypt_password(&carol.password_dpapi).unwrap(), "s3cret");
+    assert_eq!(
+        decrypt_password(&carol.password_dpapi).unwrap().as_str(),
+        "s3cret"
+    );
     assert!(!h.state().win.has_unsaved());
 }
 
@@ -306,7 +326,6 @@ fn rejected_login_shows_the_server_text_verbatim() {
     launch_status(&mut h, "a", failed);
     assert!(has_label(&h, &raw));
     assert_eq!(text_sections(&h, &raw)[0].1, theme::ERROR);
-    assert!(has_label(&h, &tr("launch.update_hint")));
     assert!(!launch_disabled(&h, 0));
 }
 
