@@ -921,7 +921,8 @@ fn paint_placeholder(ui: &mut Ui, area: Rect, label: &str) {
     ui.ctx().request_repaint();
 }
 
-fn form_row<R>(
+/// 對話框表單的一列：左欄固定寬的名稱（`required` 時加星號），右欄交給 `field` 畫，並收到名稱的 Id 以便命名欄位。
+pub(super) fn form_row<R>(
     ui: &mut Ui,
     label: &str,
     required: bool,

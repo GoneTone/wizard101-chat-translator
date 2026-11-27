@@ -78,6 +78,10 @@ pub const SETTINGS_MIN_SIZE: Vec2 = vec2(640.0, 360.0);
 pub const WIZARD_SIZE: Vec2 = vec2(600.0, 760.0);
 /// 精靈最小大小。
 pub const WIZARD_MIN_SIZE: Vec2 = vec2(600.0, 380.0);
+/// 開啟遊戲帳號視窗預設大小。
+pub const LAUNCH_SIZE: Vec2 = vec2(520.0, 560.0);
+/// 開啟遊戲帳號視窗最小大小：頂端「全選」、底部選項與按鈕之間至少還看得到兩列帳號。
+pub const LAUNCH_MIN_SIZE: Vec2 = vec2(460.0, 340.0);
 /// 側欄寬。
 pub const SIDEBAR_WIDTH: f32 = 200.0;
 /// 導覽項高。
@@ -125,6 +129,8 @@ pub const DIALOG_RADIUS: u8 = 10;
 pub const SERVICE_DIALOG_WIDTH: f32 = 540.0;
 /// 服務商選擇對話框寬。
 pub const PICKER_DIALOG_WIDTH: f32 = 460.0;
+/// 帳號新增／編輯對話框寬。
+pub const ACCOUNT_DIALOG_WIDTH: f32 = 460.0;
 /// 下載模型對話框寬。
 pub const DOWNLOAD_DIALOG_WIDTH: f32 = 680.0;
 /// 確認對話框寬。
@@ -144,6 +150,7 @@ pub mod icon {
     pub const SERVICES: char = '\u{E774}';
     pub const LOCAL: char = '\u{E950}';
     pub const GLOSSARIES: char = '\u{E82D}';
+    pub const ACCOUNTS: char = '\u{E716}';
     pub const ADVANCED: char = '\u{E9E9}';
     pub const ABOUT: char = '\u{E946}';
     pub const EXPAND: char = '\u{E70D}';
@@ -164,6 +171,7 @@ pub mod icon {
     pub const CLOSE: char = '\u{E8BB}';
     pub const NEW_DOCUMENT: char = '\u{E8A5}';
     pub const IMPORT: char = '\u{E8B5}';
+    pub const PLAY: char = '\u{E768}';
 }
 
 /// 粗體字型；要先 `fonts_egui::install`，否則 egui 找不到字族會 panic。

@@ -1,4 +1,4 @@
-//! overlay 視窗外框：半透明底、標題列（圖示、名稱、狀態、⛶⚙─✕）、拖曳移動、四邊四角縮放與記憶位置。
+//! overlay 視窗外框：半透明底、標題列（圖示、名稱、狀態、▶⛶⚙─✕）、拖曳移動、四邊四角縮放與記憶位置。
 
 use eframe::egui::layers::ShapeIdx;
 use eframe::egui::response::Flags;
@@ -124,6 +124,8 @@ pub enum Clicked {
     Minimize,
     /// ✕ 關閉。
     Close,
+    /// ▶ 開啟遊戲帳號視窗。
+    Launch,
 }
 
 /// 最小尺寸換算成實體像素（`scale` 為每 DIP 的像素數）。
@@ -418,6 +420,7 @@ fn title_bar(
         ("─", Clicked::Minimize, "tooltip.minimize"),
         ("⚙", Clicked::Settings, "tooltip.settings"),
         ("⛶", Clicked::Region, "tooltip.region"),
+        ("▶", Clicked::Launch, "launch.open_game"),
     ] {
         let button = bar_button(ui, glyph, action == Clicked::Close, hit);
         // 按住期間收起提示，與舊版按下即收一致
@@ -751,7 +754,7 @@ pub(crate) mod tests {
     #[test]
     fn title_buttons_use_the_symbol_font() {
         let (harness, _) = setup("Title", Vec2::new(640.0, 420.0), 1.0);
-        for glyph in ["✕", "─", "⚙", "⛶"] {
+        for glyph in ["✕", "─", "⚙", "⛶", "▶"] {
             let shape = find_text_shape(&harness.output().shapes, glyph).unwrap();
             let family = &shape.galley.job.sections[0].format.font_id.family;
             assert_eq!(family, &symbols(1.0).family, "{glyph}");
@@ -1117,6 +1120,7 @@ pub(crate) mod tests {
             ("─", Clicked::Minimize),
             ("⚙", Clicked::Settings),
             ("⛶", Clicked::Region),
+            ("▶", Clicked::Launch),
         ] {
             let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
             harness.get_by_label(glyph).click();

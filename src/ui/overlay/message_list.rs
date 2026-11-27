@@ -91,6 +91,7 @@ pub struct MessageList {
     wrap: f32,
     rows: Vec<Row>,
     scrollbar: Scrollbar,
+    placeholder: Option<Rect>,
 }
 
 impl Default for MessageList {
@@ -116,6 +117,7 @@ impl MessageList {
             wrap: 0.0,
             rows: Vec::new(),
             scrollbar: Scrollbar::default(),
+            placeholder: None,
         }
     }
 
@@ -154,6 +156,11 @@ impl MessageList {
     /// 上一幀畫出的可見訊息，由上到下。
     pub fn rows(&self) -> &[Row] {
         &self.rows
+    }
+
+    /// 這一幀置中的狀態大字的範圍；沒畫就是 `None`。
+    pub fn placeholder_rect(&self) -> Option<Rect> {
+        self.placeholder
     }
 
     /// 在 `rect`（標題列與分頁列以下的整塊內容區）畫出顯示中分頁的訊息，`selected` 範圍內的字墊上反白；
@@ -197,11 +204,10 @@ impl MessageList {
             }
         }
         self.rows.clear();
+        self.placeholder = None;
         let Some(key) = key.filter(|_| !messages.is_empty()) else {
             self.anchor = None;
-            if let Some(state) = status {
-                placeholder(ui, rect, state);
-            }
+            self.placeholder = status.map(|state| placeholder(ui, rect, state));
             return;
         };
 
@@ -327,7 +333,7 @@ fn anchored(anchor: Option<(u64, f32)>, messages: &[Message], dy: f32) -> Start 
     }
 }
 
-fn placeholder(ui: &mut Ui, rect: Rect, state: &str) {
+fn placeholder(ui: &mut Ui, rect: Rect, state: &str) -> Rect {
     let text = status_text(state);
     let font = FontId::proportional(tk_pt(PLACEHOLDER_PT));
     let size = ui
@@ -337,6 +343,7 @@ fn placeholder(ui: &mut Ui, rect: Rect, state: &str) {
     let label = RichText::new(text).font(font).color(status_color(state));
     let at = Rect::from_center_size(rect.center(), size);
     ui.place(at, Label::new(label).selectable(false).extend());
+    at
 }
 
 /// 一幀的排版：只排視口內的訊息，其餘以上次的高度依換行寬度比例估計。

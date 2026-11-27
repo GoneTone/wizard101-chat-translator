@@ -3,6 +3,7 @@
 pub mod banners;
 pub mod bubble;
 pub mod frame;
+pub mod launch_button;
 pub mod message_list;
 pub mod model;
 pub mod outlined;

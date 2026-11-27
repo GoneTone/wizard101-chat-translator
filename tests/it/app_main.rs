@@ -17,8 +17,8 @@ use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
     InputWiring, Running, SUPERVISOR_JOIN_BUDGET, Translation, apply_settings, build_translation,
     claim_instance, close_translation, hotkey_mask, incoming_fingerprint, install_local,
-    install_paste, local_notify, on_paste_hotkey, outgoing_translate, reconfigure_translation,
-    region_runner, register_hotkeys, run_ui_then, shutdown_steps,
+    install_paste, launch_actions, local_notify, on_paste_hotkey, outgoing_translate,
+    reconfigure_translation, region_runner, register_hotkeys, run_ui_then, shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
@@ -29,6 +29,7 @@ use wizard101_chat_translator::input::dispatcher::testing::{self, code, down, up
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, Pressed, SharedDispatcher};
 use wizard101_chat_translator::input::inject::Injector;
 use wizard101_chat_translator::input::keys::Code;
+use wizard101_chat_translator::launcher::accounts::{launch_auto_close, launch_selection};
 use wizard101_chat_translator::local::{self, Command, RepoState};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::region::ocr::OcrError;
@@ -49,6 +50,7 @@ use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Tra
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, SettingsEnv};
+use wizard101_chat_translator::ui::settings::launch_window::LaunchAction;
 use wizard101_chat_translator::util::{self, Clock};
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
@@ -1522,4 +1524,58 @@ fn the_wizard_env_reaches_the_hub_installed_before_any_window() {
     assert!(Arc::ptr_eq(&local::get().unwrap(), &installed));
     let events: Vec<UiEvent> = rx.try_iter().collect();
     assert!(events.contains(&UiEvent::LocalChanged), "{events:?}");
+}
+
+#[test]
+fn a_selection_change_is_saved_as_the_launch_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let path = dir.path().join("config.json");
+    let settings = Arc::new(RwLock::new(cfg()));
+    let (ui, rx) = UiPoster::for_test();
+    let mut on_launch =
+        launch_actions(Arc::clone(&settings), path.clone(), rt.handle().clone(), ui);
+    on_launch(LaunchAction::SelectionChanged(vec!["b".into(), "a".into()]));
+    assert_eq!(launch_selection(&settings.read().unwrap()), ["b", "a"]);
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["launch_selection"], json!(["b", "a"]));
+    assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::ConfigSaved]);
+}
+
+#[test]
+fn an_auto_close_change_is_saved_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let path = dir.path().join("config.json");
+    let settings = Arc::new(RwLock::new(cfg()));
+    let (ui, rx) = UiPoster::for_test();
+    let mut on_launch =
+        launch_actions(Arc::clone(&settings), path.clone(), rt.handle().clone(), ui);
+    on_launch(LaunchAction::AutoCloseChanged(false));
+    assert!(!launch_auto_close(&settings.read().unwrap()));
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["launch_auto_close"], json!(false));
+    assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::ConfigSaved]);
+}
+
+#[test]
+fn launching_only_unknown_accounts_starts_nothing() {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let (ui, rx) = UiPoster::for_test();
+    let mut on_launch = launch_actions(
+        Arc::new(RwLock::new(cfg())),
+        dir.path().join("config.json"),
+        rt.handle().clone(),
+        ui,
+    );
+    on_launch(LaunchAction::Launch(vec!["ghost-7f3a".into()]));
+    assert!(
+        !log_lines_with("[launch] unknown account id ghost-7f3a").is_empty(),
+        "unknown id is logged"
+    );
+    rt.shutdown_timeout(Duration::from_secs(5));
+    assert!(rx.try_recv().is_err(), "no launch ran");
+    assert!(!dir.path().join("config.json").exists());
 }

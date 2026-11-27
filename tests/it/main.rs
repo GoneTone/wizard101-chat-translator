@@ -6,6 +6,7 @@
 mod common;
 mod stream_server;
 
+mod accounts_settings;
 mod app_main;
 mod build_embed;
 mod cache_golden;
@@ -29,6 +30,7 @@ mod hotkeys;
 mod i18n_match_golden;
 mod input_box;
 mod keys_golden;
+mod launch_window;
 mod local_download;
 mod local_engine;
 mod local_gguf;

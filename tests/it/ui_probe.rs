@@ -822,6 +822,9 @@ impl SettingsEnv for NoopEnv {
         Default::default()
     }
     fn local_command(&self, _cmd: wizard101_chat_translator::local::Command) {}
+    fn scan_running_accounts(&self) {}
+    fn detect_installs(&self) {}
+    fn pick_game_folder(&self, _round: u64) {}
 }
 
 /// 包住 App：檢查執行緒要求時按一次 ⚙，並回報 overlay 的 HWND。

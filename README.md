@@ -83,6 +83,16 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
 9. The software checks GitHub for a new version at every launch and every hour after that; if there is one, a blue banner is added to the overlay (click the banner to see what's new and update from inside the software, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
+## Launching Multiple Accounts
+
+Add your own accounts in the settings window once, and the software logs each of them in and opens the game directly, without going through the official launcher — several accounts with one click.
+
+- **Launching**: while the overlay is waiting for the game, a button appears in the middle of it; the ▶ on the title bar works at any time. Both open a window listing your accounts: tick several and launch them together, or launch one with the button next to it. An account that is already running is skipped, whoever started it. Once every account has launched, the window closes itself (this can be turned off in the settings); if one fails, it stays open so you can read the error. Each account can also be launched on its own from the settings window.
+- **Game install location**: the official and Steam installs are found automatically; if yours is not, pick the game folder in the settings window.
+- **Passwords**: stored in `config.json`, encrypted with Windows DPAPI, so only the same Windows user on the same computer can decrypt them — copied to another computer or Windows user, they have to be entered again. Passwords are never written to the logs.
+- **Steam accounts**: the Steam client must be running and logged into the Steam account the game account is bound to. Either kind of account can be launched with whichever copy of the game you have installed, whether it came from the official site or from Steam.
+- **Game updates are not handled**: the software does not patch the game. If logging in or entering the game fails after a game update, update once through the official launcher or Steam. When the server refuses a login, its original message is shown.
+
 ## Features
 
 - **Understand what people are saying**: every line of chat is translated into your language in real time, with the original kept above it; it keeps up even when messages flood in
@@ -90,6 +100,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **Paste text into the game**: the game itself cannot paste text, so `Ctrl+V` with the game in the foreground types the clipboard for you, in any text field
 - **No misread characters, no missed messages**: the game's chat content is read directly rather than recognized off the screen, and both other people's lines and your own are covered
 - **Multiple game clients are covered**: with several clients running at once, the translation window follows whichever game client is in the foreground; speaking and pasting go to the client you are currently using
+- **Open several accounts with one click**: save your own accounts once and the ones you tick are logged straight into the game, skipping the official launcher; accounts already running are skipped
 - **Tabs in sync with the game**: the translation window's tabs mirror the game's chat tabs, with names and unread counts shown just as in the game
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically

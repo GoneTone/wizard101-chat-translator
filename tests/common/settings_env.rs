@@ -11,6 +11,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::recorder::{Recording, record};
+use wizard101_chat_translator::launcher::install::Install;
 use wizard101_chat_translator::local::store::{Installed, Manifest};
 use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
@@ -41,6 +42,15 @@ pub struct FakeEnv {
     pub snapshot: RefCell<Snapshot>,
     /// 收到的本地模型指令。
     pub commands: RefCell<Vec<Command>>,
+    /// 測試要送回的執行中帳號名（`RunningAccounts`）。
+    pub running: Vec<String>,
+    /// 測試要送回的安裝位置（`InstallsDetected`）。
+    pub installs: Vec<Install>,
+    /// 要求掃描執行中帳號的次數。
+    pub running_scans: Cell<usize>,
+    /// 要求偵測安裝的次數。
+    pub install_detections: Cell<usize>,
+    pub folder_picks: RefCell<Vec<u64>>,
 }
 
 impl SettingsEnv for FakeEnv {
@@ -90,6 +100,16 @@ impl SettingsEnv for FakeEnv {
     }
     fn local_command(&self, cmd: Command) {
         self.commands.borrow_mut().push(cmd);
+    }
+    fn scan_running_accounts(&self) {
+        self.running_scans.set(self.running_scans.get() + 1);
+    }
+    fn detect_installs(&self) {
+        self.install_detections
+            .set(self.install_detections.get() + 1);
+    }
+    fn pick_game_folder(&self, round: u64) {
+        self.folder_picks.borrow_mut().push(round);
     }
 }
 

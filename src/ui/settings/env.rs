@@ -1,4 +1,4 @@
-//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵、選檔）與結果的輪次比對。
+//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵、選檔、選資料夾、掃描遊戲安裝與執行中帳號）與結果的輪次比對。
 //!
 //! 介面只透過 `SettingsEnv` 發起工作，結果以 `UiEvent::Settings` 回到 UI 執行緒；測試換成假的 env。
 
@@ -18,6 +18,9 @@ use windows_sys::w;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSpec};
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
+use crate::launcher::install::{self, Install};
+use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::running;
 use crate::local;
 use crate::logs::log;
 use crate::runtime::updater::{RELEASES_API, Release, check_for_update, update_client};
@@ -57,6 +60,12 @@ pub trait SettingsEnv {
     fn local_snapshot(&self) -> crate::local::Snapshot;
     /// 送一個指令給本地模型 hub（背景執行）。
     fn local_command(&self, cmd: crate::local::Command);
+    /// 在背景掃描執行中遊戲用戶端的帳號名，完成後投遞 `RunningAccounts`。
+    fn scan_running_accounts(&self);
+    /// 在背景偵測本機的遊戲安裝，完成後投遞 `InstallsDetected`。
+    fn detect_installs(&self);
+    /// 跳出選資料夾的對話框，選完或取消後投遞 `GameFolderPicked`。
+    fn pick_game_folder(&self, round: u64);
 }
 
 /// `SettingsEnv` 背景工作的結果。
@@ -83,6 +92,16 @@ pub enum SettingsEvent {
     GlossaryFilePicked { round: u64, path: Option<PathBuf> },
     /// 匯出術語表選到的存檔位置；`None` 是取消。
     GlossarySavePathPicked { round: u64, path: Option<PathBuf> },
+    /// 遊戲安裝位置選到的資料夾；`None` 是取消。
+    GameFolderPicked { round: u64, path: Option<PathBuf> },
+    /// 偵測到的遊戲安裝。
+    InstallsDetected { installs: Vec<Install> },
+    /// 執行中遊戲用戶端的帳號名。
+    RunningAccounts { names: Vec<String> },
+    /// 某帳號的開啟進度有變（不論從開啟遊戲帳號視窗還是設定頁開啟）。
+    LaunchStatus { id: String, status: LaunchStatus },
+    /// 開啟遊戲帳號視窗改了「開好後自動關閉」並已存檔。
+    LaunchAutoClose(bool),
 }
 
 /// 正式環境的 `SettingsEnv`：工作丟到 tokio runtime，熱鍵錄製掛在鍵盤分派器上。
@@ -131,6 +150,24 @@ impl RealEnv {
                 }
             };
             ui.post(UiEvent::Settings(event));
+        });
+    }
+
+    /// 在阻塞執行緒跑 `scan` 並投遞 `event` 包好的結果；panic 時改投預設值，畫面才不會一直停在偵測中。
+    fn post_blocking<T: Default + Send + 'static>(
+        &self,
+        label: &'static str,
+        scan: fn() -> T,
+        event: fn(T) -> SettingsEvent,
+    ) {
+        let ui = self.ui.clone();
+        self.rt.spawn_blocking(move || {
+            let result = std::panic::catch_unwind(scan).unwrap_or_else(|panic| {
+                let message = panic_message(panic.as_ref());
+                log(format!("[settings] {label} panicked: {message}"));
+                T::default()
+            });
+            ui.post(UiEvent::Settings(event(result)));
         });
     }
 }
@@ -314,6 +351,29 @@ impl SettingsEnv for RealEnv {
                 "[settings] local hub missing, command dropped: {cmd:?}"
             )),
         }
+    }
+
+    fn scan_running_accounts(&self) {
+        self.post_blocking("running account scan", running::running_accounts, |names| {
+            SettingsEvent::RunningAccounts { names }
+        });
+    }
+
+    fn detect_installs(&self) {
+        self.post_blocking("install detection", install::detect_installs, |installs| {
+            SettingsEvent::InstallsDetected { installs }
+        });
+    }
+
+    fn pick_game_folder(&self, round: u64) {
+        let ui = self.ui.clone();
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new().pick_folder();
+            ui.post(UiEvent::Settings(SettingsEvent::GameFolderPicked {
+                round,
+                path,
+            }));
+        });
     }
 }
 

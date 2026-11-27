@@ -374,3 +374,33 @@ fn load_config_with_non_numeric_advanced_value_uses_the_default() {
     let lines = common::log_capture::log_lines_with("[config] type_delay is not a number");
     assert!(!lines.is_empty(), "{lines:?}");
 }
+
+#[test]
+fn config_round_trips_accounts() {
+    use wizard101_chat_translator::launcher::accounts::{self, Account, AccountKind};
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.json");
+    let list = vec![
+        Account {
+            id: "a1".into(),
+            name: "alice".into(),
+            kind: AccountKind::Official,
+            password_dpapi: "00ff".into(),
+        },
+        Account {
+            id: "b2".into(),
+            name: "bob".into(),
+            kind: AccountKind::Steam,
+            password_dpapi: "abcd".into(),
+        },
+    ];
+    let mut cfg = config::default_config();
+    accounts::store(&mut cfg, &list);
+    accounts::set_launch_selection(&mut cfg, &["b2".to_string()]);
+    accounts::set_launch_auto_close(&mut cfg, false);
+    save_config(&path, &cfg).unwrap();
+    let loaded = load_config(&path);
+    assert_eq!(accounts::stored(&loaded), list);
+    assert_eq!(accounts::launch_selection(&loaded), vec!["b2".to_string()]);
+    assert!(!accounts::launch_auto_close(&loaded));
+}

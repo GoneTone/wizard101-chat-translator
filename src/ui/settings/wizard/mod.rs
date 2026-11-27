@@ -133,7 +133,12 @@ impl Wizard {
             }
             SettingsEvent::UpdateChecked { .. }
             | SettingsEvent::GlossaryFilePicked { .. }
-            | SettingsEvent::GlossarySavePathPicked { .. } => {}
+            | SettingsEvent::GlossarySavePathPicked { .. }
+            | SettingsEvent::GameFolderPicked { .. }
+            | SettingsEvent::InstallsDetected { .. }
+            | SettingsEvent::RunningAccounts { .. }
+            | SettingsEvent::LaunchStatus { .. }
+            | SettingsEvent::LaunchAutoClose(_) => {}
         }
     }
 

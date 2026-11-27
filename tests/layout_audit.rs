@@ -20,11 +20,18 @@ use common::settings_env::FakeEnv;
 use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::i18n;
+use wizard101_chat_translator::launcher::accounts::store;
+use wizard101_chat_translator::launcher::install::{Install, InstallSource};
+use wizard101_chat_translator::launcher::login::LoginError;
+use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
+use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::clients::ModelInfo;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
+use wizard101_chat_translator::ui::settings::launch_list::LaunchList;
+use wizard101_chat_translator::ui::settings::launch_window;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsWindow};
 use wizard101_chat_translator::ui::settings::wizard::Wizard;
@@ -88,6 +95,7 @@ fn page_name(page: Page) -> &'static str {
         Page::Services => "services",
         Page::LocalModels => "local_models",
         Page::Glossaries => "glossaries",
+        Page::Accounts => "accounts",
         Page::Advanced => "advanced",
         Page::About => "about",
     }
@@ -99,6 +107,7 @@ fn settings_pages(language: &'static str, size: Vec2, tag: &str) {
         Page::Services,
         Page::LocalModels,
         Page::Glossaries,
+        Page::Accounts,
         Page::Advanced,
         Page::About,
     ] {
@@ -279,6 +288,108 @@ fn wizard_states(language: &'static str, tag: &str) {
     save(&mut h, &format!("wizard_{tag}_3_hotkeys_same"));
 }
 
+/// 帳號分頁：兩個安裝位置、兩個帳號（其中一個執行中），以及編輯對話框的名稱空白錯誤與新增對話框。
+fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
+    let account = |id: &str, name: &str, kind| Account {
+        id: id.into(),
+        name: name.into(),
+        kind,
+        password_dpapi: "00".into(),
+    };
+    let mut cfg = all_providers();
+    store(
+        &mut cfg,
+        &[
+            account("a", "alice", AccountKind::Official),
+            account(
+                "b",
+                "a_very_long_account_name_for_layout",
+                AccountKind::Steam,
+            ),
+        ],
+    );
+    let mut h = settings(&cfg, language, size);
+    h.state_mut().win.set_page(Page::Accounts);
+    h.run_steps(1);
+    {
+        let win = &mut h.state_mut().win;
+        win.apply(&SettingsEvent::RunningAccounts {
+            names: vec!["alice".into()],
+        });
+        let installs = vec![
+            Install {
+                source: InstallSource::Steam,
+                root: r"C:\Program Files (x86)\Steam\steamapps\common\Wizard101".into(),
+            },
+            Install {
+                source: InstallSource::Official,
+                root: r"C:\ProgramData\KingsIsle Entertainment\Wizard101".into(),
+            },
+        ];
+        win.apply(&SettingsEvent::InstallsDetected { installs });
+        let raw = "Your client is out of date (0xd)".to_owned();
+        win.apply(&SettingsEvent::LaunchStatus {
+            id: "b".into(),
+            status: LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
+        });
+    }
+    save(&mut h, &format!("accounts_{tag}_list"));
+    click_nth(&mut h, &tr("button.edit"), 0);
+    h.get_by_label(&tr("accounts.field_name")).click();
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.key_press(Key::Backspace);
+    save(&mut h, &format!("accounts_{tag}_edit_blank"));
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    click(&mut h, Role::Button, &tr("button.add_account"));
+    save(&mut h, &format!("accounts_{tag}_new"));
+}
+
+/// 開啟遊戲帳號視窗：沒有帳號，以及執行中、登入中、開好、被拒（伺服器原文）各一的帳號清單。
+fn launch_states(language: &'static str, size: Vec2, tag: &str) {
+    let account = |id: &str, name: &str, kind| Account {
+        id: id.into(),
+        name: name.into(),
+        kind,
+        password_dpapi: "00".into(),
+    };
+    let accounts = vec![
+        account("a", "alice", AccountKind::Official),
+        account(
+            "b",
+            "a_very_long_account_name_for_layout",
+            AccountKind::Steam,
+        ),
+        account("c", "carol", AccountKind::Official),
+        account("d", "dave", AccountKind::Steam),
+        account("e", "erin", AccountKind::Official),
+    ];
+    for (name, accounts) in [("empty", Vec::new()), ("list", accounts)] {
+        i18n::set_language(language);
+        let mut list = LaunchList::new(accounts, &["c".into(), "d".into(), "e".into()]);
+        list.set_running(vec!["alice".into()]);
+        list.set_status("c", LaunchStatus::LoggingIn);
+        list.set_status("d", LaunchStatus::Opened);
+        let raw = "Your client is out of date (0xd)".to_owned();
+        list.set_status(
+            "e",
+            LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
+        );
+        let mut h = themed_harness_with(
+            Harness::builder().wgpu(),
+            size,
+            language,
+            |ui: &mut Ui, s: &mut (LaunchList, bool)| {
+                paint_window_bg(ui);
+                let _ = launch_window::show(ui, &mut s.0, &mut s.1);
+            },
+            (list, true),
+        );
+        save(&mut h, &format!("launch_{tag}_{name}"));
+    }
+}
+
 fn small_windows() {
     settings_pages("zh-TW", egui::vec2(640.0, 360.0), "small");
     let mut h = wizard(empty_cfg(), "zh-TW", egui::vec2(600.0, 380.0));
@@ -296,6 +407,18 @@ fn render_every_settings_screen() {
     settings_pages("en-US", theme::SETTINGS_SIZE, "en-US");
     basic_states();
     update_states();
+    accounts_states("zh-TW", theme::SETTINGS_SIZE, "zh-TW");
+    accounts_states("en-US", theme::SETTINGS_SIZE, "en-US");
+    accounts_states("zh-TW", theme::SETTINGS_MIN_SIZE, "small_zh-TW");
+    accounts_states("en-US", theme::SETTINGS_MIN_SIZE, "small_en-US");
+    for language in ["zh-TW", "en-US"] {
+        launch_states(language, theme::LAUNCH_SIZE, language);
+        launch_states(
+            language,
+            theme::LAUNCH_MIN_SIZE,
+            &format!("small_{language}"),
+        );
+    }
     service_states();
     wizard_states("zh-TW", "zh-TW");
     wizard_states("en-US", "en-US");

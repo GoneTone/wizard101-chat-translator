@@ -11,7 +11,7 @@ use crate::ui::geometry::Rect;
 use crate::ui::icon::app_icon;
 use crate::ui::settings::env::{SettingsEnv, SettingsEvent};
 use crate::ui::settings::theme;
-use crate::ui::settings::window::{SettingsAction, SettingsWindow};
+use crate::ui::settings::window::{Page, SettingsAction, SettingsWindow};
 use crate::ui::settings::wizard::{Wizard, WizardAction};
 use crate::ui::{viewport, win32};
 
@@ -350,6 +350,15 @@ impl SettingsHost {
         self.content
             .as_ref()
             .is_some_and(SettingsWindow::has_unsaved)
+    }
+
+    /// 以 `cfg` 開窗並切到 `page`；已開著就切頁並叫到前景。
+    pub fn open_at(&mut self, cfg: &Config, page: Page) {
+        self.open(cfg);
+        if let Some(window) = &mut self.content {
+            log(format!("[ui] settings window switched to page {page:?}"));
+            window.set_page(page);
+        }
     }
 }
 

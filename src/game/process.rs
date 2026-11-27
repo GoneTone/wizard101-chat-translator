@@ -4,11 +4,14 @@ use std::path::Path;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
+use windows_sys::Wdk::System::Threading::{
+    NtQueryInformationProcess, ProcessCommandLineInformation,
+};
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT, UNICODE_STRING};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-use windows_sys::Win32::System::ProcessStatus::{EnumProcesses, GetModuleFileNameExW};
+use windows_sys::Win32::System::ProcessStatus::EnumProcesses;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
@@ -28,14 +31,16 @@ pub fn is_game_process_path(path: &str) -> bool {
 
 /// PID 的主模組路徑；開不了程序（權限、已結束）回 None。
 pub fn process_exe_path(pid: u32) -> Option<String> {
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    // 只要 limited 權限：以系統管理員身分開的遊戲也查得到
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
         return None;
     }
     let mut buf = vec![0u16; 1024];
-    let n = unsafe { GetModuleFileNameExW(handle, null_mut(), buf.as_mut_ptr(), buf.len() as u32) };
+    let mut n = buf.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut n) };
     unsafe { CloseHandle(handle) };
-    (n != 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
+    (ok != 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
 }
 
 /// exe 路徑是遊戲主程式時回其安裝根目錄（`...\Bin\` 的上一層），否則 None。
@@ -129,21 +134,71 @@ pub fn window_pid(hwnd: isize) -> u32 {
     pid
 }
 
-/// PID 是否仍在執行；判斷不了就當活著，不誤刪殘留狀態檔。
-pub fn pid_alive(pid: u32) -> bool {
+/// 目前所有程序的 PID；列舉失敗回 `None`。
+pub fn process_ids() -> Option<Vec<u32>> {
     let mut pids = vec![0u32; 1024];
     loop {
         let bytes = (pids.len() * size_of::<u32>()) as u32;
         let mut needed = 0u32;
         if unsafe { EnumProcesses(pids.as_mut_ptr(), bytes, &mut needed) } == 0 {
-            return true;
+            return None;
         }
         // 緩衝被填滿時無從得知是否還有更多，加大重來
         if needed < bytes {
-            return pids[..needed as usize / size_of::<u32>()].contains(&pid);
+            pids.truncate(needed as usize / size_of::<u32>());
+            return Some(pids);
         }
         pids.resize(pids.len() * 2, 0);
     }
+}
+
+/// PID 是否仍在執行；判斷不了就當活著，不誤刪殘留狀態檔。
+pub fn pid_alive(pid: u32) -> bool {
+    process_ids().is_none_or(|pids| pids.contains(&pid))
+}
+
+/// 程序的完整命令列；開不了程序或查詢失敗回 `None`。
+///
+/// 遊戲的命令列含登入憑證：呼叫端取完所需欄位就該丟棄，不可記 log。
+pub fn process_command_line(pid: u32) -> Option<String> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut needed = 0u32;
+    unsafe {
+        NtQueryInformationProcess(
+            handle,
+            ProcessCommandLineInformation,
+            null_mut(),
+            0,
+            &mut needed,
+        )
+    };
+    // 以 u64 配置，緩衝開頭的 UNICODE_STRING 才會對齊
+    let mut buf = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            ProcessCommandLineInformation,
+            buf.as_mut_ptr().cast(),
+            (buf.len() * 8) as u32,
+            &mut needed,
+        )
+    };
+    unsafe { CloseHandle(handle) };
+    if status < 0 {
+        return None;
+    }
+    // SAFETY：查詢成功時緩衝開頭是 UNICODE_STRING，Buffer 指向同一塊緩衝內。
+    let text = unsafe {
+        let s = &*buf.as_ptr().cast::<UNICODE_STRING>();
+        if s.Buffer.is_null() {
+            return Some(String::new());
+        }
+        std::slice::from_raw_parts(s.Buffer, s.Length as usize / 2)
+    };
+    Some(String::from_utf16_lossy(text))
 }
 
 /// 目前前景視窗的 handle，取不到回 0。
@@ -184,6 +239,25 @@ mod tests {
             r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe.bak"
         ));
         assert!(!is_game_process_path(""));
+    }
+
+    #[test]
+    fn process_exe_path_reads_own_process() {
+        let path = process_exe_path(std::process::id()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert!(
+            Path::new(&path).ends_with(exe.file_name().unwrap()),
+            "{path}"
+        );
+    }
+
+    #[test]
+    fn process_command_line_reads_own_process() {
+        let line = process_command_line(std::process::id()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let name = exe.file_stem().unwrap().to_string_lossy();
+        assert!(line.contains(name.as_ref()), "{line}");
+        assert!(process_ids().unwrap().contains(&std::process::id()));
     }
 
     #[test]

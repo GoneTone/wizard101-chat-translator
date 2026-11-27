@@ -10,8 +10,9 @@ use serde_json::json;
 use tokio::runtime::Handle;
 use wizard101_chat_translator::app_main::{
     Running, WinRegionDesktop, apply_settings, build_app, claim_instance, install_console_quit,
-    install_local, log_startup_summary, open_messages_log, outgoing_translate, real_local,
-    region_capturer, region_runner, report_save, run_ui_then, save_field, shutdown, type_delay,
+    install_local, launch_actions, log_startup_summary, open_messages_log, outgoing_translate,
+    real_local, region_capturer, region_runner, report_save, run_ui_then, save_field, scan_running,
+    shutdown, type_delay,
 };
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
@@ -393,6 +394,15 @@ fn start_main(app: &mut App, startup: Startup) {
             "[update] cannot locate own exe, in-app update disabled: {e}"
         )),
     }
+    app.load_accounts(&read(&shared_cfg));
+    app.set_on_launch(launch_actions(
+        Arc::clone(&shared_cfg),
+        config_path(),
+        rt.clone(),
+        ui.clone(),
+    ));
+    let (scan_rt, scan_ui) = (rt.clone(), ui.clone());
+    app.set_on_scan_running(move || scan_running(&scan_rt, &scan_ui));
     app.set_release_notes(ReleaseNotesHost::new(
         rt.clone(),
         ui.clone(),
