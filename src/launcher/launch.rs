@@ -69,6 +69,18 @@ pub fn build_args(
     args
 }
 
+fn client_command(install: &Install, args: &[String]) -> Command {
+    let bin = install.root.join("Bin");
+    let mut command = Command::new(bin.join(PROCESS_NAME));
+    // 取 Steam 票據時本程序暫設了這兩個變數，同時開的用戶端不可繼承
+    command
+        .args(args)
+        .current_dir(bin)
+        .env_remove("SteamAppId")
+        .env_remove("SteamGameId");
+    command
+}
+
 /// 以 `Bin\` 為工作目錄啟動用戶端，回 PID。
 pub fn spawn_client(install: &Install, args: &[String]) -> Result<u32, LaunchError> {
     let bin = install.root.join("Bin");
@@ -77,7 +89,7 @@ pub fn spawn_client(install: &Install, args: &[String]) -> Result<u32, LaunchErr
         log(format!("[launch] client missing at {}", exe.display()));
         return Err(LaunchError::ClientMissing);
     }
-    match Command::new(&exe).args(args).current_dir(&bin).spawn() {
+    match client_command(install, args).spawn() {
         Ok(child) => {
             log(format!(
                 "[launch] started {:?} client pid={} from {}",
@@ -181,6 +193,18 @@ mod tests {
         assert_skeleton(&args);
         assert!(!has(&args, &["-ST"]));
         assert!(!has(&args, &["-P"]));
+    }
+
+    #[test]
+    fn client_does_not_inherit_steam_app_id() {
+        let command = client_command(&install(InstallSource::Official), &[]);
+        let removed: Vec<_> = command
+            .get_envs()
+            .filter(|(_, value)| value.is_none())
+            .map(|(key, _)| key.to_string_lossy().into_owned())
+            .collect();
+        assert!(removed.contains(&"SteamAppId".to_string()), "{removed:?}");
+        assert!(removed.contains(&"SteamGameId".to_string()), "{removed:?}");
     }
 
     #[test]

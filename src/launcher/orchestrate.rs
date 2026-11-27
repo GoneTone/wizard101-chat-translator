@@ -114,6 +114,9 @@ impl Borrow<SteamTicket> for SteamSession {
     }
 }
 
+/// 同一時間只允許一個 Steam 會話（初始化、取票據、登入到釋放）。
+static STEAM_SESSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn attempt<D: LauncherDeps>(
     account: &Account,
     deps: &D,
@@ -130,6 +133,11 @@ async fn attempt<D: LauncherDeps>(
     let install = select_install(installs, account.kind).map_err(Failure::Launch)?;
     let password = deps.password(account).ok_or(Failure::Password)?;
     deps.report(&account.id, &LaunchStatus::LoggingIn);
+    // 跨批次也要排隊：兩批同時開時，一批的 Shutdown 會打斷另一批正在用的 Steam API
+    let steam_turn = match account.kind {
+        AccountKind::Steam => Some(STEAM_SESSION.lock().await),
+        AccountKind::Official => None,
+    };
     let ticket = match account.kind {
         AccountKind::Steam => Some(deps.acquire_ticket(install).await.map_err(Failure::Steam)?),
         AccountKind::Official => None,
@@ -144,6 +152,7 @@ async fn attempt<D: LauncherDeps>(
         .await
         .map_err(Failure::Login)?;
     drop(ticket);
+    drop(steam_turn);
     let creds = Credentials {
         user_id: outcome.user_id,
         ck2: outcome.ck2,
@@ -203,6 +212,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use tokio::sync::Barrier;
@@ -225,6 +235,8 @@ mod tests {
         barrier: Option<Barrier>,
         spawned: Mutex<Vec<String>>,
         reports: Mutex<Vec<(String, LaunchStatus)>>,
+        steam_active: AtomicUsize,
+        steam_peak: AtomicUsize,
     }
 
     impl Default for Fake {
@@ -236,6 +248,8 @@ mod tests {
                 barrier: None,
                 spawned: Mutex::new(Vec::new()),
                 reports: Mutex::new(Vec::new()),
+                steam_active: AtomicUsize::new(0),
+                steam_peak: AtomicUsize::new(0),
             }
         }
     }
@@ -261,6 +275,8 @@ mod tests {
             "machine".into()
         }
         async fn acquire_ticket(&self, _: &Install) -> Result<SteamTicket, SteamError> {
+            let now = self.steam_active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.steam_peak.fetch_max(now, Ordering::SeqCst);
             self.steam.clone().map(|()| SteamTicket {
                 steam_id: "1".into(),
                 ticket: vec![1],
@@ -271,10 +287,14 @@ mod tests {
             account: &str,
             _: &str,
             _: &str,
-            _: Option<&SteamTicket>,
+            steam: Option<&SteamTicket>,
         ) -> Result<LoginOutcome, LoginError> {
             if let Some(barrier) = &self.barrier {
                 barrier.wait().await;
+            }
+            if steam.is_some() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                self.steam_active.fetch_sub(1, Ordering::SeqCst);
             }
             if let Some((name, raw)) = self.reject
                 && name == account
@@ -380,6 +400,18 @@ mod tests {
         );
         assert_eq!(*status_of(&results, "o"), LaunchStatus::Opened);
         assert_eq!(*fake.spawned.lock().unwrap(), vec!["o-name".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn steam_sessions_never_overlap_across_batches() {
+        let fake = Fake::default();
+        let first = [account("s1", AccountKind::Steam)];
+        let second = [account("s2", AccountKind::Steam)];
+        tokio::join!(
+            launch_accounts(&first, &fake),
+            launch_accounts(&second, &fake)
+        );
+        assert_eq!(fake.steam_peak.load(Ordering::SeqCst), 1);
     }
 
     #[test]

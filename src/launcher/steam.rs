@@ -93,7 +93,7 @@ pub struct SteamSession {
     pub ticket: SteamTicket,
 }
 
-// SAFETY：Steam flat API 可跨執行緒呼叫；session 只在一個工作裡依序使用與釋放。
+// SAFETY：Steam flat API 可跨執行緒呼叫；呼叫端以全程序的鎖保證同時只有一個 session。
 unsafe impl Send for SteamSession {}
 
 impl Drop for SteamSession {
@@ -124,7 +124,7 @@ impl AppIdEnv {
             .map(|k| (k, std::env::var_os(k)))
             .into();
         for k in ["SteamAppId", "SteamGameId"] {
-            // SAFETY：Windows 的環境區塊由系統加鎖；Steam 帳號逐一處理，不會並行改同一組變數。
+            // SAFETY：Windows 的環境區塊由系統加鎖；呼叫端保證同時只有一個 Steam 初始化在改這組變數。
             unsafe { std::env::set_var(k, WIZARD101_APP_ID) };
         }
         Self(saved)

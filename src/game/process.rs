@@ -9,9 +9,9 @@ use windows_sys::Wdk::System::Threading::{
 };
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT, UNICODE_STRING};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-use windows_sys::Win32::System::ProcessStatus::{EnumProcesses, GetModuleFileNameExW};
+use windows_sys::Win32::System::ProcessStatus::EnumProcesses;
 use windows_sys::Win32::System::Threading::{
-    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+    OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
@@ -31,14 +31,16 @@ pub fn is_game_process_path(path: &str) -> bool {
 
 /// PID 的主模組路徑；開不了程序（權限、已結束）回 None。
 pub fn process_exe_path(pid: u32) -> Option<String> {
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    // 只要 limited 權限：以系統管理員身分開的遊戲也查得到
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
         return None;
     }
     let mut buf = vec![0u16; 1024];
-    let n = unsafe { GetModuleFileNameExW(handle, null_mut(), buf.as_mut_ptr(), buf.len() as u32) };
+    let mut n = buf.len() as u32;
+    let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut n) };
     unsafe { CloseHandle(handle) };
-    (n != 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
+    (ok != 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
 }
 
 /// exe 路徑是遊戲主程式時回其安裝根目錄（`...\Bin\` 的上一層），否則 None。
@@ -191,6 +193,9 @@ pub fn process_command_line(pid: u32) -> Option<String> {
     // SAFETY：查詢成功時緩衝開頭是 UNICODE_STRING，Buffer 指向同一塊緩衝內。
     let text = unsafe {
         let s = &*buf.as_ptr().cast::<UNICODE_STRING>();
+        if s.Buffer.is_null() {
+            return Some(String::new());
+        }
         std::slice::from_raw_parts(s.Buffer, s.Length as usize / 2)
     };
     Some(String::from_utf16_lossy(text))
@@ -234,6 +239,16 @@ mod tests {
             r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe.bak"
         ));
         assert!(!is_game_process_path(""));
+    }
+
+    #[test]
+    fn process_exe_path_reads_own_process() {
+        let path = process_exe_path(std::process::id()).unwrap();
+        let exe = std::env::current_exe().unwrap();
+        assert!(
+            Path::new(&path).ends_with(exe.file_name().unwrap()),
+            "{path}"
+        );
     }
 
     #[test]
