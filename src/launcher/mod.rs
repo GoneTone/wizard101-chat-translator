@@ -5,6 +5,7 @@ pub mod install;
 pub mod launch;
 pub mod login;
 pub mod running;
+pub mod steam;
 
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
 
