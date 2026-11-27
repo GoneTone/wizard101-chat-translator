@@ -89,7 +89,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 
 Add your own accounts in the settings window once, and the software logs each of them in and opens the game directly, without going through the official launcher — several accounts with one click.
 
-- **Launching**: while the overlay is waiting for the game, a button in the middle of it opens your account list; a button on the title bar opens the same list at any time. Tick the accounts you want and launch them; an account that is already running is skipped, whoever started it. Each account can also be launched on its own from the settings window.
+- **Launching**: while the overlay is waiting for the game, a button appears in the middle of it; the ▶ on the title bar works at any time. Both open a window listing your accounts: tick several and launch them together, or launch one with the button next to it. An account that is already running is skipped, whoever started it. Once every account has launched, the window closes itself (this can be turned off in the settings); if one fails, it stays open so you can read the error. Each account can also be launched on its own from the settings window.
 - **Game location**: the official and Steam installs are found automatically; if yours is not, pick the game folder in the settings window.
 - **Passwords**: stored in `config.json`, encrypted with Windows DPAPI, so only the same Windows user on the same computer can decrypt them — copied to another computer or Windows user, they have to be entered again. Passwords are never written to the logs.
 - **Steam accounts**: the Steam client must be running and logged into the Steam account the game account is bound to. Both account types work with either install.
