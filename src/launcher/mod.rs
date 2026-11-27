@@ -3,5 +3,6 @@
 pub mod accounts;
 pub mod install;
 pub mod launch;
+pub mod running;
 
 pub use accounts::{Account, AccountKind};
