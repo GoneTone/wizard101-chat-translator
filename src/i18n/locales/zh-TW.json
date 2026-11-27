@@ -434,7 +434,7 @@
   "button.launch": "開啟",
   "button.add_account": "＋ 新增帳號",
   "error.account_name_taken": "已有同名的帳號。",
-  "error.account_name_invalid": "帳號名稱不能有空格，也不能有中文等登入時無法送出的字元。",
+  "error.account_name_invalid": "帳號名稱不能有空格，只能用英文字母、數字、符號，以及 é、ñ 等西歐語言字母。",
   "error.need_password": "請輸入密碼。",
   "error.password_encrypt_failed": "無法加密密碼：{error}",
   "launch.open_game": "開啟遊戲",
