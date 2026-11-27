@@ -76,7 +76,8 @@ pub fn failure_text(failure: &Failure) -> String {
     }
 }
 
-fn status_color(status: &LaunchStatus) -> Color32 {
+/// 開啟進度文字的顏色：開好綠、失敗紅、其餘說明色。
+pub(crate) fn status_color(status: &LaunchStatus) -> Color32 {
     match status {
         LaunchStatus::Opened => theme::OK,
         LaunchStatus::Failed(_) => theme::ERROR,

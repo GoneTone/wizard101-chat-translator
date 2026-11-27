@@ -134,7 +134,10 @@ impl Wizard {
             SettingsEvent::UpdateChecked { .. }
             | SettingsEvent::GlossaryFilePicked { .. }
             | SettingsEvent::GlossarySavePathPicked { .. }
-            | SettingsEvent::GameFolderPicked { .. } => {}
+            | SettingsEvent::GameFolderPicked { .. }
+            | SettingsEvent::InstallsDetected { .. }
+            | SettingsEvent::RunningAccounts { .. }
+            | SettingsEvent::LaunchStatus { .. } => {}
         }
     }
 

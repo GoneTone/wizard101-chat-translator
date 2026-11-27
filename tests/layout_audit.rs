@@ -22,6 +22,8 @@ use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::launcher::accounts::store;
 use wizard101_chat_translator::launcher::install::{Install, InstallSource};
+use wizard101_chat_translator::launcher::login::LoginError;
+use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::clients::ModelInfo;
@@ -305,10 +307,14 @@ fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
         ],
     );
     let mut h = settings(&cfg, language, size);
+    h.state_mut().win.set_page(Page::Accounts);
+    h.run_steps(1);
     {
-        let env = &mut h.state_mut().env;
-        env.running = vec!["alice".into()];
-        env.installs = vec![
+        let win = &mut h.state_mut().win;
+        win.apply(&SettingsEvent::RunningAccounts {
+            names: vec!["alice".into()],
+        });
+        let installs = vec![
             Install {
                 source: InstallSource::Steam,
                 root: r"C:\Program Files (x86)\Steam\steamapps\common\Wizard101".into(),
@@ -318,8 +324,13 @@ fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
                 root: r"C:\ProgramData\KingsIsle Entertainment\Wizard101".into(),
             },
         ];
+        win.apply(&SettingsEvent::InstallsDetected { installs });
+        let raw = "Your client is out of date (0xd)".to_owned();
+        win.apply(&SettingsEvent::LaunchStatus {
+            id: "b".into(),
+            status: LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
+        });
     }
-    h.state_mut().win.set_page(Page::Accounts);
     save(&mut h, &format!("accounts_{tag}_list"));
     click_nth(&mut h, &tr("button.edit"), 0);
     h.get_by_label(&tr("accounts.field_name")).click();

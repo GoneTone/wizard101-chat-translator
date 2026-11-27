@@ -414,6 +414,7 @@
   "accounts.game_location": "游戏位置",
   "accounts.install_steam": "Steam 版：{path}",
   "accounts.install_official": "官网版：{path}",
+  "accounts.detecting": "正在检测游戏位置…",
   "accounts.install_none": "找不到游戏安装位置。",
   "accounts.invalid_folder": "这个文件夹不是 Wizard101 的安装位置。",
   "accounts.my_accounts": "我的账号",

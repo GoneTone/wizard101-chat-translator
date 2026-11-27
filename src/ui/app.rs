@@ -36,6 +36,7 @@ use crate::ui::overlay::tab_bar;
 use crate::ui::region::flow::RegionFlow;
 use crate::ui::region_host::RegionHost;
 use crate::ui::release_notes_host::ReleaseNotesHost;
+use crate::ui::settings::env::SettingsEvent;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
@@ -647,7 +648,15 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
-            UiEvent::LaunchStatus { id, status } => self.launch_menu.set_launch_status(&id, status),
+            UiEvent::LaunchStatus { id, status } => {
+                if let Some(wiring) = &mut self.settings {
+                    wiring.host.apply(SettingsEvent::LaunchStatus {
+                        id: id.clone(),
+                        status: status.clone(),
+                    });
+                }
+                self.launch_menu.set_launch_status(&id, status);
+            }
             UiEvent::RunningAccounts(names) => self.launch_menu.set_running(names),
             UiEvent::LocalLoading(model) => {
                 self.banners.set_local_loading(model);

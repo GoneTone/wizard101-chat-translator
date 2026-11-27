@@ -414,6 +414,7 @@
   "accounts.game_location": "遊戲位置",
   "accounts.install_steam": "Steam 版：{path}",
   "accounts.install_official": "官網版：{path}",
+  "accounts.detecting": "正在偵測遊戲位置…",
   "accounts.install_none": "找不到遊戲安裝位置。",
   "accounts.invalid_folder": "這個資料夾不是 Wizard101 的安裝位置。",
   "accounts.my_accounts": "我的帳號",

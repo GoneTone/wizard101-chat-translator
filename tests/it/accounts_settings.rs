@@ -15,7 +15,11 @@ use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::game::process::PROCESS_NAME;
 use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::launcher::accounts::{decrypt_password, store, stored};
+use wizard101_chat_translator::launcher::install::{Install, InstallSource};
+use wizard101_chat_translator::launcher::login::LoginError;
+use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
+use wizard101_chat_translator::ui::overlay::launch_popup::status_text;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::card_label;
@@ -39,7 +43,8 @@ fn two_accounts() -> Vec<Account> {
     ]
 }
 
-fn open(accounts: &[Account], env: FakeEnv) -> Harness<'static, State> {
+/// 打開帳號分頁，背景偵測與掃描還沒回來。
+fn open_pending(accounts: &[Account], env: FakeEnv) -> Harness<'static, State> {
     i18n::set_language(LANGUAGE);
     let mut cfg: Config = custom_cfg();
     store(&mut cfg, accounts);
@@ -47,6 +52,26 @@ fn open(accounts: &[Account], env: FakeEnv) -> Harness<'static, State> {
     h.state_mut().win.set_page(Page::Accounts);
     run(&mut h);
     h
+}
+
+/// 打開帳號分頁，並把 `env` 的安裝位置與執行中帳號當成背景結果送回。
+fn open(accounts: &[Account], env: FakeEnv) -> Harness<'static, State> {
+    let mut h = open_pending(accounts, env);
+    let installs = h.state().env.installs.clone();
+    let names = h.state().env.running.clone();
+    apply(&mut h, SettingsEvent::InstallsDetected { installs });
+    apply(&mut h, SettingsEvent::RunningAccounts { names });
+    h
+}
+
+fn apply(h: &mut Harness<State>, event: SettingsEvent) {
+    h.state_mut().win.apply(&event);
+    run(h);
+}
+
+fn launch_status(h: &mut Harness<State>, id: &str, status: LaunchStatus) {
+    let id = id.into();
+    apply(h, SettingsEvent::LaunchStatus { id, status });
 }
 
 /// 把 `label` 欄位整個換成 `text`。
@@ -236,6 +261,56 @@ fn running_account_shows_badge_and_disables_open() {
 }
 
 #[test]
+fn entering_the_page_detects_in_the_background() {
+    let mut h = open_pending(&[], FakeEnv::default());
+    assert_eq!(h.state().env.install_detections.get(), 1);
+    assert_eq!(h.state().env.running_scans.get(), 1);
+    assert!(has_label(&h, &tr("accounts.detecting")));
+    assert!(!has_label(&h, &tr("accounts.install_none")));
+    run(&mut h);
+    assert_eq!(
+        h.state().env.install_detections.get(),
+        1,
+        "one detection in flight"
+    );
+    assert_eq!(h.state().env.running_scans.get(), 1, "one scan in flight");
+
+    let installs = vec![Install {
+        source: InstallSource::Official,
+        root: r"D:\Games\Wizard101".into(),
+    }];
+    apply(&mut h, SettingsEvent::InstallsDetected { installs });
+    assert!(!has_label(&h, &tr("accounts.detecting")));
+    let line = i18n::t(
+        "accounts.install_official",
+        &[("path", r"D:\Games\Wizard101")],
+    );
+    assert!(has_label(&h, &line));
+}
+
+#[test]
+fn logging_in_disables_launch_and_shows_the_status() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    assert!(!launch_disabled(&h, 1));
+    launch_status(&mut h, "b", LaunchStatus::LoggingIn);
+    assert!(launch_disabled(&h, 1));
+    assert!(!launch_disabled(&h, 0));
+    assert!(has_label(&h, &status_text(&LaunchStatus::LoggingIn)));
+}
+
+#[test]
+fn rejected_login_shows_the_server_text_verbatim() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    let raw = "0xd: server says no".to_owned();
+    let failed = LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw: raw.clone() }));
+    launch_status(&mut h, "a", failed);
+    assert!(has_label(&h, &raw));
+    assert_eq!(text_sections(&h, &raw)[0].1, theme::ERROR);
+    assert!(has_label(&h, &tr("launch.update_hint")));
+    assert!(!launch_disabled(&h, 0));
+}
+
+#[test]
 fn launch_button_requests_that_account() {
     let mut h = open(&two_accounts(), FakeEnv::default());
     click_nth(&mut h, &tr("button.launch"), 1);
@@ -266,5 +341,20 @@ fn picked_game_folder_must_be_a_valid_install() {
         &h,
         &i18n::t("accounts.install_official", &[("path", &path)])
     ));
-    assert!(h.state().win.has_unsaved());
+}
+
+#[test]
+fn picking_a_valid_folder_commits_game_path() {
+    let mut h = open(&[], FakeEnv::default());
+    let valid = fake_install();
+    click(&mut h, Role::Button, &tr("button.change"));
+    deliver_folder(&mut h, valid.path());
+    let path = valid.path().display().to_string();
+    let committed = commits(&h);
+    assert_eq!(committed.len(), 1);
+    assert_eq!(
+        committed[0].get("game_path"),
+        Some(&serde_json::json!(path))
+    );
+    assert!(!h.state().win.has_unsaved());
 }

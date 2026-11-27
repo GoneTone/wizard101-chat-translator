@@ -33,6 +33,16 @@ pub enum LaunchStatus {
     Failed(Failure),
 }
 
+impl LaunchStatus {
+    /// 登入伺服器拒絕了這個帳號（遊戲沒更新時也是這樣）。
+    pub fn is_rejected(&self) -> bool {
+        matches!(
+            self,
+            Self::Failed(Failure::Login(LoginError::Rejected { .. }))
+        )
+    }
+}
+
 /// 一鍵開啟用到的外部動作；測試以假實作替換。
 pub trait LauncherDeps: Sync {
     /// Steam 會話；持有期間票據有效。

@@ -205,7 +205,7 @@ impl SettingsWindow {
         self.hotkeys.release(env);
     }
 
-    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，選資料夾結果轉給帳號分頁，其餘由視窗自己收。
+    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，選資料夾、偵測、掃描與開啟進度轉給帳號分頁，其餘由視窗自己收。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::TestDone { .. } | SettingsEvent::ModelsDone { .. } => {
@@ -219,7 +219,17 @@ impl SettingsWindow {
             | SettingsEvent::GlossarySavePathPicked { .. } => {
                 self.glossaries.apply(event);
             }
-            SettingsEvent::GameFolderPicked { .. } => self.accounts.apply(event),
+            SettingsEvent::GameFolderPicked { .. } => {
+                self.accounts.apply(event);
+                if self.accounts.take_path_committed() {
+                    let path = self.accounts.game_path_value();
+                    self.saved.insert("game_path".into(), path);
+                    self.commit(&["game_path"]);
+                }
+            }
+            SettingsEvent::InstallsDetected { .. }
+            | SettingsEvent::RunningAccounts { .. }
+            | SettingsEvent::LaunchStatus { .. } => self.accounts.apply(event),
         }
     }
 

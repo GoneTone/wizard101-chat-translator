@@ -1,6 +1,7 @@
 //! 「帳號」分頁：遊戲位置卡、帳號清單（執行中標記、單獨開啟、編輯、刪除）與底部的 Steam 限制說明。
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use eframe::egui::{Id, Label, RichText, Ui};
@@ -19,8 +20,10 @@ use crate::config::services::new_id;
 use crate::i18n::t;
 use crate::launcher::accounts::{self, Account};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
+use crate::launcher::orchestrate::LaunchStatus;
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
+use crate::ui::overlay::launch_popup::{status_color, status_text};
 
 enum Dialog {
     Closed,
@@ -40,16 +43,24 @@ pub struct AccountsPane {
     /// 使用者指定的遊戲位置；`None` 是用偵測結果。
     game_path: Option<PathBuf>,
     dialog: Dialog,
-    /// 偵測到的安裝；進入分頁時才偵測。
+    /// 偵測到的安裝；進入分頁時才在背景偵測，結果回來前是 `None`。
     detected: Option<Vec<Install>>,
+    /// 偵測還在背景跑。
+    detecting: bool,
     running: Vec<String>,
-    /// 上次掃描執行中帳號的時間；`None` 是下一幀要掃。
+    /// 上次要求掃描執行中帳號的時間；`None` 是下一幀要掃。
     running_at: Option<f64>,
+    /// 執行中帳號的掃描還在背景跑；同時只有一次。
+    scanning: bool,
+    /// 各帳號（id）最近一次的開啟進度。
+    statuses: HashMap<String, LaunchStatus>,
     folder_round: Round,
     /// 上次選到的資料夾不是有效的安裝。
     invalid_folder: bool,
     /// 這一幀對話框存好的帳號；外層讀走（`take_committed`）後寫檔。
     committed: Option<Account>,
+    /// 剛選定了有效的遊戲位置；外層讀走（`take_path_committed`）後寫檔，設定頁的〔開啟〕才用得到。
+    path_committed: bool,
     /// 這一幀按了〔開啟〕的帳號 id；外層讀走（`take_launch`）。
     launch: Option<String>,
 }
@@ -64,11 +75,15 @@ impl AccountsPane {
                 .map(PathBuf::from),
             dialog: Dialog::Closed,
             detected: None,
+            detecting: false,
             running: Vec::new(),
             running_at: None,
+            scanning: false,
+            statuses: HashMap::new(),
             folder_round: Round::new("game folder dialog"),
             invalid_folder: false,
             committed: None,
+            path_committed: false,
             launch: None,
         }
     }
@@ -76,8 +91,15 @@ impl AccountsPane {
     /// 草稿寫進 `cfg` 的 `accounts` 與 `game_path`（沒指定時是 null）。
     pub fn write_into(&self, cfg: &mut Config) {
         accounts::store(cfg, &self.accounts);
-        let path = self.game_path.as_ref().map(|p| p.display().to_string());
-        cfg.insert("game_path".into(), path.into());
+        cfg.insert("game_path".into(), self.game_path_value());
+    }
+
+    /// 草稿的 `game_path` 設定值（沒指定時是 null）。
+    pub fn game_path_value(&self) -> Value {
+        self.game_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .into()
     }
 
     /// 進入分頁：重新偵測安裝位置與執行中帳號。
@@ -96,17 +118,40 @@ impl AccountsPane {
         self.committed.take()
     }
 
+    /// 剛選定了有效的遊戲位置；讀走就清掉。
+    pub fn take_path_committed(&mut self) -> bool {
+        std::mem::take(&mut self.path_committed)
+    }
+
     /// 這一幀按了〔開啟〕的帳號 id；讀走就清掉。
     pub fn take_launch(&mut self) -> Option<String> {
         self.launch.take()
     }
 
-    /// 選資料夾的結果：是有效的安裝才採用，否則顯示錯誤；過期或取消的結果丟掉。
+    /// 背景結果：偵測到的安裝、執行中帳號、開啟進度與選到的資料夾。
     pub fn apply(&mut self, event: &SettingsEvent) {
-        let SettingsEvent::GameFolderPicked { round, path } = event else {
-            return;
-        };
-        if !self.folder_round.finish(*round) {
+        match event {
+            SettingsEvent::InstallsDetected { installs } => {
+                self.detected = Some(installs.clone());
+                self.detecting = false;
+            }
+            SettingsEvent::RunningAccounts { names } => {
+                self.running = names.clone();
+                self.scanning = false;
+            }
+            SettingsEvent::LaunchStatus { id, status } => {
+                self.statuses.insert(id.clone(), status.clone());
+            }
+            SettingsEvent::GameFolderPicked { round, path } => {
+                self.folder_picked(*round, path.as_deref())
+            }
+            _ => {}
+        }
+    }
+
+    /// 是有效的安裝才採用，否則顯示錯誤；過期或取消的結果丟掉。
+    fn folder_picked(&mut self, round: u64, path: Option<&Path>) {
+        if !self.folder_round.finish(round) {
             return;
         }
         let Some(path) = path else {
@@ -121,7 +166,8 @@ impl AccountsPane {
             ));
         } else {
             log(format!("[settings] game folder set to {}", path.display()));
-            self.game_path = Some(path.clone());
+            self.game_path = Some(path.to_path_buf());
+            self.path_committed = true;
         }
     }
 
@@ -166,29 +212,35 @@ impl AccountsPane {
     }
 
     fn refresh(&mut self, ui: &Ui, env: &dyn SettingsEnv) {
-        if self.detected.is_none() {
-            self.detected = Some(env.detect_installs());
+        if self.detected.is_none() && !self.detecting {
+            self.detecting = true;
+            env.detect_installs();
         }
         let now = ui.input(|i| i.time);
-        if self
-            .running_at
-            .is_none_or(|at| now - at >= RUNNING_REFRESH_SECS)
+        if !self.scanning
+            && self
+                .running_at
+                .is_none_or(|at| now - at >= RUNNING_REFRESH_SECS)
         {
-            self.running = env.running_accounts();
+            self.scanning = true;
             self.running_at = Some(now);
+            env.scan_running_accounts();
         }
         ui.ctx()
             .request_repaint_after(Duration::from_secs_f64(RUNNING_REFRESH_SECS));
     }
 
     fn location_card(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
+        let detecting = self.detected.is_none();
         let detected = self.detected.clone().unwrap_or_default();
         let installs = installs_with(detected, self.game_path.as_deref());
         let invalid = self.invalid_folder;
         let mut change = false;
         card(ui, |ui| {
             let details = |ui: &mut Ui| {
-                if installs.is_empty() {
+                if detecting {
+                    hint(ui, &t("accounts.detecting", &[]), theme::TEXT_SECONDARY);
+                } else if installs.is_empty() {
                     hint(ui, &t("accounts.install_none", &[]), theme::TEXT_SECONDARY);
                 }
                 for install in &installs {
@@ -219,6 +271,8 @@ impl AccountsPane {
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&account.name));
         // 窄視窗放不下時後面的標記會被截掉，執行中比類型重要
+        let status = self.statuses.get(&account.id);
+        let busy = running || status == Some(&LaunchStatus::LoggingIn);
         let mut badges: Vec<String> = running
             .then(|| t("accounts.running", &[]))
             .into_iter()
@@ -233,9 +287,7 @@ impl AccountsPane {
             "",
             |ui| {
                 let launch = ui
-                    .add_enabled_ui(!running, |ui| {
-                        secondary_button(ui, &t("button.launch", &[]))
-                    })
+                    .add_enabled_ui(!busy, |ui| secondary_button(ui, &t("button.launch", &[])))
                     .inner
                     .clicked();
                 let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
@@ -243,6 +295,12 @@ impl AccountsPane {
                 (launch, edit, delete)
             },
         );
+        if let Some(status) = status {
+            hint(ui, &status_text(status), status_color(status));
+            if status.is_rejected() {
+                hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
+            }
+        }
         let id = account.id.clone();
         if launch {
             Some(CardAction::Launch(id))

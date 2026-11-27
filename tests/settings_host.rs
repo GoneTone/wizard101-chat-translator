@@ -116,11 +116,11 @@ impl SettingsEnv for SharedEnv {
     fn local_command(&self, cmd: wizard101_chat_translator::local::Command) {
         self.0.local_command(cmd);
     }
-    fn running_accounts(&self) -> Vec<String> {
-        self.0.running_accounts()
+    fn scan_running_accounts(&self) {
+        self.0.scan_running_accounts();
     }
-    fn detect_installs(&self) -> Vec<wizard101_chat_translator::launcher::install::Install> {
-        self.0.detect_installs()
+    fn detect_installs(&self) {
+        self.0.detect_installs();
     }
     fn pick_game_folder(&self, round: u64) {
         self.0.pick_game_folder(round);

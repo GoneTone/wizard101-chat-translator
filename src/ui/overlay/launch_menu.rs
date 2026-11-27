@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use eframe::egui::{Pos2, Rect, Vec2};
 
 use crate::launcher::Account;
-use crate::launcher::login::LoginError;
-use crate::launcher::orchestrate::{Failure, LaunchStatus};
+use crate::launcher::orchestrate::LaunchStatus;
 
 /// 「全選」勾選框的三態。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -163,12 +162,7 @@ impl MenuState {
 
     /// 是否有帳號被伺服器拒絕登入（要顯示更新提示）。
     pub fn any_rejected(&self) -> bool {
-        self.statuses.values().any(|s| {
-            matches!(
-                s,
-                LaunchStatus::Failed(Failure::Login(LoginError::Rejected { .. }))
-            )
-        })
+        self.statuses.values().any(LaunchStatus::is_rejected)
     }
 }
 
@@ -197,6 +191,8 @@ pub fn menu_rect(anchor: Anchor, size: Vec2, avail: Rect) -> Rect {
 mod tests {
     use super::*;
     use crate::launcher::AccountKind;
+    use crate::launcher::login::LoginError;
+    use crate::launcher::orchestrate::Failure;
 
     fn account(id: &str, name: &str) -> Account {
         Account {

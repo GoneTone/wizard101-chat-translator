@@ -414,6 +414,7 @@
   "accounts.game_location": "Game location",
   "accounts.install_steam": "Steam version: {path}",
   "accounts.install_official": "Official site version: {path}",
+  "accounts.detecting": "Detecting the game location…",
   "accounts.install_none": "No game install found.",
   "accounts.invalid_folder": "This folder is not a Wizard101 install.",
   "accounts.my_accounts": "My accounts",

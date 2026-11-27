@@ -822,12 +822,8 @@ impl SettingsEnv for NoopEnv {
         Default::default()
     }
     fn local_command(&self, _cmd: wizard101_chat_translator::local::Command) {}
-    fn running_accounts(&self) -> Vec<String> {
-        Vec::new()
-    }
-    fn detect_installs(&self) -> Vec<wizard101_chat_translator::launcher::install::Install> {
-        Vec::new()
-    }
+    fn scan_running_accounts(&self) {}
+    fn detect_installs(&self) {}
     fn pick_game_folder(&self, _round: u64) {}
 }
 
