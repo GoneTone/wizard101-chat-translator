@@ -1,8 +1,6 @@
-//! 開啟遊戲選單的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量與選單擺放位置。
+//! 開啟遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量，以及這次開啟何時算全部完成。
 
 use std::collections::HashMap;
-
-use eframe::egui::{Pos2, Rect, Vec2};
 
 use crate::launcher::Account;
 use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
@@ -16,25 +14,26 @@ pub enum SelectAll {
     None,
 }
 
-/// 選單貼著誰出現。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Anchor {
-    /// 內容區中央的大按鈕（範圍）：優先貼在它下方。
-    Button(Rect),
-    /// 標題列的 ▶：貼在標題列下方、靠右。
-    TitleBar,
+/// 從視窗開啟的帳號全部有了結果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Settled {
+    /// 開好或本來就在執行的數量。
+    pub opened: usize,
+    pub failed: usize,
 }
 
 /// 帳號清單、勾選與逐帳號的開啟進度。
 #[derive(Default)]
-pub struct MenuState {
+pub struct LaunchList {
     accounts: Vec<Account>,
     checked: Vec<String>,
     running: Vec<String>,
     statuses: HashMap<String, LaunchStatus>,
+    /// 從視窗開啟、還沒全部有結果的帳號 id；開啟中再開別的就併進來。
+    batch: Vec<String>,
 }
 
-impl MenuState {
+impl LaunchList {
     /// 以上次的勾選 `selection` 初始化；已不存在的帳號 id 丟掉。
     pub fn new(accounts: Vec<Account>, selection: &[String]) -> Self {
         let mut state = Self::default();
@@ -159,35 +158,56 @@ impl MenuState {
             .collect()
     }
 
-    /// 開始開啟：回傳要開的 id，並先標成登入中，回報到來前再按一次也不會重開。
+    /// 開始開啟勾選的帳號：回傳要開的 id，並先標成登入中，回報到來前再按一次也不會重開。
     pub fn begin_launch(&mut self) -> Vec<String> {
         let ids = self.launchable();
-        for id in &ids {
-            self.set_status(id, LaunchStatus::LoggingIn);
-        }
+        self.mark_launching(&ids);
         ids
     }
-}
 
-/// 選單與中央按鈕之間的距離。
-const BUTTON_GAP: f32 = 4.0;
-
-/// 選單在 `avail`（可用的內容區）裡的範圍；`size` 是選單想要的大小，放不下時高度縮到 `avail` 為止。
-pub fn menu_rect(anchor: Anchor, size: Vec2, avail: Rect) -> Rect {
-    let height = size.y.min(avail.height());
-    let width = size.x.min(avail.width());
-    let (center_x, top) = match anchor {
-        Anchor::Button(button) => {
-            let below = button.max.y + BUTTON_GAP;
-            (button.center().x, below.min(avail.max.y - height))
+    /// 單獨開啟一個帳號；執行中或登入中就不開，回傳 `None`。
+    pub fn begin_launch_one(&mut self, id: &str) -> Option<String> {
+        let account = self.accounts.iter().find(|a| a.id == id)?;
+        if !self.checkable(account) {
+            return None;
         }
-        Anchor::TitleBar => (avail.max.x - width / 2.0, avail.min.y),
-    };
-    let left = (center_x - width / 2.0).clamp(avail.min.x, avail.max.x - width);
-    Rect::from_min_size(
-        Pos2::new(left, top.max(avail.min.y)),
-        Vec2::new(width, height),
-    )
+        let id = id.to_owned();
+        self.mark_launching(std::slice::from_ref(&id));
+        Some(id)
+    }
+
+    fn mark_launching(&mut self, ids: &[String]) {
+        for id in ids {
+            self.set_status(id, LaunchStatus::LoggingIn);
+            if !self.batch.contains(id) {
+                self.batch.push(id.clone());
+            }
+        }
+    }
+
+    /// 從視窗開啟的帳號都有結果了就結算並清掉；還有登入中的、或沒在開啟時回 `None`。
+    ///
+    /// 已經沒有進度的帳號（刪掉了，或開好後遊戲又關了）不算失敗。
+    pub fn settle(&mut self) -> Option<Settled> {
+        let pending = |id: &String| self.status(id) == Some(&LaunchStatus::LoggingIn);
+        if self.batch.is_empty() || self.batch.iter().any(pending) {
+            return None;
+        }
+        let batch = std::mem::take(&mut self.batch);
+        let failed = batch
+            .iter()
+            .filter(|id| matches!(self.status(id), Some(LaunchStatus::Failed(_))))
+            .count();
+        Some(Settled {
+            opened: batch.len() - failed,
+            failed,
+        })
+    }
+
+    /// 視窗關了：不再等這次開啟的結果。
+    pub fn forget_batch(&mut self) {
+        self.batch.clear();
+    }
 }
 
 #[cfg(test)]
@@ -220,13 +240,13 @@ mod tests {
 
     #[test]
     fn unknown_selection_ids_are_dropped() {
-        let state = MenuState::new(three(), &ids(&["b", "gone", "a"]));
+        let state = LaunchList::new(three(), &ids(&["b", "gone", "a"]));
         assert_eq!(state.selection(), ids(&["a", "b"]));
     }
 
     #[test]
     fn open_count_excludes_running() {
-        let mut state = MenuState::new(three(), &ids(&["a", "b", "c"]));
+        let mut state = LaunchList::new(three(), &ids(&["a", "b", "c"]));
         state.set_running(ids(&["bob"]));
         assert_eq!(state.open_count(), 2);
         assert_eq!(state.launchable(), ids(&["a", "c"]));
@@ -239,7 +259,7 @@ mod tests {
 
     #[test]
     fn select_all_only_checks_non_running() {
-        let mut state = MenuState::new(three(), &[]);
+        let mut state = LaunchList::new(three(), &[]);
         state.set_running(ids(&["CAROL"]));
         assert_eq!(state.select_all_state(), SelectAll::None);
         state.toggle_all();
@@ -255,7 +275,7 @@ mod tests {
 
     #[test]
     fn select_all_leaves_a_checked_running_account_checked() {
-        let mut state = MenuState::new(three(), &ids(&["c"]));
+        let mut state = LaunchList::new(three(), &ids(&["c"]));
         state.set_running(ids(&["Carol"]));
         state.toggle_all();
         state.toggle_all();
@@ -264,7 +284,7 @@ mod tests {
 
     #[test]
     fn all_running_disables_open() {
-        let mut state = MenuState::new(three(), &ids(&["a", "b", "c"]));
+        let mut state = LaunchList::new(three(), &ids(&["a", "b", "c"]));
         state.set_running(ids(&["alice", "bob", "carol"]));
         assert_eq!(state.open_count(), 0);
         assert_eq!(state.select_all_state(), SelectAll::None);
@@ -276,7 +296,7 @@ mod tests {
 
     #[test]
     fn launching_marks_accounts_busy_so_a_second_press_opens_nothing() {
-        let mut state = MenuState::new(three(), &ids(&["a", "b"]));
+        let mut state = LaunchList::new(three(), &ids(&["a", "b"]));
         assert_eq!(state.begin_launch(), ids(&["a", "b"]));
         assert_eq!(state.status("a"), Some(&LaunchStatus::LoggingIn));
         assert_eq!(state.open_count(), 0);
@@ -287,7 +307,7 @@ mod tests {
 
     #[test]
     fn a_deleted_account_does_not_keep_its_progress() {
-        let mut state = MenuState::new(three(), &ids(&["a"]));
+        let mut state = LaunchList::new(three(), &ids(&["a"]));
         state.begin_launch();
         let rest: Vec<Account> = three().into_iter().filter(|a| a.id != "a").collect();
         state.set_accounts(rest, &[]);
@@ -296,7 +316,7 @@ mod tests {
 
     #[test]
     fn editing_an_account_drops_its_last_result() {
-        let mut state = MenuState::new(three(), &[]);
+        let mut state = LaunchList::new(three(), &[]);
         state.set_status("a", LaunchStatus::Opened);
         state.set_status("b", LaunchStatus::Opened);
         state.set_status("c", LaunchStatus::LoggingIn);
@@ -311,7 +331,7 @@ mod tests {
 
     #[test]
     fn opened_is_cleared_once_the_game_exits() {
-        let mut state = MenuState::new(three(), &[]);
+        let mut state = LaunchList::new(three(), &[]);
         let name = three()[0].name.clone();
         state.set_status("a", LaunchStatus::Opened);
         state.set_running(vec![name]);
@@ -322,7 +342,7 @@ mod tests {
 
     #[test]
     fn a_new_launch_clears_the_old_result() {
-        let mut state = MenuState::new(three(), &ids(&["a"]));
+        let mut state = LaunchList::new(three(), &ids(&["a"]));
         let raw = "Bad password".to_owned();
         state.set_status(
             "a",
@@ -332,45 +352,77 @@ mod tests {
         assert_eq!(state.status("a"), Some(&LaunchStatus::LoggingIn));
     }
 
-    fn avail() -> Rect {
-        Rect::from_min_max(Pos2::new(6.0, 28.0), Pos2::new(394.0, 400.0))
+    fn failed() -> LaunchStatus {
+        let raw = "Bad password".to_owned();
+        LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw }))
     }
 
     #[test]
-    fn button_menu_sits_below_the_button_when_it_fits() {
-        let button = Rect::from_min_max(Pos2::new(150.0, 100.0), Pos2::new(250.0, 132.0));
-        let r = menu_rect(Anchor::Button(button), Vec2::new(200.0, 150.0), avail());
-        assert_eq!(r.min.y, 132.0 + 4.0);
-        assert_eq!(r.center().x, 200.0);
-        assert_eq!(r.size(), Vec2::new(200.0, 150.0));
+    fn launching_one_account_marks_only_it_busy() {
+        let mut state = LaunchList::new(three(), &[]);
+        state.set_running(ids(&["bob"]));
+        assert_eq!(state.begin_launch_one("a"), Some("a".into()));
+        assert_eq!(state.status("a"), Some(&LaunchStatus::LoggingIn));
+        assert_eq!(state.status("c"), None);
+        assert_eq!(state.begin_launch_one("a"), None, "already logging in");
+        assert_eq!(state.begin_launch_one("b"), None, "running");
+        assert_eq!(state.begin_launch_one("gone"), None);
     }
 
     #[test]
-    fn button_menu_moves_up_over_the_button_when_below_is_short() {
-        let button = Rect::from_min_max(Pos2::new(150.0, 300.0), Pos2::new(250.0, 332.0));
-        let r = menu_rect(Anchor::Button(button), Vec2::new(200.0, 150.0), avail());
-        assert_eq!((r.min.y, r.max.y), (250.0, 400.0));
+    fn a_launch_settles_once_every_account_has_a_result() {
+        let mut state = LaunchList::new(three(), &ids(&["a", "b"]));
+        assert_eq!(state.settle(), None, "nothing launched");
+        state.begin_launch();
+        state.set_status("a", LaunchStatus::Opened);
+        assert_eq!(state.settle(), None, "b is still logging in");
+        state.set_status("b", LaunchStatus::SkippedRunning);
+        let all_ok = Settled {
+            opened: 2,
+            failed: 0,
+        };
+        assert_eq!(state.settle(), Some(all_ok));
+        assert_eq!(state.settle(), None, "settled only once");
     }
 
     #[test]
-    fn a_too_tall_menu_fills_the_area_below_the_title_bar() {
-        let button = Rect::from_min_max(Pos2::new(150.0, 100.0), Pos2::new(250.0, 132.0));
-        for anchor in [Anchor::Button(button), Anchor::TitleBar] {
-            let r = menu_rect(anchor, Vec2::new(200.0, 900.0), avail());
-            assert_eq!((r.min.y, r.max.y), (28.0, 400.0), "{anchor:?}");
-        }
+    fn a_failure_is_counted_when_the_launch_settles() {
+        let mut state = LaunchList::new(three(), &ids(&["a", "b"]));
+        state.begin_launch();
+        state.set_status("a", failed());
+        state.set_status("b", LaunchStatus::Opened);
+        let settled = Settled {
+            opened: 1,
+            failed: 1,
+        };
+        assert_eq!(state.settle(), Some(settled));
     }
 
     #[test]
-    fn title_bar_menu_hangs_from_the_bar_at_the_right() {
-        let r = menu_rect(Anchor::TitleBar, Vec2::new(200.0, 150.0), avail());
-        assert_eq!((r.min.y, r.max.x), (28.0, 394.0));
+    fn a_second_launch_joins_the_one_in_progress() {
+        let mut state = LaunchList::new(three(), &ids(&["a"]));
+        state.begin_launch();
+        state.begin_launch_one("c");
+        state.set_status("a", LaunchStatus::Opened);
+        assert_eq!(state.settle(), None, "c is still logging in");
+        state.set_status("c", LaunchStatus::Opened);
+        assert_eq!(state.settle().map(|s| s.opened), Some(2));
     }
 
     #[test]
-    fn a_wide_menu_is_clamped_inside_the_area() {
-        let button = Rect::from_min_max(Pos2::new(10.0, 100.0), Pos2::new(60.0, 132.0));
-        let r = menu_rect(Anchor::Button(button), Vec2::new(500.0, 100.0), avail());
-        assert_eq!((r.min.x, r.max.x), (6.0, 394.0));
+    fn results_from_elsewhere_do_not_settle_anything() {
+        let mut state = LaunchList::new(three(), &[]);
+        state.set_status("a", LaunchStatus::LoggingIn);
+        state.set_status("a", LaunchStatus::Opened);
+        assert_eq!(state.settle(), None);
+    }
+
+    #[test]
+    fn forgetting_the_batch_stops_waiting_for_it() {
+        let mut state = LaunchList::new(three(), &ids(&["a"]));
+        state.begin_launch();
+        state.forget_batch();
+        state.set_status("a", LaunchStatus::Opened);
+        assert_eq!(state.settle(), None);
     }
 }

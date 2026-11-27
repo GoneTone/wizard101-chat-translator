@@ -1,4 +1,4 @@
-//! 「帳號」分頁：遊戲位置卡、帳號清單（執行中標記、單獨開啟、編輯、刪除）與底部的 Steam 限制說明。
+//! 「遊戲帳號」分頁：遊戲位置卡、帳號清單（執行中標記、單獨開啟、編輯、刪除）、開好後自動關窗的開關與底部的 Steam 限制說明。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -7,23 +7,23 @@ use std::time::Duration;
 use eframe::egui::{Id, Label, RichText, Ui};
 use serde_json::Value;
 
-use super::account_dialog::{AccountDialog, kind_label};
+use super::account_dialog::AccountDialog;
 use super::dialog::{Choice, confirm_delete};
 use super::env::{Round, SettingsEnv, SettingsEvent};
+use super::launch_window::{account_badges, status_line};
 use super::theme;
 use super::widgets::{
-    card, danger_secondary_button, dashed_button, hint, list_card, secondary_button,
-    setting_row_with,
+    card, danger_secondary_button, dashed_button, hint, list_card, secondary_button, setting_row,
+    setting_row_with, toggle,
 };
 use crate::config::Config;
 use crate::config::services::new_id;
 use crate::i18n::t;
-use crate::launcher::accounts::{self, Account};
+use crate::launcher::accounts::{self, Account, launch_auto_close, set_launch_auto_close};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
 use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
-use crate::ui::overlay::launch_popup::{status_color, status_text};
 
 enum Dialog {
     Closed,
@@ -37,11 +37,13 @@ enum CardAction {
     Delete(String),
 }
 
-/// 帳號分頁；帳號清單與遊戲位置是編輯中的草稿，設定視窗按儲存時寫回（`write_into`）。
+/// 遊戲帳號分頁；帳號清單、遊戲位置與自動關窗是編輯中的草稿，設定視窗按儲存時寫回（`write_into`）。
 pub struct AccountsPane {
     accounts: Vec<Account>,
     /// 使用者指定的遊戲位置；`None` 是用偵測結果。
     game_path: Option<PathBuf>,
+    /// 從開啟遊戲帳號視窗開好帳號後自動關窗。
+    auto_close: bool,
     dialog: Dialog,
     /// 偵測到的安裝；進入分頁時才在背景偵測，結果回來前是 `None`。
     detected: Option<Vec<Install>>,
@@ -73,6 +75,7 @@ impl AccountsPane {
                 .get("game_path")
                 .and_then(Value::as_str)
                 .map(PathBuf::from),
+            auto_close: launch_auto_close(cfg),
             dialog: Dialog::Closed,
             detected: None,
             detecting: false,
@@ -88,10 +91,16 @@ impl AccountsPane {
         }
     }
 
-    /// 草稿寫進 `cfg` 的 `accounts` 與 `game_path`（沒指定時是 null）。
+    /// 草稿寫進 `cfg` 的 `accounts`、`game_path`（沒指定時是 null）與 `launch_auto_close`。
     pub fn write_into(&self, cfg: &mut Config) {
         accounts::store(cfg, &self.accounts);
         cfg.insert("game_path".into(), self.game_path_value());
+        set_launch_auto_close(cfg, self.auto_close);
+    }
+
+    /// 換上別處已存檔的自動關窗設定。
+    pub fn set_auto_close(&mut self, on: bool) {
+        self.auto_close = on;
     }
 
     /// 草稿的 `game_path` 設定值（沒指定時是 null）。
@@ -194,6 +203,13 @@ impl AccountsPane {
                     .collect();
                 self.dialog = Dialog::Edit(Box::new(AccountDialog::new(new_id(&ids))));
             }
+            card(ui, |ui| {
+                let label = t("accounts.auto_close", &[]);
+                let hint = t("accounts.auto_close_hint", &[]);
+                setting_row(ui, &label, Some(&hint), |ui| {
+                    toggle(ui, &mut self.auto_close, &label);
+                });
+            });
             hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
             hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             match action {
@@ -272,20 +288,14 @@ impl AccountsPane {
             .running
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&account.name));
-        // 窄視窗放不下時後面的標記會被截掉，執行中比類型重要
         let status = self.statuses.get(&account.id);
         let busy = running || status == Some(&LaunchStatus::LoggingIn);
-        let mut badges: Vec<String> = running
-            .then(|| t("accounts.running", &[]))
-            .into_iter()
-            .collect();
-        badges.push(kind_label(account.kind));
         let (launch, edit, delete) = list_card(
             ui,
             Id::unique(("account_card_buttons", &account.id)),
             |_| {},
             &account.name,
-            &badges,
+            &account_badges(account, running),
             "",
             |ui| {
                 let launch = ui
@@ -298,7 +308,7 @@ impl AccountsPane {
             },
         );
         if let Some(status) = status {
-            hint(ui, &status_text(status), status_color(status));
+            status_line(ui, status);
         }
         let id = account.id.clone();
         if launch {

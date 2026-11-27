@@ -11,6 +11,8 @@ mod glossary_merge;
 pub mod glossary_pane;
 pub mod hotkeys;
 pub mod language;
+pub mod launch_list;
+pub mod launch_window;
 mod local_card;
 pub mod local_dialog;
 mod local_engine;

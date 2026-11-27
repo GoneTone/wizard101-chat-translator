@@ -421,7 +421,7 @@ fn the_footer_stays_visible_in_a_small_window() {
 // --- 儲存 ---
 
 /// 設定視窗管的鍵；儲存只送這些，由 App 併進目前共用的設定。
-const OWNED_KEYS: [&str; 20] = [
+const OWNED_KEYS: [&str; 21] = [
     "services",
     "default_service",
     "service_slots",
@@ -430,6 +430,7 @@ const OWNED_KEYS: [&str; 20] = [
     "active_glossary",
     "accounts",
     "game_path",
+    "launch_auto_close",
     "target_language",
     "hotkey",
     "region_hotkey",
@@ -453,6 +454,7 @@ fn saving_an_unchanged_window_sends_its_own_keys_with_the_ui_language() {
     expected.insert("ui_language".into(), json!(LANGUAGE));
     expected.insert("accounts".into(), json!([]));
     expected.insert("game_path".into(), Value::Null);
+    expected.insert("launch_auto_close".into(), json!(true));
     expected.retain(|key, _| OWNED_KEYS.contains(&key.as_str()));
     assert_eq!(saved, expected);
 }

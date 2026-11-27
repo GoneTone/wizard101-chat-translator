@@ -35,7 +35,7 @@ use crate::input::dispatcher::SharedDispatcher;
 use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
 use crate::launcher::Account;
-use crate::launcher::accounts::{set_launch_selection, stored};
+use crate::launcher::accounts::{set_launch_auto_close, set_launch_selection, stored};
 use crate::launcher::install::{detect_installs, installs_with};
 use crate::launcher::launch::LaunchError;
 use crate::launcher::orchestrate::{
@@ -67,9 +67,9 @@ use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
 use crate::ui::input_box::OutgoingRequest;
-use crate::ui::overlay::launch_popup::MenuAction;
 use crate::ui::region::flow::{CaptureKind, RegionCapturer, RegionDesktop, RegionRunner, Shot};
 use crate::ui::region::selector;
+use crate::ui::settings::launch_window::LaunchAction;
 use crate::ui::win32::{cursor_pos, force_foreground, monitor_rect_at};
 use crate::util::{Clock, join_until, lock, panic_message, read, write};
 
@@ -555,16 +555,16 @@ pub fn outgoing_translate(
     })
 }
 
-/// 一鍵開啟的回呼（交給 [`crate::ui::app::App::set_on_launch`]）：勾選變動存進 `path`，開啟在 `rt` 上跑、進度以 `UiEvent::LaunchStatus` 送回。
+/// 一鍵開啟的回呼（交給 [`crate::ui::app::App::set_on_launch`]）：勾選與自動關窗的變動存進 `path`，開啟在 `rt` 上跑、進度以 `UiEvent::LaunchStatus` 送回。
 pub fn launch_actions(
     settings: Arc<RwLock<Config>>,
     path: PathBuf,
     rt: Handle,
     ui: UiPoster,
-) -> impl FnMut(MenuAction) {
+) -> impl FnMut(LaunchAction) {
     let in_flight = Arc::new(Mutex::new(HashSet::new()));
     move |action| match action {
-        MenuAction::SelectionChanged(ids) => {
+        LaunchAction::SelectionChanged(ids) => {
             let saved = edit_then_save(
                 &settings,
                 "launch_selection",
@@ -573,9 +573,18 @@ pub fn launch_actions(
             );
             report_save(&ui, saved.is_ok());
         }
-        MenuAction::Launch(ids) => launch(&settings, &rt, &ui, &in_flight, &ids),
+        LaunchAction::AutoCloseChanged(on) => {
+            let saved = edit_then_save(
+                &settings,
+                "launch_auto_close",
+                |cfg| set_launch_auto_close(cfg, on),
+                |cfg| save_config(&path, cfg),
+            );
+            report_save(&ui, saved.is_ok());
+        }
+        LaunchAction::Launch(ids) => launch(&settings, &rt, &ui, &in_flight, &ids),
         // App 自己開設定視窗
-        MenuAction::OpenSettings => {}
+        LaunchAction::AddAccount => {}
     }
 }
 
@@ -657,7 +666,7 @@ fn launch(
     });
 }
 
-/// 排除已在開啟中的帳號、其餘標成開啟中；設定頁的〔開啟〕不經選單，重複開啟靠這裡擋。
+/// 排除已在開啟中的帳號、其餘標成開啟中；開啟遊戲帳號視窗與設定頁各自記帳，重複開啟靠這裡擋。
 fn claim(in_flight: &Mutex<HashSet<String>>, accounts: Vec<Account>) -> Vec<Account> {
     let mut busy = lock(in_flight);
     accounts

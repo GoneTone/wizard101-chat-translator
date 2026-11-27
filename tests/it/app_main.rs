@@ -29,7 +29,7 @@ use wizard101_chat_translator::input::dispatcher::testing::{self, code, down, up
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, Pressed, SharedDispatcher};
 use wizard101_chat_translator::input::inject::Injector;
 use wizard101_chat_translator::input::keys::Code;
-use wizard101_chat_translator::launcher::accounts::launch_selection;
+use wizard101_chat_translator::launcher::accounts::{launch_auto_close, launch_selection};
 use wizard101_chat_translator::local::{self, Command, RepoState};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::region::ocr::OcrError;
@@ -49,8 +49,8 @@ use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
-use wizard101_chat_translator::ui::overlay::launch_popup::MenuAction;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, SettingsEnv};
+use wizard101_chat_translator::ui::settings::launch_window::LaunchAction;
 use wizard101_chat_translator::util::{self, Clock};
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
@@ -1535,10 +1535,26 @@ fn a_selection_change_is_saved_as_the_launch_selection() {
     let (ui, rx) = UiPoster::for_test();
     let mut on_launch =
         launch_actions(Arc::clone(&settings), path.clone(), rt.handle().clone(), ui);
-    on_launch(MenuAction::SelectionChanged(vec!["b".into(), "a".into()]));
+    on_launch(LaunchAction::SelectionChanged(vec!["b".into(), "a".into()]));
     assert_eq!(launch_selection(&settings.read().unwrap()), ["b", "a"]);
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert_eq!(saved["launch_selection"], json!(["b", "a"]));
+    assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::ConfigSaved]);
+}
+
+#[test]
+fn an_auto_close_change_is_saved_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let path = dir.path().join("config.json");
+    let settings = Arc::new(RwLock::new(cfg()));
+    let (ui, rx) = UiPoster::for_test();
+    let mut on_launch =
+        launch_actions(Arc::clone(&settings), path.clone(), rt.handle().clone(), ui);
+    on_launch(LaunchAction::AutoCloseChanged(false));
+    assert!(!launch_auto_close(&settings.read().unwrap()));
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["launch_auto_close"], json!(false));
     assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::ConfigSaved]);
 }
 
@@ -1554,7 +1570,7 @@ fn launching_only_unknown_accounts_starts_nothing() {
         rt.handle().clone(),
         ui,
     );
-    on_launch(MenuAction::Launch(vec!["ghost-7f3a".into()]));
+    on_launch(LaunchAction::Launch(vec!["ghost-7f3a".into()]));
     assert!(
         !log_lines_with("[launch] unknown account id ghost-7f3a").is_empty(),
         "unknown id is logged"

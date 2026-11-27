@@ -11,6 +11,7 @@ pub mod glass;
 pub mod icon;
 pub mod input_box;
 pub mod input_host;
+pub mod launch_host;
 pub mod overlay;
 pub mod palette;
 pub mod region;

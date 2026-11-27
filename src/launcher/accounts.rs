@@ -75,7 +75,7 @@ pub fn upsert(accounts: &mut Vec<Account>, account: Account) {
     }
 }
 
-/// 上次在開啟選單勾選的帳號 id。
+/// 上次在開啟遊戲帳號視窗勾選的帳號 id。
 pub fn launch_selection(cfg: &Config) -> Vec<String> {
     cfg.get("launch_selection")
         .and_then(Value::as_array)
@@ -88,6 +88,18 @@ pub fn launch_selection(cfg: &Config) -> Vec<String> {
 /// 記下這次勾選的帳號 id。
 pub fn set_launch_selection(cfg: &mut Config, ids: &[String]) {
     cfg.insert("launch_selection".into(), ids.into());
+}
+
+/// 從開啟遊戲帳號視窗開好帳號後要不要自動關窗；沒設定過是 `true`。
+pub fn launch_auto_close(cfg: &Config) -> bool {
+    cfg.get("launch_auto_close")
+        .and_then(Value::as_bool)
+        .unwrap_or(true)
+}
+
+/// 記下開好帳號後要不要自動關窗。
+pub fn set_launch_auto_close(cfg: &mut Config, on: bool) {
+    cfg.insert("launch_auto_close".into(), on.into());
 }
 
 /// 密碼加解密失敗；訊息只含系統錯誤碼，不含密碼。
@@ -202,6 +214,14 @@ mod tests {
         let stored = encrypt_password("hunter2").unwrap();
         assert!(!stored.contains("hunter2"));
         assert!(!stored.contains(&crate::util::hex(b"hunter2")));
+    }
+
+    #[test]
+    fn auto_close_defaults_to_on_and_reads_the_saved_flag() {
+        let mut cfg = Config::new();
+        assert!(launch_auto_close(&cfg));
+        set_launch_auto_close(&mut cfg, false);
+        assert!(!launch_auto_close(&cfg));
     }
 
     #[test]

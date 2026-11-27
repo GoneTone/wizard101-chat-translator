@@ -1,12 +1,13 @@
-//! 設定視窗的「帳號」分頁：帳號清單、執行中標記、新增／編輯對話框的驗證與遊戲位置。
+//! 設定視窗的「遊戲帳號」分頁：帳號清單、執行中標記、新增／編輯對話框的驗證、遊戲位置與自動關窗開關。
 
 use crate::common;
 
 use eframe::egui;
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use eframe::egui::text_edit::TextEditState;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
+use serde_json::json;
 
 use common::kittest::{click, click_in_dialog, click_nth, has_label, run, text_sections, tr};
 use common::settings_env::FakeEnv;
@@ -14,13 +15,15 @@ use common::settings_window::{State, custom_cfg, harness as window_harness};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::game::process::PROCESS_NAME;
 use wizard101_chat_translator::i18n;
-use wizard101_chat_translator::launcher::accounts::{decrypt_password, store, stored};
+use wizard101_chat_translator::launcher::accounts::{
+    decrypt_password, set_launch_auto_close, store, stored,
+};
 use wizard101_chat_translator::launcher::install::{Install, InstallSource};
 use wizard101_chat_translator::launcher::login::LoginError;
 use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
-use wizard101_chat_translator::ui::overlay::launch_popup::status_text;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
+use wizard101_chat_translator::ui::settings::launch_window::status_text;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::card_label;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
@@ -388,4 +391,47 @@ fn picking_a_valid_folder_commits_game_path() {
         Some(&serde_json::json!(path))
     );
     assert!(!h.state().win.has_unsaved());
+}
+
+fn auto_close_on(h: &Harness<State>) -> bool {
+    let label = tr("accounts.auto_close");
+    let switch = h.get_by_role_and_label(Role::Switch, &label);
+    switch.accesskit_node().toggled() == Some(Toggled::True)
+}
+
+fn saved_cfg(h: &mut Harness<State>) -> Config {
+    click(h, Role::Button, &tr("button.save"));
+    h.state()
+        .actions
+        .iter()
+        .find_map(|a| match a {
+            SettingsAction::Save(cfg) => Some(cfg.clone()),
+            _ => None,
+        })
+        .expect("saved")
+}
+
+#[test]
+fn auto_close_switch_shows_the_saved_value_and_saves_with_the_window() {
+    let mut cfg: Config = custom_cfg();
+    set_launch_auto_close(&mut cfg, false);
+    i18n::set_language(LANGUAGE);
+    let mut h = window_harness(&cfg, FakeEnv::default(), egui::vec2(840.0, 660.0), LANGUAGE);
+    h.state_mut().win.set_page(Page::Accounts);
+    run(&mut h);
+    assert!(!auto_close_on(&h));
+    click(&mut h, Role::Switch, &tr("accounts.auto_close"));
+    assert!(auto_close_on(&h));
+    assert!(h.state().win.has_unsaved());
+    assert_eq!(saved_cfg(&mut h)["launch_auto_close"], json!(true));
+}
+
+#[test]
+fn auto_close_changed_in_the_launch_window_shows_without_unsaved_changes() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    assert!(auto_close_on(&h), "on when never set");
+    apply(&mut h, SettingsEvent::LaunchAutoClose(false));
+    assert!(!auto_close_on(&h));
+    assert!(!h.state().win.has_unsaved());
+    assert_eq!(saved_cfg(&mut h)["launch_auto_close"], json!(false));
 }

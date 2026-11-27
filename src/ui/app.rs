@@ -14,7 +14,7 @@ use crate::config::py::py_bool;
 use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
-use crate::launcher::accounts::{launch_selection, stored};
+use crate::launcher::accounts::{launch_auto_close, launch_selection, stored};
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
 use crate::runtime::self_update::{replace_exe, request_relaunch};
@@ -23,12 +23,13 @@ use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::{Rect, pull_onscreen};
 use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
+use crate::ui::launch_host::LaunchHost;
 use crate::ui::overlay::banners::Banners;
 use crate::ui::overlay::bubble::{
     Action, BUBBLE_SIZE, Bubble, MinimizeGuard, bubble_alpha, initial_position,
 };
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Shell, Win32Shell, describe};
-use crate::ui::overlay::launch_popup::{LaunchMenu, MenuAction};
+use crate::ui::overlay::launch_button::center_button;
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
 use crate::ui::overlay::selection::Selection;
@@ -37,7 +38,8 @@ use crate::ui::region::flow::RegionFlow;
 use crate::ui::region_host::RegionHost;
 use crate::ui::release_notes_host::ReleaseNotesHost;
 use crate::ui::settings::env::SettingsEvent;
-use crate::ui::settings::window::SettingsAction;
+use crate::ui::settings::launch_window::LaunchAction;
+use crate::ui::settings::window::{Page, SettingsAction};
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
 use crate::ui::update_host::{HostAction, UpdateHost};
@@ -131,12 +133,12 @@ pub struct App {
     latest_url: Option<String>,
     /// 換上新版執行檔；測試換成會失敗的版本。
     replace_exe: fn(&Path) -> io::Result<()>,
-    /// overlay 根視窗與泡泡目前的疊放層級；設定、更新或本版說明視窗開著時降為一般層級。
+    /// overlay 根視窗與泡泡目前的疊放層級；設定、更新、本版說明或開啟遊戲帳號視窗開著時降為一般層級。
     overlay_level: WindowLevel,
-    launch_menu: LaunchMenu,
-    on_launch: Box<dyn FnMut(MenuAction)>,
+    launch: LaunchHost,
+    on_launch: Box<dyn FnMut(LaunchAction)>,
     on_scan_running: Box<dyn FnMut()>,
-    /// 選單開著期間上次要求掃描執行中帳號的時間；選單關著時是 `None`。
+    /// 開啟遊戲帳號視窗開著期間上次要求掃描執行中帳號的時間；關著時是 `None`。
     running_scanned_at: Option<f64>,
 }
 
@@ -182,7 +184,7 @@ impl App {
             latest_url: None,
             replace_exe,
             overlay_level: WindowLevel::AlwaysOnTop,
-            launch_menu: LaunchMenu::default(),
+            launch: LaunchHost::default(),
             on_launch: Box::new(|action| {
                 log(format!("[launch] launch action not wired yet: {action:?}"))
             }),
@@ -301,6 +303,19 @@ impl App {
         }
     }
 
+    /// 開設定視窗並切到 `page`；已開著就切頁並叫到前景。
+    fn open_settings_at(&mut self, page: Page) {
+        match &mut self.settings {
+            Some(wiring) => {
+                let cfg = read(&wiring.cfg).clone();
+                wiring.host.open_at(&cfg, page);
+            }
+            None => log(format!(
+                "[ui] settings page {page:?} requested but no settings window is wired"
+            )),
+        }
+    }
+
     /// 開更新視窗；已開著就叫到前景。沒接上更新視窗時改用瀏覽器開最新版的網頁。
     fn open_update(&mut self, ctx: &egui::Context) {
         match (&mut self.update, &self.latest_url) {
@@ -388,28 +403,29 @@ impl App {
         self.status
     }
 
-    /// 開啟遊戲的帳號選單：換帳號清單、執行中名單與逐帳號進度。
-    pub fn launch_menu_mut(&mut self) -> &mut LaunchMenu {
-        &mut self.launch_menu
+    /// 開啟遊戲帳號視窗：換帳號清單、執行中名單與逐帳號進度。
+    pub fn launch_mut(&mut self) -> &mut LaunchHost {
+        &mut self.launch
     }
 
-    /// 接上一鍵開啟：overlay 選單與設定頁的「開啟」、勾選變動都交給 `on_launch`（「開啟設定」由 App 自己處理）。
-    pub fn set_on_launch(&mut self, on_launch: impl FnMut(MenuAction) + 'static) {
+    /// 接上一鍵開啟：開啟遊戲帳號視窗與設定頁的「開啟」、勾選與自動關窗的變動都交給 `on_launch`（「前往新增帳號」由 App 自己處理）。
+    pub fn set_on_launch(&mut self, on_launch: impl FnMut(LaunchAction) + 'static) {
         self.on_launch = Box::new(on_launch);
     }
 
-    /// 接上執行中帳號的掃描：選單打開時與開著期間每隔幾秒呼叫，結果經 `UiEvent::RunningAccounts` 送回。
+    /// 接上執行中帳號的掃描：開啟遊戲帳號視窗打開時與開著期間每隔幾秒呼叫，結果經 `UiEvent::RunningAccounts` 送回。
     pub fn set_on_scan_running(&mut self, scan: impl FnMut() + 'static) {
         self.on_scan_running = Box::new(scan);
     }
 
-    /// 從設定換上開啟選單的帳號清單與上次的勾選。
+    /// 從設定換上開啟遊戲帳號視窗的帳號清單、上次的勾選與自動關窗設定。
     pub fn load_accounts(&mut self, cfg: &Config) {
-        self.launch_menu
+        self.launch
             .set_accounts(stored(cfg), &launch_selection(cfg));
+        self.launch.set_auto_close(launch_auto_close(cfg));
     }
 
-    /// 存檔後選單跟上共用設定：儲存動作只帶視窗管的鍵，不含勾選。
+    /// 存檔後開啟遊戲帳號視窗跟上共用設定：儲存動作只帶視窗管的鍵，不含勾選。
     fn reload_accounts(&mut self) {
         if let Some(wiring) = &self.settings {
             let cfg = read(&wiring.cfg).clone();
@@ -417,9 +433,9 @@ impl App {
         }
     }
 
-    /// 選單開著時讓執行中名單保持新鮮：打開當下掃一次，之後每隔幾秒一次。
+    /// 開啟遊戲帳號視窗開著時讓執行中名單保持新鮮：打開當下掃一次，之後每隔幾秒一次。
     fn scan_running_while_open(&mut self, ctx: &egui::Context) {
-        if !self.launch_menu.is_open() {
+        if !self.launch.is_open() {
             self.running_scanned_at = None;
             return;
         }
@@ -459,14 +475,15 @@ impl App {
         self.overlay_level
     }
 
-    /// 設定、更新或本版說明視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
+    /// 設定、更新、本版說明或開啟遊戲帳號視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
     fn sync_overlay_level(&mut self, ctx: &egui::Context) {
         let open = self.settings.as_ref().is_some_and(|w| w.host.is_open())
             || self.update.as_ref().is_some_and(UpdateHost::is_open)
             || self
                 .release_notes
                 .as_ref()
-                .is_some_and(ReleaseNotesHost::is_open);
+                .is_some_and(ReleaseNotesHost::is_open)
+            || self.launch.is_open();
         let level = if open {
             WindowLevel::Normal
         } else {
@@ -478,7 +495,7 @@ impl App {
         self.overlay_level = level;
         ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(level));
         log(format!(
-            "[ui] overlay window level set to {level:?} (settings, update or release notes window open={open})"
+            "[ui] overlay window level set to {level:?} (settings, update, release notes or launch window open={open})"
         ));
     }
 
@@ -494,7 +511,6 @@ impl App {
         }
         if minimized {
             self.selection.clear("minimized to bubble");
-            self.launch_menu.close();
         } else {
             self.bubble = None;
         }
@@ -655,9 +671,9 @@ impl App {
                         status: status.clone(),
                     });
                 }
-                self.launch_menu.set_launch_status(&id, status);
+                self.launch.set_launch_status(&id, status);
             }
-            UiEvent::RunningAccounts(names) => self.launch_menu.set_running(names),
+            UiEvent::RunningAccounts(names) => self.launch.set_running(names),
             UiEvent::LocalLoading(model) => {
                 self.banners.set_local_loading(model);
                 ctx.request_repaint();
@@ -672,7 +688,7 @@ impl App {
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗、本版說明視窗；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗、本版說明視窗、開啟遊戲帳號視窗；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
@@ -686,7 +702,7 @@ impl App {
         [self.hwnd, input]
             .into_iter()
             .chain(region)
-            .chain([settings, wizard, update, notes])
+            .chain([settings, wizard, update, notes, self.launch.hwnd()])
             .filter(|&h| h != 0)
             .collect()
     }
@@ -791,7 +807,7 @@ impl App {
                 }
                 self.reload_accounts();
             }
-            SettingsAction::LaunchAccounts(ids) => (self.on_launch)(MenuAction::Launch(ids)),
+            SettingsAction::LaunchAccounts(ids) => (self.on_launch)(LaunchAction::Launch(ids)),
             SettingsAction::Cancel => {
                 if let Some(wiring) = &mut self.settings {
                     (wiring.on_cancel)();
@@ -860,6 +876,24 @@ impl App {
         }
     }
 
+    /// 每幀畫出開著的開啟遊戲帳號視窗並處理它的動作；開著期間定時掃描執行中帳號（縮成泡泡時也照常）。
+    fn show_launch(&mut self, ctx: &egui::Context) {
+        let known = self.viewport_hwnds();
+        for action in self.launch.show(ctx, &known) {
+            match action {
+                LaunchAction::AddAccount => self.open_settings_at(Page::Accounts),
+                LaunchAction::AutoCloseChanged(on) => {
+                    if let Some(wiring) = &mut self.settings {
+                        wiring.host.apply(SettingsEvent::LaunchAutoClose(on));
+                    }
+                    (self.on_launch)(action);
+                }
+                action => (self.on_launch)(action),
+            }
+        }
+        self.scan_running_while_open(ctx);
+    }
+
     fn bubble_action(&mut self, action: Action) {
         match action {
             Action::Expand => self.set_minimized(false),
@@ -893,26 +927,22 @@ impl App {
             }
             // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
             Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
-            Some(Clicked::Launch) => self.launch_menu.toggle(),
+            Some(Clicked::Launch) => self.launch.open(),
             None => {}
         }
         let list = self.content(ui);
-        let mut body = ui.max_rect();
-        body.min.y += BAR_HEIGHT;
-        // 中央按鈕掛在置中的狀態大字下方；有訊息時沒有大字，改掛在清單正中
-        let waiting = (self.status == Some("waiting_game")).then(|| {
+        if self.status == Some("waiting_game") {
+            let mut body = ui.max_rect();
+            body.min.y += BAR_HEIGHT;
+            // 中央按鈕掛在置中的狀態大字下方；有訊息時沒有大字，改掛在清單正中
             let below = self
                 .list
                 .placeholder_rect()
                 .map_or(list.center(), |r| r.center_bottom());
-            egui::pos2(list.center().x, below.y)
-        });
-        match self.launch_menu.show(ui, body, waiting) {
-            Some(MenuAction::OpenSettings) => self.open_settings(),
-            Some(action) => (self.on_launch)(action),
-            None => {}
+            if center_button(ui, egui::pos2(list.center().x, below.y), body) {
+                self.launch.open();
+            }
         }
-        self.scan_running_while_open(&ctx);
         if self.banners.take_update_click() {
             self.open_update(&ctx);
         }
@@ -1000,6 +1030,7 @@ impl eframe::App for App {
         if let Some(host) = &mut self.release_notes {
             host.show(&ctx, &known);
         }
+        self.show_launch(&ctx);
         self.sync_overlay_level(&ctx);
         if let Some(rect) = place {
             // 上一幀的全透明畫面要先真的上螢幕才能搬，否則 DWM 會把更早的內容帶到新位置
@@ -1604,27 +1635,15 @@ mod tests {
         assert_eq!(root.shell.borrow().focused, 1);
     }
 
-    /// 塞滿長訊息、有一個帳號的 overlay；`open` 時按 ▶ 打開開啟選單。
-    fn menu_over_messages(open: bool) -> Harness<'static, App> {
+    /// 塞滿長訊息、狀態是 `status` 的 overlay。
+    fn overlay_over_messages(status: &'static str) -> Harness<'static, App> {
         let (poster, inbox) = channel();
         for i in 0..40 {
             poster.post(long_message(i));
         }
+        poster.post(UiEvent::SetStatus(status));
         let (mut harness, _root) = root_harness(inbox, (None, None), 1.0);
-        let account = crate::launcher::Account {
-            id: "a".into(),
-            name: "alice".into(),
-            kind: crate::launcher::AccountKind::Official,
-            password_dpapi: String::new(),
-        };
-        let menu = harness.state_mut().launch_menu_mut();
-        menu.set_accounts(vec![account], &[]);
-        harness.get_by_label("▶").click();
         harness.run_steps(3);
-        if !open {
-            harness.get_by_label("▶").click();
-            harness.run_steps(3);
-        }
         harness
     }
 
@@ -1640,39 +1659,51 @@ mod tests {
     }
 
     #[test]
-    fn dragging_on_the_launch_menu_selects_no_text_underneath() {
-        let mut harness = menu_over_messages(true);
-        let header = harness
-            .get_by_label(&crate::i18n::t("launch.select_all", &[]))
+    fn dragging_on_the_centre_button_selects_no_text_underneath() {
+        let mut harness = overlay_over_messages("waiting_game");
+        let label = crate::i18n::t("launch.open_game", &[]);
+        let button = harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, &label)
             .rect();
-        // 選單左側內距、底下正好有一行字：不是元件，按下去只有直接讀指標的框選會收到
+        // 按鈕左緣內側、底下正好有一行字：直接讀指標的框選要自己略過疊在上面的按鈕
         let line = harness
             .state()
             .list
             .rows()
             .iter()
-            .map(|r| r.lines[0].0.y + 5.0);
-        let y = line.filter(|y| *y > header.max.y).fold(f32::MAX, f32::min);
-        let from = egui::pos2(header.min.x - 4.0, y);
+            .map(|r| r.lines[0].0.y + 5.0)
+            .find(|y| button.y_range().contains(*y))
+            .expect("a line under the button");
+        let from = egui::pos2(button.min.x + 4.0, line);
         drag_left(&mut harness, from);
         assert_eq!(harness.state().selection.span(), None);
-        assert!(harness.state().launch_menu.is_open());
 
-        let mut closed = menu_over_messages(false);
-        drag_left(&mut closed, from);
-        assert!(closed.state().selection.span().is_some(), "precondition");
+        let mut uncovered = overlay_over_messages("listening");
+        drag_left(&mut uncovered, from);
+        assert!(uncovered.state().selection.span().is_some(), "precondition");
     }
 
     #[test]
-    fn minimizing_closes_the_launch_menu() {
+    fn minimizing_keeps_the_launch_window_open_and_scanning() {
         let (_poster, inbox) = channel();
         let mut harness = app_harness(inbox);
+        let scans = Rc::new(Cell::new(0));
+        let counter = Rc::clone(&scans);
+        let app = harness.state_mut();
+        app.launch_mut()
+            .set_window_ops(crate::ui::settings_host::WindowOps::offscreen());
+        app.set_on_scan_running(move || counter.set(counter.get() + 1));
         harness.step();
         harness.get_by_label("▶").click();
         harness.run_steps(3);
-        assert!(harness.state().launch_menu.is_open());
+        assert!(harness.state().launch.is_open());
+        assert_eq!(scans.get(), 1);
         harness.state_mut().set_minimized(true);
-        assert!(!harness.state().launch_menu.is_open());
+        // kittest 每步前進 0.25 秒，掃描間隔 3 秒
+        harness.run_steps(16);
+        assert!(harness.state().minimized);
+        assert!(harness.state().launch.is_open());
+        assert!(scans.get() >= 2, "scans={}", scans.get());
     }
 
     const TOP_RIGHT: Rect = (100 + 640 - 48, 200, 48, 48);

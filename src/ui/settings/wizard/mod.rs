@@ -137,7 +137,8 @@ impl Wizard {
             | SettingsEvent::GameFolderPicked { .. }
             | SettingsEvent::InstallsDetected { .. }
             | SettingsEvent::RunningAccounts { .. }
-            | SettingsEvent::LaunchStatus { .. } => {}
+            | SettingsEvent::LaunchStatus { .. }
+            | SettingsEvent::LaunchAutoClose(_) => {}
         }
     }
 

@@ -105,7 +105,7 @@ pub enum SettingsAction {
     OpenUpdate,
     /// 點了「本版說明」：開本版說明視窗。
     OpenReleaseNotes,
-    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、帳號與遊戲位置、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、帳號、遊戲位置與自動關窗、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 只帶這次提交的鍵（如術語表編輯畫面〔儲存〕），視窗不關；App 只呼叫 `on_save`，不呼叫 `App::apply_settings`，
@@ -205,7 +205,7 @@ impl SettingsWindow {
         self.hotkeys.release(env);
     }
 
-    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，選資料夾、偵測、掃描與開啟進度轉給帳號分頁，其餘由視窗自己收。
+    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，選資料夾、偵測、掃描、開啟進度與自動關窗設定轉給帳號分頁，其餘由視窗自己收。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::TestDone { .. } | SettingsEvent::ModelsDone { .. } => {
@@ -230,6 +230,11 @@ impl SettingsWindow {
             SettingsEvent::InstallsDetected { .. }
             | SettingsEvent::RunningAccounts { .. }
             | SettingsEvent::LaunchStatus { .. } => self.accounts.apply(event),
+            // 另一個視窗已存檔：草稿與「上次存下的值」一起換，不算未存的變更
+            SettingsEvent::LaunchAutoClose(on) => {
+                self.accounts.set_auto_close(*on);
+                self.saved.insert("launch_auto_close".into(), (*on).into());
+            }
         }
     }
 

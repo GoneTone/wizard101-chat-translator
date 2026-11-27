@@ -100,7 +100,7 @@ pub fn take_focus_for_copy(log_prefix: &str, force_foreground: impl FnOnce() -> 
     }
 }
 
-/// `p` 是否落在 `ui` 自己的圖層上、沒被彈出的選單蓋住；直接讀指標的元件要自己問，egui 元件會自動判斷。
+/// `p` 是否落在 `ui` 自己的圖層上、沒被疊在上面的按鈕或選單蓋住；直接讀指標的元件要自己問，egui 元件會自動判斷。
 pub fn on_own_layer(ui: &Ui, p: Pos2) -> bool {
     ui.ctx()
         .layer_id_at(p)

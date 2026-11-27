@@ -124,7 +124,7 @@ pub enum Clicked {
     Minimize,
     /// ✕ 關閉。
     Close,
-    /// ▶ 開關開啟遊戲的帳號選單。
+    /// ▶ 開啟遊戲帳號視窗。
     Launch,
 }
 

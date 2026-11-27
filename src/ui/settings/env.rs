@@ -98,8 +98,10 @@ pub enum SettingsEvent {
     InstallsDetected { installs: Vec<Install> },
     /// 執行中遊戲用戶端的帳號名。
     RunningAccounts { names: Vec<String> },
-    /// 某帳號的開啟進度有變（不論從 overlay 還是設定頁開啟）。
+    /// 某帳號的開啟進度有變（不論從開啟遊戲帳號視窗還是設定頁開啟）。
     LaunchStatus { id: String, status: LaunchStatus },
+    /// 開啟遊戲帳號視窗改了「開好後自動關閉」並已存檔。
+    LaunchAutoClose(bool),
 }
 
 /// 正式環境的 `SettingsEnv`：工作丟到 tokio runtime，熱鍵錄製掛在鍵盤分派器上。

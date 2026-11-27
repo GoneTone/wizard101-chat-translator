@@ -9,10 +9,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 
-use eframe::egui::accesskit::Role;
+use eframe::egui::accesskit::{Role, Toggled};
 use eframe::egui::{self, ViewportCommand, ViewportEvent, ViewportId, WindowLevel};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::json;
 
 use common::kittest::{click, click_in_dialog, click_nth, has_label, run, tr};
@@ -219,6 +219,7 @@ fn settings_app_with(
         let mut host = SettingsHost::new(Box::new(SharedEnv(host_env)));
         host.set_window_ops(fake_ops());
         let mut app = App::new(ctx, inbox, Frame::new(alpha, None, |_, _, _, _| {}));
+        app.launch_mut().set_window_ops(WindowOps::offscreen());
         app.set_settings(
             host,
             Arc::new(RwLock::new(cfg)),
@@ -338,7 +339,7 @@ fn gear_opens_settings_and_save_applies_to_the_overlay() {
 }
 
 #[test]
-fn saving_reloads_the_launch_menu_from_the_shared_config() {
+fn saving_reloads_the_launch_window_from_the_shared_config() {
     let _lock = language_lock();
     i18n::set_language("en-US");
     let mut cfg = settings_cfg();
@@ -353,6 +354,88 @@ fn saving_reloads_the_launch_menu_from_the_shared_config() {
     click(&mut h, Role::Button, "▶");
     h.get_by_role_and_label(Role::CheckBox, "Alice");
     h.get_by_role_and_label(Role::Button, &t("launch.open_count", &[("count", "1")]));
+}
+
+fn accounts_page_shown(h: &Harness<'_, App>) -> bool {
+    has_label(h, &tr("accounts.my_accounts"))
+}
+
+#[test]
+fn add_account_in_the_launch_window_opens_settings_on_the_accounts_page() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, _wired) = settings_app(settings_cfg());
+    click(&mut h, Role::Button, "▶");
+    click(&mut h, Role::Button, &tr("launch.go_add_account"));
+    assert!(accounts_page_shown(&h));
+
+    // 設定視窗已開在別頁：切到遊戲帳號頁
+    let (mut h, _wired) = settings_app(settings_cfg());
+    open_settings(&mut h);
+    assert!(!accounts_page_shown(&h));
+    click(&mut h, Role::Button, "▶");
+    click(&mut h, Role::Button, &tr("launch.go_add_account"));
+    assert!(accounts_page_shown(&h));
+}
+
+/// 有一個帳號的設定，開著設定視窗的遊戲帳號頁與開啟遊戲帳號視窗。
+fn settings_and_launch_window() -> (Harness<'static, App>, Wired) {
+    let mut cfg = settings_cfg();
+    cfg.insert(
+        "accounts".into(),
+        json!([{"id": "a", "name": "Alice", "kind": "official", "password_dpapi": ""}]),
+    );
+    let (mut h, wired) = settings_app(cfg.clone());
+    h.state_mut().load_accounts(&cfg);
+    open_settings(&mut h);
+    click(&mut h, Role::Tab, &tr("settings.tab.accounts"));
+    click(&mut h, Role::Button, "▶");
+    (h, wired)
+}
+
+#[test]
+fn auto_close_toggled_in_the_launch_window_reaches_the_open_settings_page() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, wired) = settings_and_launch_window();
+    let switch = |h: &Harness<'_, App>| {
+        h.get_by_role_and_label(Role::Switch, &tr("accounts.auto_close"))
+            .accesskit_node()
+            .toggled()
+    };
+    assert_eq!(switch(&h), Some(Toggled::True));
+    click(&mut h, Role::CheckBox, &tr("launch.auto_close"));
+    assert_eq!(switch(&h), Some(Toggled::False));
+    click(&mut h, Role::Button, &tr("button.save"));
+    let saved = wired.saved.borrow();
+    assert_eq!(saved.last().unwrap()["launch_auto_close"], json!(false));
+}
+
+#[test]
+fn saving_settings_hands_auto_close_to_the_launch_window() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let shared = Arc::new(RwLock::new(settings_cfg()));
+    let merged = Arc::clone(&shared);
+    let (mut h, _poster, _recorder) = eframe_harness(move |ctx, inbox| {
+        let mut host = SettingsHost::new(Box::new(FakeEnv::default()));
+        host.set_window_ops(fake_ops());
+        let mut app = App::new(ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
+        app.launch_mut().set_window_ops(WindowOps::offscreen());
+        // 與正式環境相同：儲存的鍵併進共用設定
+        let on_save = move |cfg: Config| {
+            merged.write().unwrap().extend(cfg);
+            None
+        };
+        app.set_settings(host, shared, Box::new(on_save), Box::new(|| {}));
+        app
+    });
+    assert!(h.state_mut().launch_mut().auto_close());
+    open_settings(&mut h);
+    click(&mut h, Role::Tab, &tr("settings.tab.accounts"));
+    click(&mut h, Role::Switch, &tr("accounts.auto_close"));
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert!(!h.state_mut().launch_mut().auto_close());
 }
 
 #[test]
