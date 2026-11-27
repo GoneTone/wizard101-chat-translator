@@ -1,4 +1,4 @@
-//! 「遊戲帳號」分頁：遊戲位置卡、帳號清單（執行中標記、單獨開啟、編輯、刪除）、開好後自動關窗的開關與底部的 Steam 限制說明。
+//! 「遊戲帳號」分頁：遊戲安裝位置卡、帳號清單（執行中標記、單獨啟動、編輯、刪除）、啟動後自動關窗的開關與底部的 Steam 限制說明。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,12 +37,12 @@ enum CardAction {
     Delete(String),
 }
 
-/// 遊戲帳號分頁；帳號清單、遊戲位置與自動關窗是編輯中的草稿，設定視窗按儲存時寫回（`write_into`）。
+/// 遊戲帳號分頁；帳號清單、遊戲安裝位置與自動關窗是編輯中的草稿，設定視窗按儲存時寫回（`write_into`）。
 pub struct AccountsPane {
     accounts: Vec<Account>,
-    /// 使用者指定的遊戲位置；`None` 是用偵測結果。
+    /// 使用者指定的遊戲安裝位置；`None` 是用偵測結果。
     game_path: Option<PathBuf>,
-    /// 從開啟遊戲帳號視窗開好帳號後自動關窗。
+    /// 從啟動遊戲帳號視窗啟動帳號後自動關窗。
     auto_close: bool,
     dialog: Dialog,
     /// 偵測到的安裝；進入分頁時才在背景偵測，結果回來前是 `None`。
@@ -54,16 +54,16 @@ pub struct AccountsPane {
     running_at: Option<f64>,
     /// 執行中帳號的掃描還在背景跑；同時只有一次。
     scanning: bool,
-    /// 各帳號（id）最近一次的開啟進度。
+    /// 各帳號（id）最近一次的啟動進度。
     statuses: HashMap<String, LaunchStatus>,
     folder_round: Round,
     /// 上次選到的資料夾不是有效的安裝。
     invalid_folder: bool,
     /// 這一幀對話框存好的帳號；外層讀走（`take_committed`）後寫檔。
     committed: Option<Account>,
-    /// 剛選定了有效的遊戲位置；外層讀走（`take_path_committed`）後寫檔，設定頁的〔開啟〕才用得到。
+    /// 剛選定了有效的遊戲安裝位置；外層讀走（`take_path_committed`）後寫檔，設定頁的〔啟動〕才用得到。
     path_committed: bool,
-    /// 這一幀按了〔開啟〕的帳號 id；外層讀走（`take_launch`）。
+    /// 這一幀按了〔啟動〕的帳號 id；外層讀走（`take_launch`）。
     launch: Option<String>,
 }
 
@@ -127,17 +127,17 @@ impl AccountsPane {
         self.committed.take()
     }
 
-    /// 剛選定了有效的遊戲位置；讀走就清掉。
+    /// 剛選定了有效的遊戲安裝位置；讀走就清掉。
     pub fn take_path_committed(&mut self) -> bool {
         std::mem::take(&mut self.path_committed)
     }
 
-    /// 這一幀按了〔開啟〕的帳號 id；讀走就清掉。
+    /// 這一幀按了〔啟動〕的帳號 id；讀走就清掉。
     pub fn take_launch(&mut self) -> Option<String> {
         self.launch.take()
     }
 
-    /// 背景結果：偵測到的安裝、執行中帳號、開啟進度與選到的資料夾。
+    /// 背景結果：偵測到的安裝、執行中帳號、啟動進度與選到的資料夾。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::InstallsDetected { installs } => {

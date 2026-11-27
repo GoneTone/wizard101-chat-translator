@@ -378,7 +378,7 @@ fn add_account_in_the_launch_window_opens_settings_on_the_accounts_page() {
     assert!(accounts_page_shown(&h));
 }
 
-/// 有一個帳號的設定，開著設定視窗的遊戲帳號頁與開啟遊戲帳號視窗。
+/// 有一個帳號的設定，開著設定視窗的遊戲帳號頁與啟動遊戲帳號視窗。
 fn settings_and_launch_window() -> (Harness<'static, App>, Wired) {
     let mut cfg = settings_cfg();
     cfg.insert(

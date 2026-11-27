@@ -75,7 +75,7 @@ pub fn upsert(accounts: &mut Vec<Account>, account: Account) {
     }
 }
 
-/// 上次在開啟遊戲帳號視窗勾選的帳號 id。
+/// 上次在啟動遊戲帳號視窗勾選的帳號 id。
 pub fn launch_selection(cfg: &Config) -> Vec<String> {
     cfg.get("launch_selection")
         .and_then(Value::as_array)
@@ -90,14 +90,14 @@ pub fn set_launch_selection(cfg: &mut Config, ids: &[String]) {
     cfg.insert("launch_selection".into(), ids.into());
 }
 
-/// 從開啟遊戲帳號視窗開好帳號後要不要自動關窗；沒設定過是 `true`。
+/// 從啟動遊戲帳號視窗啟動帳號後要不要自動關窗；沒設定過是 `true`。
 pub fn launch_auto_close(cfg: &Config) -> bool {
     cfg.get("launch_auto_close")
         .and_then(Value::as_bool)
         .unwrap_or(true)
 }
 
-/// 記下開好帳號後要不要自動關窗。
+/// 記下啟動帳號後要不要自動關窗。
 pub fn set_launch_auto_close(cfg: &mut Config, on: bool) {
     cfg.insert("launch_auto_close".into(), on.into());
 }

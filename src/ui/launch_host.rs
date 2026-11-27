@@ -1,4 +1,4 @@
-//! 托管開啟遊戲帳號視窗：帳號清單與開啟進度常駐（關窗也保留），開著時才畫視窗；從視窗開的帳號都開好就依設定自動關窗。
+//! 托管啟動遊戲帳號視窗：帳號清單與啟動進度常駐（關窗也保留），開著時才畫視窗；從視窗開的帳號都啟動就依設定自動關窗。
 
 use eframe::egui;
 
@@ -18,10 +18,10 @@ const LAUNCH: Spec = Spec {
     topmost_once: true,
 };
 
-/// 開啟遊戲帳號視窗與它的狀態；所有方法都在 UI 執行緒呼叫。
+/// 啟動遊戲帳號視窗與它的狀態；所有方法都在 UI 執行緒呼叫。
 pub struct LaunchHost {
     list: LaunchList,
-    /// 從視窗開好帳號後要不要自動關窗（設定的 `launch_auto_close`）。
+    /// 從視窗啟動帳號後要不要自動關窗（設定的 `launch_auto_close`）。
     auto_close: bool,
     open: bool,
     win: HostedWindow,
@@ -60,7 +60,7 @@ impl LaunchHost {
         ));
     }
 
-    /// 關窗；不再等這次開啟的結果，重開時不會因為之前的開啟自動關掉。
+    /// 關窗；不再等這次啟動的結果，重開時不會因為之前的啟動自動關掉。
     pub fn close(&mut self) {
         if std::mem::take(&mut self.open) {
             log("[ui] launch window closed");
@@ -83,12 +83,12 @@ impl LaunchHost {
         self.list.set_accounts(accounts, selection);
     }
 
-    /// 換上執行中的帳號名稱；執行中的帳號停用勾選與〔開啟〕、不計入開啟數。
+    /// 換上執行中的帳號名稱；執行中的帳號停用勾選與〔啟動〕、不計入啟動數。
     pub fn set_running(&mut self, names: Vec<String>) {
         self.list.set_running(names);
     }
 
-    /// 開好後自動關窗的設定值。
+    /// 啟動後自動關窗的設定值。
     pub fn auto_close(&self) -> bool {
         self.auto_close
     }
@@ -97,7 +97,7 @@ impl LaunchHost {
         self.auto_close = on;
     }
 
-    /// 某帳號的開啟進度有變；從視窗開的帳號都有結果、沒有失敗且開著自動關窗時關窗。
+    /// 某帳號的啟動進度有變；從視窗開的帳號都有結果、沒有失敗且開著自動關窗時關窗。
     pub fn set_launch_status(&mut self, id: &str, status: LaunchStatus) {
         self.list.set_status(id, status);
         let Some(settled) = self.list.settle() else {

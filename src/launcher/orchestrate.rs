@@ -1,4 +1,4 @@
-//! 一鍵開啟：官網帳號並行、Steam 帳號逐一，逐帳號回報結果；單一帳號失敗不影響其他帳號。
+//! 一鍵啟動：官網帳號並行、Steam 帳號逐一，逐帳號回報結果；單一帳號失敗不影響其他帳號。
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
@@ -25,7 +25,7 @@ pub enum Failure {
     Launch(LaunchError),
 }
 
-/// 單一帳號的開啟進度與結果。
+/// 單一帳號的啟動進度與結果。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchStatus {
     LoggingIn,
@@ -35,7 +35,7 @@ pub enum LaunchStatus {
     Failed(Failure),
 }
 
-/// 遊戲關掉後撤掉「已開啟／已在執行」：上次掃描還在執行、這次不在的帳號。
+/// 遊戲關掉後撤掉「已啟動／已在執行」：上次掃描還在執行、這次不在的帳號。
 pub fn forget_exited(
     statuses: &mut HashMap<String, LaunchStatus>,
     accounts: &[Account],
@@ -57,7 +57,7 @@ pub fn forget_exited(
     }
 }
 
-/// 一鍵開啟用到的外部動作；測試以假實作替換。
+/// 一鍵啟動用到的外部動作；測試以假實作替換。
 pub trait LauncherDeps: Sync {
     /// Steam 會話；持有期間票據有效。
     type Ticket: Borrow<SteamTicket> + Send;
@@ -188,7 +188,7 @@ async fn attempt<D: LauncherDeps>(
     Ok(LaunchStatus::Opened)
 }
 
-/// 開啟勾選的帳號；回每個帳號 id 與結果，順序同 `selected`。
+/// 啟動勾選的帳號；回每個帳號 id 與結果，順序同 `selected`。
 pub async fn launch_accounts<D: LauncherDeps>(
     selected: &[Account],
     deps: &D,

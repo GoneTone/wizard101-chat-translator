@@ -1,4 +1,4 @@
-//! 開啟遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量，以及這次開啟何時算全部完成。
+//! 啟動遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量，以及這次啟動何時算全部完成。
 
 use std::collections::HashMap;
 
@@ -14,22 +14,22 @@ pub enum SelectAll {
     None,
 }
 
-/// 從視窗開啟的帳號全部有了結果。
+/// 從視窗啟動的帳號全部有了結果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settled {
-    /// 開好或本來就在執行的數量。
+    /// 啟動成功或本來就在執行的數量。
     pub opened: usize,
     pub failed: usize,
 }
 
-/// 帳號清單、勾選與逐帳號的開啟進度。
+/// 帳號清單、勾選與逐帳號的啟動進度。
 #[derive(Default)]
 pub struct LaunchList {
     accounts: Vec<Account>,
     checked: Vec<String>,
     running: Vec<String>,
     statuses: HashMap<String, LaunchStatus>,
-    /// 從視窗開啟、還沒全部有結果的帳號 id；開啟中再開別的就併進來。
+    /// 從視窗啟動、還沒全部有結果的帳號 id；啟動中再啟動別的就併進來。
     batch: Vec<String>,
 }
 
@@ -41,7 +41,7 @@ impl LaunchList {
         state
     }
 
-    /// 換上新的帳號清單與勾選（設定存檔後）；執行中名單與現有帳號的開啟進度保留。
+    /// 換上新的帳號清單與勾選（設定存檔後）；執行中名單與現有帳號的啟動進度保留。
     pub fn set_accounts(&mut self, accounts: Vec<Account>, selection: &[String]) {
         self.checked = selection
             .iter()
@@ -69,12 +69,12 @@ impl LaunchList {
         self.running = names;
     }
 
-    /// 記下某帳號的開啟進度。
+    /// 記下某帳號的啟動進度。
     pub fn set_status(&mut self, id: &str, status: LaunchStatus) {
         self.statuses.insert(id.to_owned(), status);
     }
 
-    /// 某帳號目前的開啟進度。
+    /// 某帳號目前的啟動進度。
     pub fn status(&self, id: &str) -> Option<&LaunchStatus> {
         self.statuses.get(id)
     }
@@ -135,7 +135,7 @@ impl LaunchList {
         }
     }
 
-    /// 這次按「開啟」會開的帳號 id（勾了且能勾），依存放順序。
+    /// 這次按「啟動」會開的帳號 id（勾了且能勾），依存放順序。
     pub fn launchable(&self) -> Vec<String> {
         self.accounts
             .iter()
@@ -144,7 +144,7 @@ impl LaunchList {
             .collect()
     }
 
-    /// 「開啟 N 個帳號」的 N。
+    /// 「啟動 N 個帳號」的 N。
     pub fn open_count(&self) -> usize {
         self.launchable().len()
     }
@@ -158,14 +158,14 @@ impl LaunchList {
             .collect()
     }
 
-    /// 開始開啟勾選的帳號：回傳要開的 id，並先標成登入中，回報到來前再按一次也不會重開。
+    /// 開始啟動勾選的帳號：回傳要開的 id，並先標成登入中，回報到來前再按一次也不會重開。
     pub fn begin_launch(&mut self) -> Vec<String> {
         let ids = self.launchable();
         self.mark_launching(&ids);
         ids
     }
 
-    /// 單獨開啟一個帳號；執行中或登入中就不開，回傳 `None`。
+    /// 單獨啟動一個帳號；執行中或登入中就不開，回傳 `None`。
     pub fn begin_launch_one(&mut self, id: &str) -> Option<String> {
         let account = self.accounts.iter().find(|a| a.id == id)?;
         if !self.checkable(account) {
@@ -185,9 +185,9 @@ impl LaunchList {
         }
     }
 
-    /// 從視窗開啟的帳號都有結果了就結算並清掉；還有登入中的、或沒在開啟時回 `None`。
+    /// 從視窗啟動的帳號都有結果了就結算並清掉；還有登入中的、或沒在啟動時回 `None`。
     ///
-    /// 已經沒有進度的帳號（刪掉了，或開好後遊戲又關了）不算失敗。
+    /// 已經沒有進度的帳號（刪掉了，或啟動後遊戲又關了）不算失敗。
     pub fn settle(&mut self) -> Option<Settled> {
         let pending = |id: &String| self.status(id) == Some(&LaunchStatus::LoggingIn);
         if self.batch.is_empty() || self.batch.iter().any(pending) {
@@ -204,7 +204,7 @@ impl LaunchList {
         })
     }
 
-    /// 視窗關了：不再等這次開啟的結果。
+    /// 視窗關了：不再等這次啟動的結果。
     pub fn forget_batch(&mut self) {
         self.batch.clear();
     }

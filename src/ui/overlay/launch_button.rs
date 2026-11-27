@@ -1,4 +1,4 @@
-//! overlay 等待遊戲時內容區中央的「開啟遊戲」大按鈕。
+//! overlay 等待遊戲時內容區中央的「啟動遊戲」大按鈕。
 
 use eframe::egui::{Align2, Area, Id, Order, Pos2, Rect, Ui};
 

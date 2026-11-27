@@ -1,4 +1,4 @@
-//! 開啟遊戲帳號視窗的畫面：上方「全選」、中間可捲動的帳號列（勾選、標記、單獨〔開啟〕與進度），底部自動關窗選項與批次開啟。
+//! 啟動遊戲帳號視窗的畫面：上方「全選」、中間可捲動的帳號列（勾選、標記、單獨〔啟動〕與進度），底部自動關窗選項與批次啟動。
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{Checkbox, Color32, Frame, Id, Margin, Panel, Ui, WidgetInfo};
@@ -21,17 +21,17 @@ use crate::logs::log;
 /// 視窗要 App 做的事。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchAction {
-    /// 開啟這些帳號（id）；執行中與登入中的已排除。
+    /// 啟動這些帳號（id）；執行中與登入中的已排除。
     Launch(Vec<String>),
     /// 勾選改了：要記住的帳號 id（寫回 `launch_selection`）。
     SelectionChanged(Vec<String>),
-    /// 「開好後自動關閉」改了：立刻寫回設定。
+    /// 「啟動後自動關閉」改了：立刻寫回設定。
     AutoCloseChanged(bool),
     /// 沒有帳號時按了「前往新增帳號」：開設定視窗的遊戲帳號頁。
     AddAccount,
 }
 
-/// 單一帳號開啟進度的顯示文字；伺服器拒絕登入時直接是伺服器原文。
+/// 單一帳號啟動進度的顯示文字；伺服器拒絕登入時直接是伺服器原文。
 pub fn status_text(status: &LaunchStatus) -> String {
     match status {
         LaunchStatus::LoggingIn => t("launch.logging_in", &[]),
@@ -41,7 +41,7 @@ pub fn status_text(status: &LaunchStatus) -> String {
     }
 }
 
-/// 開啟失敗的顯示文字。
+/// 啟動失敗的顯示文字。
 pub fn failure_text(failure: &Failure) -> String {
     let with_error = |key, error: &str| t(key, &[("error", error)]);
     match failure {
@@ -63,7 +63,7 @@ pub fn failure_text(failure: &Failure) -> String {
     }
 }
 
-/// 開啟進度文字的顏色：開好綠、失敗紅、其餘說明色。
+/// 啟動進度文字的顏色：已啟動綠、失敗紅、其餘說明色。
 pub(crate) fn status_color(status: &LaunchStatus) -> Color32 {
     match status {
         LaunchStatus::Opened => theme::OK,
@@ -72,7 +72,7 @@ pub(crate) fn status_color(status: &LaunchStatus) -> Color32 {
     }
 }
 
-/// 帳號卡片下方的開啟進度；貼近上面那張卡片，才看得出是誰的。
+/// 帳號卡片下方的啟動進度；貼近上面那張卡片，才看得出是誰的。
 pub(super) fn status_line(ui: &mut Ui, status: &LaunchStatus) {
     ui.add_space(4.0 - ui.spacing().item_spacing.y);
     hint(ui, &status_text(status), status_color(status));
@@ -88,7 +88,7 @@ pub(super) fn account_badges(account: &Account, running: bool) -> Vec<String> {
     badges
 }
 
-/// 畫一幀；`auto_close` 是「開好後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
+/// 畫一幀；`auto_close` 是「啟動後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
 pub fn show(ui: &mut Ui, list: &mut LaunchList, auto_close: &mut bool) -> Vec<LaunchAction> {
     let mut actions = Vec::new();
     if list.accounts().is_empty() {

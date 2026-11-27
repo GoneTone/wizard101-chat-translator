@@ -1,4 +1,4 @@
-//! 開啟遊戲帳號視窗：帳號列（勾選、標記、單獨〔開啟〕與進度）、全選與批次開啟、自動關窗，以及 overlay 的 ▶ 與中央按鈕開窗。
+//! 啟動遊戲帳號視窗：帳號列（勾選、標記、單獨〔啟動〕與進度）、全選與批次啟動、自動關窗，以及 overlay 的 ▶ 與中央按鈕開窗。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -95,7 +95,7 @@ fn window(
     window_sized(theme::LAUNCH_SIZE, accounts, selection, running)
 }
 
-/// 由上往下數第 `index` 顆〔開啟〕是否停用。
+/// 由上往下數第 `index` 顆〔啟動〕是否停用。
 fn launch_disabled(h: &Harness<Window>, index: usize) -> bool {
     let label = tr("button.launch");
     let mut nodes: Vec<_> = h
@@ -321,7 +321,7 @@ fn the_title_bar_button_and_the_centre_button_open_the_window() {
     assert!(h.state_mut().launch_mut().is_open());
 }
 
-/// 開窗、按批次開啟 Alice 與 Carol。
+/// 開窗、按批次啟動 Alice 與 Carol。
 fn launch_two(auto_close: bool) -> (Harness<'static, App>, Actions, UiPoster) {
     let (mut h, actions, poster) = overlay("waiting_game", three(), &["a", "c"]);
     h.state_mut().launch_mut().set_auto_close(auto_close);

@@ -105,7 +105,7 @@ pub enum SettingsAction {
     OpenUpdate,
     /// 點了「本版說明」：開本版說明視窗。
     OpenReleaseNotes,
-    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、帳號、遊戲位置與自動關窗、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、帳號、遊戲安裝位置與自動關窗、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 只帶這次提交的鍵（如術語表編輯畫面〔儲存〕），視窗不關；App 只呼叫 `on_save`，不呼叫 `App::apply_settings`，

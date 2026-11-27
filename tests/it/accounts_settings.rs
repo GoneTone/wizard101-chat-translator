@@ -97,7 +97,7 @@ fn dialog_save_disabled(h: &Harness<State>, title: &str) -> bool {
         .is_disabled()
 }
 
-/// 由上往下數第 `index` 顆〔開啟〕是否停用。
+/// 由上往下數第 `index` 顆〔啟動〕是否停用。
 fn launch_disabled(h: &Harness<State>, index: usize) -> bool {
     let label = tr("button.launch");
     let mut nodes: Vec<_> = h

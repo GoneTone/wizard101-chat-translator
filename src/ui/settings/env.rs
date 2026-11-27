@@ -92,7 +92,7 @@ pub enum SettingsEvent {
     GlossaryFilePicked { round: u64, path: Option<PathBuf> },
     /// 匯出術語表選到的存檔位置；`None` 是取消。
     GlossarySavePathPicked { round: u64, path: Option<PathBuf> },
-    /// 遊戲位置選到的資料夾；`None` 是取消。
+    /// 遊戲安裝位置選到的資料夾；`None` 是取消。
     GameFolderPicked { round: u64, path: Option<PathBuf> },
     /// 偵測到的遊戲安裝。
     InstallsDetected { installs: Vec<Install> },

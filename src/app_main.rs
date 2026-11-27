@@ -555,7 +555,7 @@ pub fn outgoing_translate(
     })
 }
 
-/// 一鍵開啟的回呼（交給 [`crate::ui::app::App::set_on_launch`]）：勾選與自動關窗的變動存進 `path`，開啟在 `rt` 上跑、進度以 `UiEvent::LaunchStatus` 送回。
+/// 一鍵啟動的回呼（交給 [`crate::ui::app::App::set_on_launch`]）：勾選與自動關窗的變動存進 `path`，啟動在 `rt` 上跑、進度以 `UiEvent::LaunchStatus` 送回。
 pub fn launch_actions(
     settings: Arc<RwLock<Config>>,
     path: PathBuf,
@@ -666,7 +666,7 @@ fn launch(
     });
 }
 
-/// 排除已在開啟中的帳號、其餘標成開啟中；開啟遊戲帳號視窗與設定頁各自記帳，重複開啟靠這裡擋。
+/// 排除已在啟動中的帳號、其餘標成啟動中；啟動遊戲帳號視窗與設定頁各自記帳，重複啟動靠這裡擋。
 fn claim(in_flight: &Mutex<HashSet<String>>, accounts: Vec<Account>) -> Vec<Account> {
     let mut busy = lock(in_flight);
     accounts

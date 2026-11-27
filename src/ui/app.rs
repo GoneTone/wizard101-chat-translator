@@ -133,12 +133,12 @@ pub struct App {
     latest_url: Option<String>,
     /// 換上新版執行檔；測試換成會失敗的版本。
     replace_exe: fn(&Path) -> io::Result<()>,
-    /// overlay 根視窗與泡泡目前的疊放層級；設定、更新、本版說明或開啟遊戲帳號視窗開著時降為一般層級。
+    /// overlay 根視窗與泡泡目前的疊放層級；設定、更新、本版說明或啟動遊戲帳號視窗開著時降為一般層級。
     overlay_level: WindowLevel,
     launch: LaunchHost,
     on_launch: Box<dyn FnMut(LaunchAction)>,
     on_scan_running: Box<dyn FnMut()>,
-    /// 開啟遊戲帳號視窗開著期間上次要求掃描執行中帳號的時間；關著時是 `None`。
+    /// 啟動遊戲帳號視窗開著期間上次要求掃描執行中帳號的時間；關著時是 `None`。
     running_scanned_at: Option<f64>,
 }
 
@@ -403,29 +403,29 @@ impl App {
         self.status
     }
 
-    /// 開啟遊戲帳號視窗：換帳號清單、執行中名單與逐帳號進度。
+    /// 啟動遊戲帳號視窗：換帳號清單、執行中名單與逐帳號進度。
     pub fn launch_mut(&mut self) -> &mut LaunchHost {
         &mut self.launch
     }
 
-    /// 接上一鍵開啟：開啟遊戲帳號視窗與設定頁的「開啟」、勾選與自動關窗的變動都交給 `on_launch`（「前往新增帳號」由 App 自己處理）。
+    /// 接上一鍵啟動：啟動遊戲帳號視窗與設定頁的「啟動」、勾選與自動關窗的變動都交給 `on_launch`（「前往新增帳號」由 App 自己處理）。
     pub fn set_on_launch(&mut self, on_launch: impl FnMut(LaunchAction) + 'static) {
         self.on_launch = Box::new(on_launch);
     }
 
-    /// 接上執行中帳號的掃描：開啟遊戲帳號視窗打開時與開著期間每隔幾秒呼叫，結果經 `UiEvent::RunningAccounts` 送回。
+    /// 接上執行中帳號的掃描：啟動遊戲帳號視窗打開時與開著期間每隔幾秒呼叫，結果經 `UiEvent::RunningAccounts` 送回。
     pub fn set_on_scan_running(&mut self, scan: impl FnMut() + 'static) {
         self.on_scan_running = Box::new(scan);
     }
 
-    /// 從設定換上開啟遊戲帳號視窗的帳號清單、上次的勾選與自動關窗設定。
+    /// 從設定換上啟動遊戲帳號視窗的帳號清單、上次的勾選與自動關窗設定。
     pub fn load_accounts(&mut self, cfg: &Config) {
         self.launch
             .set_accounts(stored(cfg), &launch_selection(cfg));
         self.launch.set_auto_close(launch_auto_close(cfg));
     }
 
-    /// 存檔後開啟遊戲帳號視窗跟上共用設定：儲存動作只帶視窗管的鍵，不含勾選。
+    /// 存檔後啟動遊戲帳號視窗跟上共用設定：儲存動作只帶視窗管的鍵，不含勾選。
     fn reload_accounts(&mut self) {
         if let Some(wiring) = &self.settings {
             let cfg = read(&wiring.cfg).clone();
@@ -433,7 +433,7 @@ impl App {
         }
     }
 
-    /// 開啟遊戲帳號視窗開著時讓執行中名單保持新鮮：打開當下掃一次，之後每隔幾秒一次。
+    /// 啟動遊戲帳號視窗開著時讓執行中名單保持新鮮：打開當下掃一次，之後每隔幾秒一次。
     fn scan_running_while_open(&mut self, ctx: &egui::Context) {
         if !self.launch.is_open() {
             self.running_scanned_at = None;
@@ -475,7 +475,7 @@ impl App {
         self.overlay_level
     }
 
-    /// 設定、更新、本版說明或開啟遊戲帳號視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
+    /// 設定、更新、本版說明或啟動遊戲帳號視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它們；都關了恢復置頂。
     fn sync_overlay_level(&mut self, ctx: &egui::Context) {
         let open = self.settings.as_ref().is_some_and(|w| w.host.is_open())
             || self.update.as_ref().is_some_and(UpdateHost::is_open)
@@ -688,7 +688,7 @@ impl App {
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗、本版說明視窗、開啟遊戲帳號視窗；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈、更新視窗、本版說明視窗、啟動遊戲帳號視窗；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
@@ -876,7 +876,7 @@ impl App {
         }
     }
 
-    /// 每幀畫出開著的開啟遊戲帳號視窗並處理它的動作；開著期間定時掃描執行中帳號（縮成泡泡時也照常）。
+    /// 每幀畫出開著的啟動遊戲帳號視窗並處理它的動作；開著期間定時掃描執行中帳號（縮成泡泡時也照常）。
     fn show_launch(&mut self, ctx: &egui::Context) {
         let known = self.viewport_hwnds();
         for action in self.launch.show(ctx, &known) {
