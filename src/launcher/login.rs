@@ -15,7 +15,9 @@ use tokio::net::TcpStream;
 use twofish::Twofish;
 use twofish::cipher::{Block, BlockCipherEncrypt, KeyInit};
 
-use super::{SteamTicket, hkcu_string};
+use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
+
+use super::{SteamTicket, reg_string};
 use crate::config::local_state_dir;
 use crate::logs::log;
 use crate::util::{hex, random_u64, unhex};
@@ -426,7 +428,7 @@ pub fn machine_id() -> String {
     {
         return saved.trim().to_string();
     }
-    let id = new_machine_id(hkcu_string(r"Software\KingsIsle", "UUID"));
+    let id = new_machine_id(reg_string(HKEY_CURRENT_USER, r"Software\KingsIsle", "UUID"));
     if let Err(e) = crate::util::write_atomic(&path, &id) {
         log(format!(
             "[login] could not save machine id to {}: {e}",

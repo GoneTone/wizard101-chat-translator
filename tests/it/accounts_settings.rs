@@ -167,17 +167,17 @@ fn blank_name_blocks_save() {
 }
 
 #[test]
-fn name_with_a_space_or_non_ascii_blocks_save() {
+fn name_with_a_space_or_unsendable_characters_blocks_save() {
     let mut h = open(&two_accounts(), FakeEnv::default());
     click_nth(&mut h, &tr("button.edit"), 0);
     let title = tr("accounts.edit_title");
     let error = tr("error.account_name_invalid");
-    for bad in ["al ice", "alicé", "ali	ce"] {
+    for bad in ["al ice", "alice王", "ali\tce"] {
         replace_text(&mut h, &tr("accounts.field_name"), bad);
         assert_eq!(text_sections(&h, &error)[0].1, theme::ERROR, "{bad:?}");
         assert!(dialog_save_disabled(&h, &title));
     }
-    replace_text(&mut h, &tr("accounts.field_name"), " alice.2 ");
+    replace_text(&mut h, &tr("accounts.field_name"), " alicé.2 ");
     assert!(!has_label(&h, &error));
     assert!(!dialog_save_disabled(&h, &title));
 }

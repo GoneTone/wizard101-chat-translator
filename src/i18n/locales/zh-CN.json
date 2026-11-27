@@ -434,7 +434,7 @@
   "button.launch": "启动",
   "button.add_account": "＋ 新增账号",
   "error.account_name_taken": "已有同名的账号。",
-  "error.account_name_invalid": "账号名称只能用英文字母、数字与符号，不能有空格。",
+  "error.account_name_invalid": "账号名称不能有空格，也不能有中文等登录时无法发送的字符。",
   "error.need_password": "请输入密码。",
   "error.password_encrypt_failed": "无法加密密码：{error}",
   "launch.open_game": "启动游戏",

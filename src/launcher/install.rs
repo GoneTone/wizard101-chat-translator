@@ -4,15 +4,14 @@ use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use regex::Regex;
-use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 
-use super::hkcu_string;
+use super::{reg_string, reg_subkeys};
 pub use crate::game::process::PROCESS_NAME;
 use crate::logs::log;
 
-// GetDriveTypeW 的回傳值：只掃本機與卸除式磁碟，網路磁碟斷線時檢查路徑會卡住
-const DRIVE_REMOVABLE: u32 = 2;
-const DRIVE_FIXED: u32 = 3;
+const UNINSTALL: &str = r"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+const UNINSTALL_WOW64: &str = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
 
 /// Steam 版用戶端才有的 Steamworks DLL，放在 `Bin` 底下。
 pub const STEAM_API_DLL: &str = "steam_api64.dll";
@@ -46,7 +45,7 @@ pub fn parse_steam_libraries(vdf: &str) -> Vec<PathBuf> {
 }
 
 fn steam_path() -> Option<PathBuf> {
-    hkcu_string(r"Software\Valve\Steam", "SteamPath").map(PathBuf::from)
+    reg_string(HKEY_CURRENT_USER, r"Software\Valve\Steam", "SteamPath").map(PathBuf::from)
 }
 
 fn steam_install() -> Option<PathBuf> {
@@ -60,25 +59,33 @@ fn steam_install() -> Option<PathBuf> {
         .find(|root| is_valid_install(root))
 }
 
+/// 依有無 [`STEAM_API_DLL`] 判斷安裝來源。
+fn source_of(root: &Path) -> InstallSource {
+    if root.join("Bin").join(STEAM_API_DLL).is_file() {
+        InstallSource::Steam
+    } else {
+        InstallSource::Official
+    }
+}
+
+/// 官網安裝程式登記在「應用程式」清單的安裝位置，使用者自選的路徑也找得到。
 fn official_install() -> Option<PathBuf> {
-    // SAFETY：無參數的查詢。
-    let drives = unsafe { GetLogicalDrives() };
-    (0..26u8)
-        .filter(|i| drives & (1 << i) != 0)
-        .map(|i| format!("{}:\\", (b'A' + i) as char))
-        .filter(|drive| {
-            let wide: Vec<u16> = drive.encode_utf16().chain([0]).collect();
-            // SAFETY：wide 以 NUL 結尾。
-            let kind = unsafe { GetDriveTypeW(wide.as_ptr()) };
-            kind == DRIVE_FIXED || kind == DRIVE_REMOVABLE
-        })
-        .map(|drive| {
-            Path::new(&drive)
-                .join("ProgramData")
-                .join("KingsIsle Entertainment")
-                .join("Wizard101")
-        })
-        .find(|root| is_valid_install(root))
+    [
+        (HKEY_CURRENT_USER, UNINSTALL),
+        (HKEY_LOCAL_MACHINE, UNINSTALL),
+        (HKEY_LOCAL_MACHINE, UNINSTALL_WOW64),
+    ]
+    .into_iter()
+    .flat_map(|(root, list)| {
+        reg_subkeys(root, list)
+            .into_iter()
+            .map(move |name| (root, format!(r"{list}\{name}")))
+    })
+    .filter(|(root, key)| reg_string(*root, key, "DisplayName").as_deref() == Some("Wizard101"))
+    .filter_map(|(root, key)| reg_string(root, &key, "InstallLocation"))
+    .map(PathBuf::from)
+    // Steam 版也會登記同名項目
+    .find(|root| is_valid_install(root) && source_of(root) == InstallSource::Official)
 }
 
 /// 偵測本機的遊戲安裝；Steam 版在前，可能兩者都有或都沒有。
@@ -103,7 +110,7 @@ pub fn detect_installs() -> Vec<Install> {
         ));
     }
     if found.is_empty() {
-        log("[launch] no game install found (Steam libraries and ProgramData on local drives)");
+        log("[launch] no game install found (Steam libraries and uninstall registry)");
     }
     found
 }
@@ -113,11 +120,7 @@ pub fn installs_with(mut detected: Vec<Install>, manual: Option<&Path>) -> Vec<I
     let Some(root) = manual.filter(|root| is_valid_install(root)) else {
         return detected;
     };
-    let source = if root.join("Bin").join(STEAM_API_DLL).is_file() {
-        InstallSource::Steam
-    } else {
-        InstallSource::Official
-    };
+    let source = source_of(root);
     let manual = Install {
         source,
         root: root.to_path_buf(),

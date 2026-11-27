@@ -434,7 +434,7 @@
   "button.launch": "Launch",
   "button.add_account": "+ Add an account",
   "error.account_name_taken": "An account with this name already exists.",
-  "error.account_name_invalid": "Account names can only use English letters, numbers and symbols, with no spaces.",
+  "error.account_name_invalid": "Account names can't contain spaces or characters, such as Chinese, that can't be sent when signing in.",
   "error.need_password": "Enter a password.",
   "error.password_encrypt_failed": "Could not encrypt the password: {error}",
   "launch.open_game": "Launch game",
