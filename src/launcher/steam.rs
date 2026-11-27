@@ -241,7 +241,7 @@ pub fn acquire_ticket(install: &Install) -> Result<SteamSession, SteamError> {
     if code != 0 {
         let running = steam_running();
         log(format!(
-            "[launch] SteamAPI_InitFlat failed: code={code}, steam_running={running}"
+            "[launch] SteamAPI init failed: code={code}, steam_running={running}"
         ));
         return Err(if running {
             SteamError::InitFailed(code)
