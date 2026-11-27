@@ -330,6 +330,18 @@ fn rejected_login_shows_the_server_text_verbatim() {
 }
 
 #[test]
+fn editing_an_account_clears_its_last_failure() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    let raw = "server says no".to_owned();
+    let failed = LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw: raw.clone() }));
+    launch_status(&mut h, "a", failed);
+    click_nth(&mut h, &tr("button.edit"), 0);
+    replace_text(&mut h, &tr("accounts.field_password"), "fixed");
+    click_in_dialog(&mut h, &tr("accounts.edit_title"), &tr("button.save"));
+    assert!(!has_label(&h, &raw));
+}
+
+#[test]
 fn launch_button_requests_that_account() {
     let mut h = open(&two_accounts(), FakeEnv::default());
     click_nth(&mut h, &tr("button.launch"), 1);

@@ -49,9 +49,13 @@ impl MenuState {
             .filter(|id| accounts.iter().any(|a| &a.id == *id))
             .cloned()
             .collect();
-        // 刪掉的帳號不留進度，免得同 id 卡在登入中
-        self.statuses
-            .retain(|id, _| accounts.iter().any(|a| &a.id == id));
+        // 刪掉的帳號不留進度，免得同 id 卡在登入中；改過的帳號不留上次的結果
+        let old = std::mem::take(&mut self.accounts);
+        self.statuses.retain(|id, status| {
+            accounts.iter().any(|a| {
+                &a.id == id && (*status == LaunchStatus::LoggingIn || old.iter().any(|o| o == a))
+            })
+        });
         self.accounts = accounts;
     }
 
@@ -288,6 +292,21 @@ mod tests {
         let rest: Vec<Account> = three().into_iter().filter(|a| a.id != "a").collect();
         state.set_accounts(rest, &[]);
         assert_eq!(state.status("a"), None);
+    }
+
+    #[test]
+    fn editing_an_account_drops_its_last_result() {
+        let mut state = MenuState::new(three(), &[]);
+        state.set_status("a", LaunchStatus::Opened);
+        state.set_status("b", LaunchStatus::Opened);
+        state.set_status("c", LaunchStatus::LoggingIn);
+        let mut edited = three();
+        edited[0].password_dpapi = "new".into();
+        edited[2].password_dpapi = "new".into();
+        state.set_accounts(edited, &[]);
+        assert_eq!(state.status("a"), None);
+        assert_eq!(state.status("b"), Some(&LaunchStatus::Opened));
+        assert_eq!(state.status("c"), Some(&LaunchStatus::LoggingIn));
     }
 
     #[test]
