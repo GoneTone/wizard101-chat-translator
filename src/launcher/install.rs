@@ -59,9 +59,18 @@ fn steam_install() -> Option<PathBuf> {
         .find(|root| is_valid_install(root))
 }
 
-/// 依有無 [`STEAM_API_DLL`] 判斷安裝來源。
+/// 依位置判斷安裝來源：Steam 版一定在收藏庫的 `steamapps\common` 底下。
+///
+/// 官網版的 `Bin` 也附 [`STEAM_API_DLL`]，不能拿來分。
 fn source_of(root: &Path) -> InstallSource {
-    if root.join("Bin").join(STEAM_API_DLL).is_file() {
+    let name = |p: Option<&Path>| {
+        p.and_then(Path::file_name)
+            .map(|n| n.to_string_lossy().to_ascii_lowercase())
+    };
+    let common = root.parent();
+    if name(common).as_deref() == Some("common")
+        && name(common.and_then(Path::parent)).as_deref() == Some("steamapps")
+    {
         InstallSource::Steam
     } else {
         InstallSource::Official
@@ -115,7 +124,7 @@ pub fn detect_installs() -> Vec<Install> {
     found
 }
 
-/// 偵測結果併入使用者指定的 `manual`：有效時依有無 [`STEAM_API_DLL`] 判斷來源，取代同來源的偵測結果（沒有就加在後面）。
+/// 偵測結果併入使用者指定的 `manual`：有效時依位置判斷來源，取代同來源的偵測結果（沒有就加在後面）。
 pub fn installs_with(mut detected: Vec<Install>, manual: Option<&Path>) -> Vec<Install> {
     let Some(root) = manual.filter(|root| is_valid_install(root)) else {
         return detected;
@@ -177,16 +186,22 @@ mod tests {
         assert!(is_valid_install(root));
     }
 
-    fn fake_install(steam: bool) -> tempfile::TempDir {
+    /// 兩種安裝的 `Bin` 都有 steam_api64.dll，差在 Steam 版位於 `steamapps\common` 底下。
+    fn fake_install(steam: bool) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
+        let root = if steam {
+            dir.path()
+                .join("SteamApps")
+                .join("Common")
+                .join("Wizard101")
+        } else {
+            dir.path().join("Wizard101")
+        };
         std::fs::create_dir_all(root.join("Data").join("GameData")).unwrap();
         std::fs::create_dir_all(root.join("Bin")).unwrap();
         std::fs::write(root.join("Bin").join(PROCESS_NAME), b"").unwrap();
-        if steam {
-            std::fs::write(root.join("Bin").join(STEAM_API_DLL), b"").unwrap();
-        }
-        dir
+        std::fs::write(root.join("Bin").join(STEAM_API_DLL), b"").unwrap();
+        (dir, root)
     }
 
     fn install(source: InstallSource, root: &str) -> Install {
@@ -198,17 +213,17 @@ mod tests {
 
     #[test]
     fn installs_with_replaces_detected_entry_of_the_same_source() {
-        let manual = fake_install(true);
+        let (_dir, manual) = fake_install(true);
         let detected = vec![
             install(InstallSource::Steam, r"C:\Steam\Wizard101"),
             install(InstallSource::Official, r"C:\ProgramData\Wizard101"),
         ];
         assert_eq!(
-            installs_with(detected, Some(manual.path())),
+            installs_with(detected, Some(&manual)),
             vec![
                 Install {
                     source: InstallSource::Steam,
-                    root: manual.path().to_path_buf(),
+                    root: manual.clone(),
                 },
                 install(InstallSource::Official, r"C:\ProgramData\Wizard101"),
             ]
@@ -216,16 +231,16 @@ mod tests {
     }
 
     #[test]
-    fn installs_with_adds_an_official_install_without_steam_dll() {
-        let manual = fake_install(false);
+    fn installs_with_adds_an_official_install_outside_steam_libraries() {
+        let (_dir, manual) = fake_install(false);
         let detected = vec![install(InstallSource::Steam, r"C:\Steam\Wizard101")];
         assert_eq!(
-            installs_with(detected, Some(manual.path())),
+            installs_with(detected, Some(&manual)),
             vec![
                 install(InstallSource::Steam, r"C:\Steam\Wizard101"),
                 Install {
                     source: InstallSource::Official,
-                    root: manual.path().to_path_buf(),
+                    root: manual.clone(),
                 },
             ]
         );
