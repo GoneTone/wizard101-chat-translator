@@ -6,6 +6,7 @@
 mod common;
 mod stream_server;
 
+mod accounts_settings;
 mod app_main;
 mod build_embed;
 mod cache_golden;

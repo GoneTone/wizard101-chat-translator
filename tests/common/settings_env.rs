@@ -11,6 +11,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::recorder::{Recording, record};
+use wizard101_chat_translator::launcher::install::Install;
 use wizard101_chat_translator::local::store::{Installed, Manifest};
 use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
@@ -41,6 +42,11 @@ pub struct FakeEnv {
     pub snapshot: RefCell<Snapshot>,
     /// 收到的本地模型指令。
     pub commands: RefCell<Vec<Command>>,
+    /// `running_accounts` 回傳的帳號名。
+    pub running: Vec<String>,
+    /// `detect_installs` 回傳的安裝位置。
+    pub installs: Vec<Install>,
+    pub folder_picks: RefCell<Vec<u64>>,
 }
 
 impl SettingsEnv for FakeEnv {
@@ -90,6 +96,15 @@ impl SettingsEnv for FakeEnv {
     }
     fn local_command(&self, cmd: Command) {
         self.commands.borrow_mut().push(cmd);
+    }
+    fn running_accounts(&self) -> Vec<String> {
+        self.running.clone()
+    }
+    fn detect_installs(&self) -> Vec<Install> {
+        self.installs.clone()
+    }
+    fn pick_game_folder(&self, round: u64) {
+        self.folder_picks.borrow_mut().push(round);
     }
 }
 

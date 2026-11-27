@@ -8,7 +8,7 @@ use windows_sys::Win32::Foundation::HMODULE;
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 
 use super::SteamTicket;
-use super::install::Install;
+use super::install::{Install, STEAM_API_DLL};
 use crate::game::process::{process_exe_path, process_ids};
 use crate::logs::log;
 
@@ -189,7 +189,7 @@ unsafe fn wait_ticket(api: &Api, pipe: i32, handle: u32) -> Result<Vec<u8>, Stea
 
 /// 取目前登入 Steam 使用者的 Wizard101 Web API 票據；會阻塞到 Steam 回應或逾時。
 pub fn acquire_ticket(install: &Install) -> Result<SteamSession, SteamError> {
-    let dll = install.root.join("Bin").join("steam_api64.dll");
+    let dll = install.root.join("Bin").join(STEAM_API_DLL);
     let wide: Vec<u16> = OsStr::new(&dll).encode_wide().chain([0]).collect();
     // SAFETY：wide 以 NUL 結尾；dll 不卸載，Steam API 可能仍有背景執行緒。
     let module = unsafe { LoadLibraryW(wide.as_ptr()) };

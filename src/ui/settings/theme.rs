@@ -125,6 +125,8 @@ pub const DIALOG_RADIUS: u8 = 10;
 pub const SERVICE_DIALOG_WIDTH: f32 = 540.0;
 /// 服務商選擇對話框寬。
 pub const PICKER_DIALOG_WIDTH: f32 = 460.0;
+/// 帳號新增／編輯對話框寬。
+pub const ACCOUNT_DIALOG_WIDTH: f32 = 460.0;
 /// 下載模型對話框寬。
 pub const DOWNLOAD_DIALOG_WIDTH: f32 = 680.0;
 /// 確認對話框寬。
@@ -144,6 +146,7 @@ pub mod icon {
     pub const SERVICES: char = '\u{E774}';
     pub const LOCAL: char = '\u{E950}';
     pub const GLOSSARIES: char = '\u{E82D}';
+    pub const ACCOUNTS: char = '\u{E716}';
     pub const ADVANCED: char = '\u{E9E9}';
     pub const ABOUT: char = '\u{E946}';
     pub const EXPAND: char = '\u{E70D}';

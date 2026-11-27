@@ -20,6 +20,9 @@ use common::settings_env::FakeEnv;
 use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::i18n;
+use wizard101_chat_translator::launcher::accounts::store;
+use wizard101_chat_translator::launcher::install::{Install, InstallSource};
+use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::clients::ModelInfo;
 use wizard101_chat_translator::translation::errors::TranslateError;
@@ -88,6 +91,7 @@ fn page_name(page: Page) -> &'static str {
         Page::Services => "services",
         Page::LocalModels => "local_models",
         Page::Glossaries => "glossaries",
+        Page::Accounts => "accounts",
         Page::Advanced => "advanced",
         Page::About => "about",
     }
@@ -99,6 +103,7 @@ fn settings_pages(language: &'static str, size: Vec2, tag: &str) {
         Page::Services,
         Page::LocalModels,
         Page::Glossaries,
+        Page::Accounts,
         Page::Advanced,
         Page::About,
     ] {
@@ -279,6 +284,55 @@ fn wizard_states(language: &'static str, tag: &str) {
     save(&mut h, &format!("wizard_{tag}_3_hotkeys_same"));
 }
 
+/// 帳號分頁：兩個安裝位置、兩個帳號（其中一個執行中），以及編輯對話框的名稱空白錯誤與新增對話框。
+fn accounts_states(language: &'static str) {
+    let account = |id: &str, name: &str, kind| Account {
+        id: id.into(),
+        name: name.into(),
+        kind,
+        password_dpapi: "00".into(),
+    };
+    let mut cfg = all_providers();
+    store(
+        &mut cfg,
+        &[
+            account("a", "alice", AccountKind::Official),
+            account(
+                "b",
+                "a_very_long_account_name_for_layout",
+                AccountKind::Steam,
+            ),
+        ],
+    );
+    let mut h = settings(&cfg, language, theme::SETTINGS_SIZE);
+    {
+        let env = &mut h.state_mut().env;
+        env.running = vec!["alice".into()];
+        env.installs = vec![
+            Install {
+                source: InstallSource::Steam,
+                root: r"C:\Program Files (x86)\Steam\steamapps\common\Wizard101".into(),
+            },
+            Install {
+                source: InstallSource::Official,
+                root: r"C:\ProgramData\KingsIsle Entertainment\Wizard101".into(),
+            },
+        ];
+    }
+    h.state_mut().win.set_page(Page::Accounts);
+    save(&mut h, &format!("accounts_{language}_list"));
+    click_nth(&mut h, &tr("button.edit"), 0);
+    h.get_by_label(&tr("accounts.field_name")).click();
+    h.run_steps(3);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.key_press(Key::Backspace);
+    save(&mut h, &format!("accounts_{language}_edit_blank"));
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    click(&mut h, Role::Button, &tr("button.add_account"));
+    save(&mut h, &format!("accounts_{language}_new"));
+}
+
 fn small_windows() {
     settings_pages("zh-TW", egui::vec2(640.0, 360.0), "small");
     let mut h = wizard(empty_cfg(), "zh-TW", egui::vec2(600.0, 380.0));
@@ -296,6 +350,8 @@ fn render_every_settings_screen() {
     settings_pages("en-US", theme::SETTINGS_SIZE, "en-US");
     basic_states();
     update_states();
+    accounts_states("zh-TW");
+    accounts_states("en-US");
     service_states();
     wizard_states("zh-TW", "zh-TW");
     wizard_states("en-US", "en-US");

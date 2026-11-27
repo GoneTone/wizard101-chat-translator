@@ -49,6 +49,14 @@ pub fn store(cfg: &mut Config, accounts: &[Account]) {
     cfg.insert("accounts".into(), Value::Array(list));
 }
 
+/// 依 id 取代清單裡的同一筆帳號，沒有就加在最後。
+pub fn upsert(accounts: &mut Vec<Account>, account: Account) {
+    match accounts.iter_mut().find(|a| a.id == account.id) {
+        Some(slot) => *slot = account,
+        None => accounts.push(account),
+    }
+}
+
 /// 上次在開啟選單勾選的帳號 id。
 pub fn launch_selection(cfg: &Config) -> Vec<String> {
     cfg.get("launch_selection")

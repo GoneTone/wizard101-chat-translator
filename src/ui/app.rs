@@ -716,6 +716,10 @@ impl App {
                     (wiring.on_save)(cfg);
                 }
             }
+            SettingsAction::LaunchAccounts(ids) => log(format!(
+                "[launch] launch request for {} account(s) not wired yet",
+                ids.len()
+            )),
             SettingsAction::Cancel => {
                 if let Some(wiring) = &mut self.settings {
                     (wiring.on_cancel)();

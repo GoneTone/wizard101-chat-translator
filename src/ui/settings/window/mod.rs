@@ -1,4 +1,4 @@
-//! 設定視窗的內容：側欄六個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
+//! 設定視窗的內容：側欄各分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
 //!
 //! 介面語言改了就先預覽（呼叫 `set_language`），按儲存才寫進設定，取消則還原成開窗時的語言。
 
@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use serde_json::Value;
 
+use super::accounts_pane::AccountsPane;
 use super::dialog::{Choice, confirm};
 use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::{GlossaryDraft, commit_glossary};
@@ -30,6 +31,7 @@ use crate::config::services::{
 };
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
+use crate::launcher::accounts;
 use crate::local::Snapshot;
 use crate::local::fit::{Fit, combined_fit};
 use crate::local::hardware::effective;
@@ -49,16 +51,18 @@ pub enum Page {
     Services,
     LocalModels,
     Glossaries,
+    Accounts,
     Advanced,
     About,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [
+    const ALL: [Page; 7] = [
         Self::Basic,
         Self::Services,
         Self::LocalModels,
         Self::Glossaries,
+        Self::Accounts,
         Self::Advanced,
         Self::About,
     ];
@@ -69,6 +73,7 @@ impl Page {
             Self::Services => "settings.tab.services",
             Self::LocalModels => "settings.tab.local",
             Self::Glossaries => "settings.tab.glossaries",
+            Self::Accounts => "settings.tab.accounts",
             Self::Advanced => "settings.tab.advanced",
             Self::About => "settings.tab.about",
         }
@@ -80,6 +85,7 @@ impl Page {
             Self::Services => icon::SERVICES,
             Self::LocalModels => icon::LOCAL,
             Self::Glossaries => icon::GLOSSARIES,
+            Self::Accounts => icon::ACCOUNTS,
             Self::Advanced => icon::ADVANCED,
             Self::About => icon::ABOUT,
         }
@@ -99,12 +105,14 @@ pub enum SettingsAction {
     OpenUpdate,
     /// 點了「本版說明」：開本版說明視窗。
     OpenReleaseNotes,
-    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、帳號與遊戲位置、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 只帶這次提交的鍵（如術語表編輯畫面〔儲存〕），視窗不關；App 只呼叫 `on_save`，不呼叫 `App::apply_settings`，
     /// 因為部分設定會讓 overlay 的透明度等被重設成預設值。
     Commit(Config),
+    /// 一鍵開啟這些帳號（帳號 id）；視窗不關。
+    LaunchAccounts(Vec<String>),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。
     Cancel,
 }
@@ -125,6 +133,7 @@ pub struct SettingsWindow {
     /// 這一幀開頭取的本地模型快照；頁面與儲存檢查讀同一份。
     snapshot: Snapshot,
     glossaries: GlossaryPane,
+    accounts: AccountsPane,
     advanced: AdvancedText,
     translate_system: bool,
     /// 上次按儲存被擋下的原因；顯示後隨編輯即時更新。
@@ -157,6 +166,7 @@ impl SettingsWindow {
             local: LocalPane::new(cfg),
             snapshot: Snapshot::default(),
             glossaries: GlossaryPane::new(GlossaryDraft::from_config(cfg)),
+            accounts: AccountsPane::new(cfg),
             advanced: AdvancedText {
                 fade_seconds: number("fade_seconds"),
                 max_messages: number("max_messages"),
@@ -184,6 +194,9 @@ impl SettingsWindow {
         if page != self.page {
             self.hotkeys.stop();
             self.page = page;
+            if page == Page::Accounts {
+                self.accounts.entered();
+            }
         }
     }
 
@@ -192,7 +205,7 @@ impl SettingsWindow {
         self.hotkeys.release(env);
     }
 
-    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，其餘由視窗自己收。
+    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，選資料夾結果轉給帳號分頁，其餘由視窗自己收。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::TestDone { .. } | SettingsEvent::ModelsDone { .. } => {
@@ -206,6 +219,7 @@ impl SettingsWindow {
             | SettingsEvent::GlossarySavePathPicked { .. } => {
                 self.glossaries.apply(event);
             }
+            SettingsEvent::GameFolderPicked { .. } => self.accounts.apply(event),
         }
     }
 
@@ -231,11 +245,12 @@ impl SettingsWindow {
         std::mem::take(&mut self.pending)
     }
 
-    /// 有尚未存下的變更：草稿與上次寫進設定檔的內容不同，或術語表、服務編輯畫面還開著未存的修改。
+    /// 有尚未存下的變更：草稿與上次寫進設定檔的內容不同，或術語表、服務、帳號編輯畫面還開著未存的修改。
     pub fn has_unsaved(&self) -> bool {
         self.collect().0 != self.saved
             || self.glossaries.unsaved().is_some()
             || self.services.unsaved()
+            || self.accounts.unsaved()
     }
 
     /// 視窗 ✕ 或 Alt+F4：沒有未存的變更就取消；有的話改問是否放棄（回傳空，視窗留著）。
@@ -302,6 +317,7 @@ impl SettingsWindow {
         }
         self.services.draft().write_into(&mut cfg);
         self.glossaries.draft().write_into(&mut cfg);
+        self.accounts.write_into(&mut cfg);
         crate::config::local::write_into(&mut cfg, self.local.settings());
         let target = pystr::strip(&self.target_language);
         self.hotkeys.write_into(&mut cfg);
@@ -497,6 +513,18 @@ impl SettingsWindow {
                     self.local.ui(ui, env, &self.snapshot, services);
                 }
                 Page::Glossaries => self.glossaries.ui(ui, env),
+                Page::Accounts => {
+                    self.accounts.ui(ui, env);
+                    if let Some(account) = self.accounts.take_committed() {
+                        let mut saved = accounts::stored(&self.saved);
+                        accounts::upsert(&mut saved, account);
+                        accounts::store(&mut self.saved, &saved);
+                        self.commit(&["accounts"]);
+                    }
+                    if let Some(id) = self.accounts.take_launch() {
+                        self.pending.push(SettingsAction::LaunchAccounts(vec![id]));
+                    }
+                }
                 Page::Advanced => self.advanced_page(ui),
                 Page::About => self.about_page(ui, env),
             }

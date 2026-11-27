@@ -147,6 +147,7 @@ fn the_services_tab_sits_between_basic_and_advanced() {
             tr("settings.tab.services"),
             tr("settings.tab.local"),
             tr("settings.tab.glossaries"),
+            tr("settings.tab.accounts"),
             tr("settings.tab.advanced"),
             tr("settings.tab.about")
         ]
@@ -420,13 +421,15 @@ fn the_footer_stays_visible_in_a_small_window() {
 // --- 儲存 ---
 
 /// 設定視窗管的鍵；儲存只送這些，由 App 併進目前共用的設定。
-const OWNED_KEYS: [&str; 18] = [
+const OWNED_KEYS: [&str; 20] = [
     "services",
     "default_service",
     "service_slots",
     "local_models",
     "glossaries",
     "active_glossary",
+    "accounts",
+    "game_path",
     "target_language",
     "hotkey",
     "region_hotkey",
@@ -448,6 +451,8 @@ fn saving_an_unchanged_window_sends_its_own_keys_with_the_ui_language() {
     let saved = save(&mut h).expect("saved");
     let mut expected = cfg;
     expected.insert("ui_language".into(), json!(LANGUAGE));
+    expected.insert("accounts".into(), json!([]));
+    expected.insert("game_path".into(), Value::Null);
     expected.retain(|key, _| OWNED_KEYS.contains(&key.as_str()));
     assert_eq!(saved, expected);
 }

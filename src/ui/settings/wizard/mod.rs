@@ -133,7 +133,8 @@ impl Wizard {
             }
             SettingsEvent::UpdateChecked { .. }
             | SettingsEvent::GlossaryFilePicked { .. }
-            | SettingsEvent::GlossarySavePathPicked { .. } => {}
+            | SettingsEvent::GlossarySavePathPicked { .. }
+            | SettingsEvent::GameFolderPicked { .. } => {}
         }
     }
 

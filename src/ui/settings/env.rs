@@ -1,4 +1,4 @@
-//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵、選檔）與結果的輪次比對。
+//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵、選檔、選資料夾）與結果的輪次比對。
 //!
 //! 介面只透過 `SettingsEnv` 發起工作，結果以 `UiEvent::Settings` 回到 UI 執行緒；測試換成假的 env。
 
@@ -18,6 +18,8 @@ use windows_sys::w;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSpec};
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
+use crate::launcher::install::{self, Install};
+use crate::launcher::running;
 use crate::local;
 use crate::logs::log;
 use crate::runtime::updater::{RELEASES_API, Release, check_for_update, update_client};
@@ -57,6 +59,12 @@ pub trait SettingsEnv {
     fn local_snapshot(&self) -> crate::local::Snapshot;
     /// 送一個指令給本地模型 hub（背景執行）。
     fn local_command(&self, cmd: crate::local::Command);
+    /// 目前執行中遊戲用戶端的帳號名；會列舉程序，不要每幀呼叫。
+    fn running_accounts(&self) -> Vec<String>;
+    /// 偵測本機的遊戲安裝。
+    fn detect_installs(&self) -> Vec<Install>;
+    /// 跳出選資料夾的對話框，選完或取消後投遞 `GameFolderPicked`。
+    fn pick_game_folder(&self, round: u64);
 }
 
 /// `SettingsEnv` 背景工作的結果。
@@ -83,6 +91,8 @@ pub enum SettingsEvent {
     GlossaryFilePicked { round: u64, path: Option<PathBuf> },
     /// 匯出術語表選到的存檔位置；`None` 是取消。
     GlossarySavePathPicked { round: u64, path: Option<PathBuf> },
+    /// 遊戲位置選到的資料夾；`None` 是取消。
+    GameFolderPicked { round: u64, path: Option<PathBuf> },
 }
 
 /// 正式環境的 `SettingsEnv`：工作丟到 tokio runtime，熱鍵錄製掛在鍵盤分派器上。
@@ -314,6 +324,25 @@ impl SettingsEnv for RealEnv {
                 "[settings] local hub missing, command dropped: {cmd:?}"
             )),
         }
+    }
+
+    fn running_accounts(&self) -> Vec<String> {
+        running::running_accounts()
+    }
+
+    fn detect_installs(&self) -> Vec<Install> {
+        install::detect_installs()
+    }
+
+    fn pick_game_folder(&self, round: u64) {
+        let ui = self.ui.clone();
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new().pick_folder();
+            ui.post(UiEvent::Settings(SettingsEvent::GameFolderPicked {
+                round,
+                path,
+            }));
+        });
     }
 }
 
