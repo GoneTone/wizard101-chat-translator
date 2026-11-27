@@ -2,5 +2,6 @@
 
 pub mod accounts;
 pub mod install;
+pub mod launch;
 
 pub use accounts::{Account, AccountKind};
