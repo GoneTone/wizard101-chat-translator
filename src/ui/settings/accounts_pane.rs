@@ -220,10 +220,12 @@ impl AccountsPane {
             .running
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&account.name));
-        let mut badges = vec![kind_label(account.kind)];
-        if running {
-            badges.push(t("accounts.running", &[]));
-        }
+        // 窄視窗放不下時後面的標記會被截掉，執行中比類型重要
+        let mut badges: Vec<String> = running
+            .then(|| t("accounts.running", &[]))
+            .into_iter()
+            .collect();
+        badges.push(kind_label(account.kind));
         let (launch, edit, delete) = list_card(
             ui,
             Id::unique(("account_card_buttons", &account.id)),

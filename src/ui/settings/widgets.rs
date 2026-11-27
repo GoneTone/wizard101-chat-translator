@@ -549,7 +549,7 @@ pub fn card_label(name: &str, badges: &[String]) -> String {
     }
 }
 
-/// 清單卡片（服務、術語表）：`leading` 畫前置圖示，接著是名稱列（名稱後接 `badges`）與一行說明 `hint`，`buttons` 加入的按鈕靠右；整張以 `card_label` 為群組名。
+/// 清單卡片（服務、術語表、帳號）：`leading` 畫前置圖示，接著是名稱列（名稱後接 `badges`）與一行說明 `hint`（空字串就不留那一行），`buttons` 加入的按鈕靠右；整張以 `card_label` 為群組名。
 ///
 /// `buttons_id` 是右側按鈕列量寬度用的 Id，每張卡片要不同。
 pub(super) fn list_card<R>(
@@ -576,7 +576,8 @@ pub(super) fn list_card<R>(
                     )
                 });
                 let name_h = name_h.max(pill_h + 2.0);
-                let column_h = name_h + 3.0 + hint_h;
+                let hint_h = if hint.is_empty() { 0.0 } else { 3.0 + hint_h };
+                let column_h = name_h + hint_h;
                 let size = vec2(ui.available_width(), column_h.max(theme::CONTROL_HEIGHT));
                 ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
                     ui.spacing_mut().item_spacing.x = 14.0;
@@ -594,14 +595,16 @@ pub(super) fn list_card<R>(
                     text.spacing_mut().item_spacing.y = 3.0;
                     text.add_space((size.y - column_h) / 2.0);
                     name_line(&mut text, name, badges, name_font, name_h);
-                    text.add(
-                        Label::new(
-                            RichText::new(hint)
-                                .font(hint_font)
-                                .color(theme::TEXT_SECONDARY),
-                        )
-                        .truncate(),
-                    );
+                    if !hint.is_empty() {
+                        text.add(
+                            Label::new(
+                                RichText::new(hint)
+                                    .font(hint_font)
+                                    .color(theme::TEXT_SECONDARY),
+                            )
+                            .truncate(),
+                        );
+                    }
                     right_aligned(ui, buttons_id, |ui| {
                         ui.spacing_mut().item_spacing.x = 8.0;
                         buttons(ui)

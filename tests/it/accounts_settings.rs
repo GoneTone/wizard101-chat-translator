@@ -4,6 +4,7 @@ use crate::common;
 
 use eframe::egui;
 use eframe::egui::accesskit::Role;
+use eframe::egui::text_edit::TextEditState;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 
@@ -18,7 +19,7 @@ use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::card_label;
-use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction};
+use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
 
 const LANGUAGE: &str = "en-US";
 
@@ -196,6 +197,27 @@ fn editing_without_a_password_keeps_the_old_one() {
     assert_eq!(saved[0].password_dpapi, "00");
 }
 
+fn text_edit_states(h: &Harness<State>) -> usize {
+    h.ctx.data(|d| d.count::<TextEditState>())
+}
+
+#[test]
+fn password_edit_state_is_cleared_when_the_dialog_goes_away() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    click(&mut h, Role::Button, &tr("button.add_account"));
+    replace_text(&mut h, &tr("accounts.field_password"), "s3cret");
+    let shown = text_edit_states(&h);
+    h.key_press(egui::Key::Escape);
+    run(&mut h);
+    assert_eq!(text_edit_states(&h), shown - 1);
+
+    click(&mut h, Role::Button, &tr("button.add_account"));
+    replace_text(&mut h, &tr("accounts.field_password"), "s3cret");
+    let shown = text_edit_states(&h);
+    h.state_mut().win = SettingsWindow::new(&Config::new());
+    assert_eq!(text_edit_states(&h), shown - 1);
+}
+
 #[test]
 fn running_account_shows_badge_and_disables_open() {
     let env = FakeEnv {
@@ -203,7 +225,7 @@ fn running_account_shows_badge_and_disables_open() {
         ..FakeEnv::default()
     };
     let h = open(&two_accounts(), env);
-    let running = [tr("accounts.kind_official"), tr("accounts.running")];
+    let running = [tr("accounts.running"), tr("accounts.kind_official")];
     assert!(has_label(&h, &card_label("alice", &running)));
     assert!(has_label(
         &h,

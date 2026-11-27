@@ -285,7 +285,7 @@ fn wizard_states(language: &'static str, tag: &str) {
 }
 
 /// 帳號分頁：兩個安裝位置、兩個帳號（其中一個執行中），以及編輯對話框的名稱空白錯誤與新增對話框。
-fn accounts_states(language: &'static str) {
+fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
     let account = |id: &str, name: &str, kind| Account {
         id: id.into(),
         name: name.into(),
@@ -304,7 +304,7 @@ fn accounts_states(language: &'static str) {
             ),
         ],
     );
-    let mut h = settings(&cfg, language, theme::SETTINGS_SIZE);
+    let mut h = settings(&cfg, language, size);
     {
         let env = &mut h.state_mut().env;
         env.running = vec!["alice".into()];
@@ -320,17 +320,17 @@ fn accounts_states(language: &'static str) {
         ];
     }
     h.state_mut().win.set_page(Page::Accounts);
-    save(&mut h, &format!("accounts_{language}_list"));
+    save(&mut h, &format!("accounts_{tag}_list"));
     click_nth(&mut h, &tr("button.edit"), 0);
     h.get_by_label(&tr("accounts.field_name")).click();
     h.run_steps(3);
     h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
     h.key_press(Key::Backspace);
-    save(&mut h, &format!("accounts_{language}_edit_blank"));
+    save(&mut h, &format!("accounts_{tag}_edit_blank"));
     h.key_press(Key::Escape);
     h.run_steps(3);
     click(&mut h, Role::Button, &tr("button.add_account"));
-    save(&mut h, &format!("accounts_{language}_new"));
+    save(&mut h, &format!("accounts_{tag}_new"));
 }
 
 fn small_windows() {
@@ -350,8 +350,10 @@ fn render_every_settings_screen() {
     settings_pages("en-US", theme::SETTINGS_SIZE, "en-US");
     basic_states();
     update_states();
-    accounts_states("zh-TW");
-    accounts_states("en-US");
+    accounts_states("zh-TW", theme::SETTINGS_SIZE, "zh-TW");
+    accounts_states("en-US", theme::SETTINGS_SIZE, "en-US");
+    accounts_states("zh-TW", theme::SETTINGS_MIN_SIZE, "small_zh-TW");
+    accounts_states("en-US", theme::SETTINGS_MIN_SIZE, "small_en-US");
     service_states();
     wizard_states("zh-TW", "zh-TW");
     wizard_states("en-US", "en-US");

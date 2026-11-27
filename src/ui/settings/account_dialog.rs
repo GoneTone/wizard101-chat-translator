@@ -1,7 +1,7 @@
 //! 帳號新增／編輯對話框：類型、名稱、密碼（可顯示），依類型顯示說明；名稱空白、重名或新帳號沒填密碼時停用〔儲存〕。
 
 use eframe::egui::text_edit::TextEditState;
-use eframe::egui::{Frame, Id, Margin, Ui};
+use eframe::egui::{Context, Frame, Id, Margin, Ui};
 
 use super::dialog::{Choice, DialogSpec, dialog};
 use super::fields::{secret_field, text_field};
@@ -23,7 +23,7 @@ pub(super) fn kind_label(kind: AccountKind) -> String {
     t(key, &[])
 }
 
-/// 開著的帳號對話框；明文密碼只在這裡，關閉時連同輸入框的狀態一起丟掉。刻意不實作 `Debug`。
+/// 開著的帳號對話框；明文密碼只在這裡，丟掉對話框時連同輸入框的狀態一起清掉。刻意不實作 `Debug`。
 pub(super) struct AccountDialog {
     /// 開啟時的帳號；新增時名稱與密碼都是空的。
     original: Account,
@@ -32,8 +32,8 @@ pub(super) struct AccountDialog {
     name: String,
     password: String,
     revealed: bool,
-    /// 密碼輸入框的 Id；egui 的復原紀錄會留著明文，關閉時要清掉。
-    password_field: Option<Id>,
+    /// 密碼輸入框所在的 `Context` 與 Id；egui 的復原紀錄會留著明文，丟掉對話框時要清掉。
+    password_field: Option<(Context, Id)>,
     /// 加密失敗的系統錯誤。
     crypt_error: Option<String>,
 }
@@ -116,17 +116,13 @@ impl AccountDialog {
             },
         );
         let (ok, cancel) = shown.footer;
-        let choice = if cancel || shown.cancel {
+        if cancel || shown.cancel {
             Choice::Cancel
         } else if ok && valid {
             self.save()
         } else {
             Choice::Open
-        };
-        if !matches!(choice, Choice::Open) {
-            self.forget_password(ui);
         }
-        choice
     }
 
     fn body(&mut self, ui: &mut Ui, name_error: Option<&str>, password_error: Option<&str>) {
@@ -160,7 +156,7 @@ impl AccountDialog {
             let (show, hide) = (t("button.show", &[]), t("button.hide", &[]));
             let field = secret_field(ui, &mut self.password, &mut self.revealed, &show, &hide)
                 .labelled_by(label);
-            self.password_field = Some(field.id);
+            self.password_field = Some((ui.ctx().clone(), field.id));
             if let Some(key) = password_error {
                 hint(ui, &t(key, &[]), theme::ERROR);
             } else if !self.is_new {
@@ -209,11 +205,13 @@ impl AccountDialog {
         ));
         Choice::Done(account)
     }
+}
 
-    fn forget_password(&mut self, ui: &Ui) {
-        self.password.clear();
-        if let Some(id) = self.password_field {
-            ui.ctx().data_mut(|d| d.remove::<TextEditState>(id));
+impl Drop for AccountDialog {
+    // 存好、取消與關掉設定視窗都會走到這裡；`Context` 與 overlay 共用，不清的話明文會留到程式結束
+    fn drop(&mut self) {
+        if let Some((ctx, id)) = &self.password_field {
+            ctx.data_mut(|d| d.remove::<TextEditState>(*id));
         }
     }
 }
