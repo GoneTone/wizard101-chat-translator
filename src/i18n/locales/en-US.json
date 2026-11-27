@@ -421,7 +421,7 @@
   "accounts.kind_official": "Official site",
   "accounts.kind_steam": "Steam",
   "accounts.running": "Running",
-  "accounts.steam_limit": "Steam accounts can only be launched with the Steam version of the game. Before launching, Steam must be running and signed in to the Steam account linked to that game account.",
+  "accounts.steam_limit": "Before launching a Steam account, Steam must be running and signed in to the Steam account linked to that game account.",
   "accounts.new_title": "Add an account",
   "accounts.edit_title": "Edit account",
   "accounts.field_kind": "Type",
@@ -456,7 +456,6 @@
   "launch.failed_steam_timeout": "Timed out waiting for Steam",
   "launch.failed_connect": "Could not connect to the login server: {error}",
   "launch.failed_protocol": "Unexpected login response: {error}",
-  "launch.failed_no_steam_install": "Steam accounts need the Steam version of the game",
   "launch.failed_client_missing": "Could not find the game client",
   "launch.failed_spawn": "Could not start the game: {error}"
 }

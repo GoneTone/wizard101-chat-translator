@@ -70,7 +70,6 @@ pub fn failure_text(failure: &Failure) -> String {
         Failure::Login(LoginError::Connect(e)) => with_error("launch.failed_connect", e),
         Failure::Login(LoginError::Rejected { raw }) => raw.clone(),
         Failure::Login(LoginError::Protocol(e)) => with_error("launch.failed_protocol", e),
-        Failure::Launch(LaunchError::NoSteamInstall) => t("launch.failed_no_steam_install", &[]),
         Failure::Launch(LaunchError::ClientMissing) => t("launch.failed_client_missing", &[]),
         Failure::Launch(LaunchError::Spawn(e)) => with_error("launch.failed_spawn", e),
     }

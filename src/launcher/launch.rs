@@ -20,29 +20,28 @@ pub struct Credentials {
 /// 啟動失敗的原因；不含憑證。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchError {
-    /// Steam 帳號需要 Steam 版安裝（票據 dll 在其 `Bin\`）。
-    NoSteamInstall,
     /// 找不到可用的遊戲安裝或用戶端主程式。
     ClientMissing,
     /// 啟動程序失敗，帶系統錯誤原文。
     Spawn(String),
 }
 
-/// 依帳號類型挑安裝：Steam 帳號只能用 Steam 版；官網帳號優先官網版，沒有才用 Steam 版。
+/// 依帳號類型挑安裝：優先用同類型的安裝，沒有就用另一種（兩者的用戶端與票據 dll 相同）。
 pub fn select_install(installs: &[Install], kind: AccountKind) -> Result<&Install, LaunchError> {
     let find = |source| installs.iter().find(|i| i.source == source);
-    match kind {
-        AccountKind::Steam => find(InstallSource::Steam).ok_or(LaunchError::NoSteamInstall),
-        AccountKind::Official => find(InstallSource::Official)
-            .or_else(|| find(InstallSource::Steam))
-            .ok_or(LaunchError::ClientMissing),
-    }
+    let (first, second) = match kind {
+        AccountKind::Steam => (InstallSource::Steam, InstallSource::Official),
+        AccountKind::Official => (InstallSource::Official, InstallSource::Steam),
+    };
+    find(first)
+        .or_else(|| find(second))
+        .ok_or(LaunchError::ClientMissing)
 }
 
 /// 組用戶端命令列參數。
 ///
-/// Steam 參數（`-ST`、`-P 0`）只給 Steam 版上的 Steam 帳號；Steam 沒開時拿掉 `-ST`。
-/// 官網帳號一律用官網參數，即使開的是 Steam 版目錄。
+/// `-ST` 給 Steam 帳號（Steam 沒開時拿掉）；`-P 0` 只給 Steam 版上的 Steam 帳號，
+/// 官網版要靠遊戲內更新邊玩邊下載。官網帳號一律用官網參數，即使開的是 Steam 版目錄。
 pub fn build_args(
     install: &Install,
     kind: AccountKind,
@@ -52,11 +51,13 @@ pub fn build_args(
     let mut args: Vec<String> = ["-L", LOGIN_HOST, LOGIN_PORT, "-A", "en-US"]
         .map(String::from)
         .into();
-    if install.source == InstallSource::Steam && kind == AccountKind::Steam {
+    if kind == AccountKind::Steam {
         if steam_running {
             args.push("-ST".into());
         }
-        args.extend(["-P".into(), "0".into()]);
+        if install.source == InstallSource::Steam {
+            args.extend(["-P".into(), "0".into()]);
+        }
     }
     // 本工具不做更新，啟動器本次更新秒數照實填 0
     args.extend(["-PT".into(), "0".into()]);
@@ -208,11 +209,39 @@ mod tests {
     }
 
     #[test]
-    fn steam_account_without_steam_install_errors() {
-        let installs = [install(InstallSource::Official)];
+    fn steam_account_on_official_install_keeps_in_game_patching() {
+        let args = build_args(
+            &install(InstallSource::Official),
+            AccountKind::Steam,
+            true,
+            &creds(),
+        );
+        assert_skeleton(&args);
+        assert!(has(&args, &["-ST"]));
+        assert!(!has(&args, &["-P"]));
+    }
+
+    #[test]
+    fn steam_account_prefers_steam_and_falls_back_to_official() {
+        let installs = [
+            install(InstallSource::Official),
+            install(InstallSource::Steam),
+        ];
         assert_eq!(
-            select_install(&installs, AccountKind::Steam),
-            Err(LaunchError::NoSteamInstall)
+            select_install(&installs, AccountKind::Steam)
+                .unwrap()
+                .source,
+            InstallSource::Steam
+        );
+        assert_eq!(
+            select_install(&installs[..1], AccountKind::Steam)
+                .unwrap()
+                .source,
+            InstallSource::Official
+        );
+        assert_eq!(
+            select_install(&[], AccountKind::Steam),
+            Err(LaunchError::ClientMissing)
         );
     }
 

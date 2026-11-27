@@ -31,7 +31,7 @@
 ## 限制
 
 - **服務條款風險**：這是自行實作官方登入協定，違反服務條款的程度比讀記憶體更直接。README 要照實寫明風險，由使用者自行決定是否使用。
-- **Steam 帳號的前提**：Steam 用戶端要開著，且登入的是該遊戲帳號綁定的 Steam 帳號。票據靠遊戲目錄 `Bin\steam_api64.dll` 取得（本專案不散佈 Steam SDK 檔案），Steam 帳號只能在 Steam 安裝的遊戲上使用，只有官網版時提示改用 Steam 版。官網版的 `Bin` 也附這個 dll，所以安裝來源依位置判斷（Steam 版在收藏庫的 `steamapps\common` 底下），不能看 dll。
+- **Steam 帳號的前提**：Steam 用戶端要開著，且登入的是該遊戲帳號綁定的 Steam 帳號。票據靠遊戲目錄 `Bin\steam_api64.dll` 取得（本專案不散佈 Steam SDK 檔案）。官網版的 `Bin` 也附同一個 dll（用戶端主程式也相同），所以 Steam 帳號在兩種安裝上都能開。安裝來源依位置判斷（Steam 版在收藏庫的 `steamapps\common` 底下），不能看 dll。
 - **協定可能變動**：登入協定是私有協定，官方修改時本功能會失效、要重新分析。目前觀察到的版本相關欄位全為空，所以單純的遊戲改版應該不受影響。
 - **只支援 Windows、64 位元用戶端**（與本專案一致）。
 
@@ -88,7 +88,7 @@
    - 先讀 Steam：`HKCU\Software\Valve\Steam` 的 `SteamPath` → `steamapps\libraryfolders.vdf` 逐一收藏庫找 `steamapps\common\Wizard101`。
    - 再找官網版：`ProgramData\KingsIsle Entertainment\Wizard101`（列舉各磁碟機，不只 C）。
    - 都找不到才讓使用者手動選。沿用既有的 `src/game/process.rs::install_root` 風格判斷目錄有效性（含 `Bin\WizardGraphicalClient.exe`、`Data\GameData`）。
-   - **可能同時偵測到 Steam 版與官網版**，兩者安裝路徑都記下來（不是單一來源）。launch 時依帳號類型選目錄與參數：Steam 帳號必須用 Steam 版目錄（票據 dll 在其 `Bin\`），只有官網版時提示改用 Steam 版；官網帳號優先用官網版目錄（參數與官方一致、遊戲內更新照常），沒有官網版時用 Steam 版目錄配官網參數（Steam 版檔案已完整，不加 `-ST`、不加 `-P 0`）。
+   - **可能同時偵測到 Steam 版與官網版**，兩者安裝路徑都記下來（不是單一來源）。launch 時依帳號類型選目錄與參數：Steam 帳號優先用 Steam 版目錄，沒有時用官網版目錄（加 `-ST`、不加 `-P 0`，遊戲內更新照常）；官網帳號優先用官網版目錄（參數與官方一致、遊戲內更新照常），沒有官網版時用 Steam 版目錄配官網參數（Steam 版檔案已完整，不加 `-ST`、不加 `-P 0`）。
 3. **登入連線**（`login`）
    - 純協定：輸入帳號憑證與（Steam 帳號的）票據，輸出 UserID 與 ck2 或錯誤。TCP、握手、認證訊息組法都在這裡；不碰 UI、不碰程序啟動。可用假 stream 做純解析測試。
 4. **Steam 票據**（`steam`）

@@ -421,7 +421,7 @@
   "accounts.kind_official": "官網",
   "accounts.kind_steam": "Steam",
   "accounts.running": "執行中",
-  "accounts.steam_limit": "Steam 帳號只能用 Steam 版遊戲開啟；開啟前，Steam 要開著，並登入綁定該遊戲帳號的 Steam 帳號。",
+  "accounts.steam_limit": "開啟 Steam 帳號前，Steam 要開著，並登入綁定該遊戲帳號的 Steam 帳號。",
   "accounts.new_title": "新增帳號",
   "accounts.edit_title": "編輯帳號",
   "accounts.field_kind": "類型",
@@ -456,7 +456,6 @@
   "launch.failed_steam_timeout": "等待 Steam 回應逾時",
   "launch.failed_connect": "無法連線到登入伺服器：{error}",
   "launch.failed_protocol": "登入回應格式不符：{error}",
-  "launch.failed_no_steam_install": "Steam 帳號需要 Steam 版遊戲",
   "launch.failed_client_missing": "找不到遊戲主程式",
   "launch.failed_spawn": "無法啟動遊戲：{error}"
 }

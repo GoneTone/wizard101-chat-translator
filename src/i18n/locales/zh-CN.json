@@ -421,7 +421,7 @@
   "accounts.kind_official": "官网",
   "accounts.kind_steam": "Steam",
   "accounts.running": "运行中",
-  "accounts.steam_limit": "Steam 账号只能用 Steam 版游戏启动；启动前，Steam 要开着，并登录绑定该游戏账号的 Steam 账号。",
+  "accounts.steam_limit": "启动 Steam 账号前，Steam 要开着，并登录绑定该游戏账号的 Steam 账号。",
   "accounts.new_title": "新增账号",
   "accounts.edit_title": "编辑账号",
   "accounts.field_kind": "类型",
@@ -456,7 +456,6 @@
   "launch.failed_steam_timeout": "等待 Steam 响应超时",
   "launch.failed_connect": "无法连接到登录服务器：{error}",
   "launch.failed_protocol": "登录响应格式不符：{error}",
-  "launch.failed_no_steam_install": "Steam 账号需要 Steam 版游戏",
   "launch.failed_client_missing": "找不到游戏主程序",
   "launch.failed_spawn": "无法启动游戏：{error}"
 }
