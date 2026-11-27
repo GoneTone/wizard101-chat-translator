@@ -273,7 +273,7 @@ fn running_account_shows_badge_and_disables_open() {
         ..FakeEnv::default()
     };
     let h = open(&two_accounts(), env);
-    let running = [tr("accounts.running"), tr("accounts.kind_official")];
+    let running = [tr("accounts.kind_official"), tr("accounts.running")];
     assert!(has_label(&h, &card_label("alice", &running)));
     assert!(has_label(
         &h,

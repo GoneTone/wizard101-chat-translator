@@ -78,13 +78,10 @@ pub(super) fn status_line(ui: &mut Ui, status: &LaunchStatus) {
     hint(ui, &status_text(status), status_color(status));
 }
 
-/// 帳號列的標記：執行中排在類型前面，窄視窗截掉的是後面的。
+/// 帳號列的標記：類型在前、位置固定；窄視窗截掉的是後面的執行中，〔啟動〕停用仍看得出。
 pub(super) fn account_badges(account: &Account, running: bool) -> Vec<String> {
-    let mut badges: Vec<String> = running
-        .then(|| t("accounts.running", &[]))
-        .into_iter()
-        .collect();
-    badges.push(kind_label(account.kind));
+    let mut badges = vec![kind_label(account.kind)];
+    badges.extend(running.then(|| t("accounts.running", &[])));
     badges
 }
 
