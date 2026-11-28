@@ -7,6 +7,7 @@ pub mod login;
 pub mod orchestrate;
 pub mod running;
 pub mod steam;
+pub mod wire;
 
 use windows_sys::Win32::System::Registry::{
     HKEY, KEY_READ, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW, RegOpenKeyExW,
