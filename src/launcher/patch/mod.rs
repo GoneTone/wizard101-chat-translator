@@ -1,11 +1,14 @@
-//! 遊戲啟動前的自動更新：清單解析、CRC 與檢查紀錄。
+//! 遊戲啟動前的自動更新：清單解析、CRC、檢查紀錄與整份安裝的檢查流程。
 
 pub mod cache;
+pub mod check;
 pub mod crc;
 pub mod fetch;
 pub mod list;
 pub mod server;
 pub mod url;
+
+pub use check::{PatchEnv, PatchOutcome, PatchStatus, SystemPatchEnv, check_install};
 
 use super::wire::WireError;
 

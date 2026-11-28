@@ -281,7 +281,7 @@ pub fn read_local_packages(root: &Path) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn s(out: &mut Vec<u8>, v: &str) {
@@ -296,7 +296,7 @@ mod tests {
         r
     }
 
-    fn schema(table: &str, fields: &[(&str, u8)]) -> Vec<u8> {
+    pub(crate) fn schema(table: &str, fields: &[(&str, u8)]) -> Vec<u8> {
         let mut b = Vec::new();
         for (n, t) in fields {
             s(&mut b, n);
@@ -308,7 +308,7 @@ mod tests {
         record(1, &b)
     }
 
-    const PKG_FIELDS: [(&str, u8); 8] = [
+    pub(crate) const PKG_FIELDS: [(&str, u8); 8] = [
         ("SrcFileName", STR),
         ("TarFileName", STR),
         ("FileType", UINT),
@@ -319,7 +319,7 @@ mod tests {
         ("HeaderCRC", UINT),
     ];
 
-    fn row(src: &str, tar: &str, ft: u32, size: u32, crc: u32) -> Vec<u8> {
+    pub(crate) fn row(src: &str, tar: &str, ft: u32, size: u32, crc: u32) -> Vec<u8> {
         let mut b = Vec::new();
         s(&mut b, src);
         s(&mut b, tar);
