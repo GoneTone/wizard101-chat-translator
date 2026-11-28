@@ -177,6 +177,27 @@ fn parse_row(c: &mut Cursor, end: usize, schema: &Schema) -> Result<Vec<Value>, 
     Ok(row)
 }
 
+/// 伺服器給的路徑是否安全：非空、相對、無磁碟機／UNC 前綴、無 `..` 區段。
+fn is_safe_relative(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with(['/', '\\'])
+        && !path.contains(':')
+        && path.split(['/', '\\']).all(|part| part != "..")
+}
+
+/// 檢查一列的套件名與路徑；任一不安全回錯誤。
+fn check_entry(e: &FileEntry) -> Result<(), String> {
+    let package_ok = is_safe_relative(&e.package) && !e.package.contains(['/', '\\']);
+    if !package_ok || !is_safe_relative(&e.src) || (!e.tar.is_empty() && !is_safe_relative(&e.tar))
+    {
+        return Err(format!(
+            "unsafe path in file list: package={:?} src={:?} tar={:?}",
+            e.package, e.src, e.tar
+        ));
+    }
+    Ok(())
+}
+
 /// 解析清單；只回有 `CRC` 欄位的表格的列，順序同檔案。
 pub fn parse_file_list(bytes: &[u8]) -> Result<Vec<FileEntry>, String> {
     let mut c = Cursor { bytes, pos: 0 };
@@ -204,14 +225,16 @@ pub fn parse_file_list(bytes: &[u8]) -> Result<Vec<FileEntry>, String> {
             if let Some(cols) = cols {
                 let mut row: Vec<Option<Value>> = row.into_iter().map(Some).collect();
                 let mut take = |i: usize| row[i].take().unwrap_or(Value::Uint(0));
-                out.push(FileEntry {
+                let entry = FileEntry {
                     package: schema.table.clone(),
                     src: take(cols.src).into_string(),
                     tar: take(cols.tar).into_string(),
                     file_type: take(cols.file_type).uint(),
                     size: take(cols.size).uint(),
                     crc: take(cols.crc).uint(),
-                });
+                };
+                check_entry(&entry)?;
+                out.push(entry);
             }
         }
         if c.pos != end {
@@ -347,6 +370,43 @@ mod tests {
         assert_eq!(got[0].local_path(), "Bin/a.dll");
         assert_eq!(got[1].local_path(), "Data/y");
         assert!(got.iter().all(|e| e.package != "About"));
+    }
+
+    fn list_with(package: &str, src: &str, tar: &str) -> Vec<u8> {
+        let mut f = 1u32.to_le_bytes().to_vec();
+        f.extend(schema(package, &PKG_FIELDS));
+        f.extend([1, 0, 0, 0]);
+        f.extend(row(src, tar, 3, 1, 1));
+        f
+    }
+
+    #[test]
+    fn unsafe_paths_are_rejected() {
+        for (pkg, src, tar) in [
+            ("", "a", ""),
+            ("A/B", "a", ""),
+            ("A\\B", "a", ""),
+            ("..", "a", ""),
+            ("P", "", ""),
+            ("P", "/abs", ""),
+            ("P", "\\\\srv\\share", ""),
+            ("P", "C:/x", ""),
+            ("P", "C:x", ""),
+            ("P", "a/../b", ""),
+            ("P", "a\\..\\b", ""),
+            ("P", "a", "../b"),
+            ("P", "a", "/abs"),
+            ("P", "a", "D:\\x"),
+        ] {
+            let err = parse_file_list(&list_with(pkg, src, tar)).unwrap_err();
+            assert!(err.contains("unsafe path"), "{pkg} {src} {tar}: {err}");
+        }
+    }
+
+    #[test]
+    fn normal_nested_path_is_accepted() {
+        let got = parse_file_list(&list_with("Base", "Data/GameData/Foo.wad", "")).unwrap();
+        assert_eq!(got[0].src, "Data/GameData/Foo.wad");
     }
 
     #[test]

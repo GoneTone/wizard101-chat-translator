@@ -106,6 +106,7 @@ impl PackageRecords {
         }
     }
 
+    /// 以檔名 CRC 查該檔的紀錄。
     pub fn get(&self, entry: &FileEntry) -> Option<&CacheRecord> {
         let key = ki_crc(entry.src.as_bytes());
         self.records.iter().find(|r| r.name_crc == key)
@@ -130,7 +131,12 @@ impl PackageRecords {
             fs::create_dir_all(dir)?;
         }
         let tmp = path.with_extension("dat.w101tmp");
-        fs::write(&tmp, encode_records(&self.records))?;
+        fs::write(&tmp, encode_records(&self.records)).inspect_err(|e| {
+            log(format!(
+                "[patch] failed to write check records: path={} error={e}",
+                tmp.display()
+            ));
+        })?;
         fs::rename(&tmp, &path).inspect_err(|e| {
             log(format!(
                 "[patch] failed to save check records: package={package} error={e}"
