@@ -337,15 +337,15 @@ async fn attempt<D: LauncherDeps>(
     machine: &str,
 ) -> Result<LaunchStatus, Failure> {
     let install = queued.install;
-    // 等檢查或前一個 Steam 帳號時，使用者可能已自行開了這個帳號
-    if is_listed(&deps.running_accounts().await, account) {
-        return Ok(LaunchStatus::SkippedRunning);
-    }
     // 跨批次也要排隊：兩批同時開時，一批的 Shutdown 會打斷另一批正在用的 Steam API
     let steam_turn = match account.kind {
         AccountKind::Steam => Some(STEAM_SESSION.lock().await),
         AccountKind::Official => None,
     };
+    // 等檢查或輪到 Steam 會話時，使用者可能已自行開了這個帳號
+    if is_listed(&deps.running_accounts().await, account) {
+        return Ok(LaunchStatus::SkippedRunning);
+    }
     let ticket = match account.kind {
         AccountKind::Steam => Some(deps.acquire_ticket(install).await.map_err(Failure::Steam)?),
         AccountKind::Official => None,
@@ -960,6 +960,27 @@ mod tests {
         );
         assert_eq!(*status_of(&results, "o"), LaunchStatus::Opened);
         assert_eq!(*fake.spawned.lock().unwrap(), vec!["o-name".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_steam_account_started_while_waiting_for_its_turn_is_skipped() {
+        let fake = Fake::default();
+        // 測試自己佔住 Steam 會話，當作另一批正在登入
+        let other_batch = STEAM_SESSION.lock().await;
+        let selected = [account("s", AccountKind::Steam)];
+        let started_meanwhile = async {
+            fake.logging_in.notified().await;
+            fake.running.lock().unwrap().push("s-name".into());
+            drop(other_batch);
+        };
+        let (results, ()) = tokio::join!(launch_accounts(&selected, &fake), started_meanwhile);
+        assert_eq!(*status_of(&results, "s"), LaunchStatus::SkippedRunning);
+        assert!(fake.spawned.lock().unwrap().is_empty());
+        assert_eq!(
+            fake.steam_peak.load(Ordering::SeqCst),
+            0,
+            "no ticket requested"
+        );
     }
 
     #[tokio::test]
