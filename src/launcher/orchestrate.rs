@@ -144,19 +144,22 @@ struct PatchWait<'a, D: LauncherDeps> {
 }
 
 impl<'a, D: LauncherDeps> PatchWait<'a, D> {
-    /// 加入同位置的檢查（沒有就開一個）；同來源正在檢查另一個位置時不加入。
-    fn enter(deps: &'a D, install: &'a Install) -> Entered<'a, D> {
+    /// 加入同位置的檢查（沒有就開一個）；同來源正在檢查另一個位置時不加入，只在 `first` 時記 log。
+    fn enter(deps: &'a D, install: &'a Install, first: bool) -> Entered<'a, D> {
         let gate = deps.patch_gate();
         let mut checks = lock(&gate.checks);
         if let Some(entry) = checks.get(&install.source)
             && entry.root != install.root
         {
-            log(format!(
-                "[launch] install check waits for the previous location: source={:?} root={} previous={}",
-                install.source,
-                install.root.display(),
-                entry.root.display()
-            ));
+            // 別的來源收起也會叫醒，重試時不再重記
+            if first {
+                log(format!(
+                    "[launch] install check waits for the previous location: source={:?} root={} previous={}",
+                    install.source,
+                    install.root.display(),
+                    entry.root.display()
+                ));
+            }
             // 在鎖內建立，收起時的通知才不會漏接
             return Err(gate.released.notified());
         }
@@ -187,7 +190,7 @@ impl<'a, D: LauncherDeps> PatchWait<'a, D> {
                 Ok(wait) => return wait,
                 Err(released) => {
                     released.await;
-                    entered = Self::enter(deps, install);
+                    entered = Self::enter(deps, install, false);
                 }
             }
         }
@@ -353,7 +356,7 @@ fn prepare<'a, D: LauncherDeps>(
     let install = select_install(installs, account.kind).map_err(|e| failed(Failure::Launch(e)))?;
     let password = deps.password(account).ok_or(failed(Failure::Password))?;
     deps.report(&account.id, &LaunchStatus::Waiting(install.source));
-    Ok((install, password, PatchWait::enter(deps, install)))
+    Ok((install, password, PatchWait::enter(deps, install, true)))
 }
 
 /// 等這份安裝的檢查；通過就回報登入中。

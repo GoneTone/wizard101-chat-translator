@@ -330,9 +330,9 @@ async fn load_list<E: PatchEnv>(
             let limit = Some(u64::from(loc.size));
             let mut retried = 0;
             loop {
-                let fetched = env.fetch(&loc.url, &temp, &AtomicU64::new(0), limit).await;
-                if !retry(&mut retried, &loc.url, &list_copy(root), &fetched).await {
-                    break fetched;
+                let result = env.fetch(&loc.url, &temp, &AtomicU64::new(0), limit).await;
+                if !retry(&mut retried, &loc.url, &list_copy(root), &result).await {
+                    break result;
                 }
             }?;
             let (size, crc) = (loc.size, loc.crc);
@@ -742,7 +742,11 @@ mod tests {
                 .bodies
                 .get(url)
                 .ok_or_else(|| PatchFailure::Download("HTTP 404".into()))?;
-            if limit.is_some_and(|l| body.len() as u64 > l) {
+            if let Some(l) = limit
+                && body.len() as u64 > l
+            {
+                // 與實際下載一樣，中止前已寫了一部分
+                fs::write(temp, &body[..l as usize]).unwrap();
                 return Err(PatchFailure::Download(
                     "response larger than expected".into(),
                 ));
