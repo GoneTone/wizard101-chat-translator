@@ -68,6 +68,7 @@ fn rate_key(source: InstallSource) -> &'static str {
 /// 更新狀態的顯示文字與顏色：進行中說明色、通過綠、沒通過紅。
 pub fn status_text(status: &PatchStatus, speed: Option<Speed>) -> (String, Color32) {
     match status {
+        PatchStatus::Connecting => (t("patch.connecting", &[]), theme::TEXT_SECONDARY),
         PatchStatus::Checking { done, total } => {
             let (done, total) = (grouped(*done), grouped(*total));
             let text = t("patch.checking", &[("done", &done), ("total", &total)]);
@@ -155,6 +156,12 @@ mod tests {
         let secondary = theme::TEXT_SECONDARY;
         let failed = |f| PatchStatus::Failed(f);
         let cases = [
+            (
+                PatchStatus::Connecting,
+                "patch.connecting",
+                vec![],
+                secondary,
+            ),
             (
                 PatchStatus::Checking {
                     done: 2310,

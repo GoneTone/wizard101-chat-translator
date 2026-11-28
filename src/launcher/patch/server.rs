@@ -13,6 +13,8 @@ use crate::launcher::wire::{self, MAX_RESPONSE_FRAMES, MESSAGE_PREFIX, u16_at, u
 use crate::logs::log;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+/// 連線階段的上限，比系統預設的 TCP 逾時（約 21 秒）更早回報失敗。
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const PATCH_SERVICE: u8 = 8;
 const MSG_LATEST_FILE_LIST: u8 = 2;
 
@@ -128,10 +130,24 @@ pub fn parse_list_response(body: &[u8]) -> Option<Result<ListLocation, PatchFail
 
 async fn request(host: &str, port: u16) -> Result<ListLocation, PatchFailure> {
     let connect_err = |e: std::io::Error| PatchFailure::Connect(e.to_string());
-    let mut stream = TcpStream::connect((host, port)).await.map_err(|e| {
-        log(format!("[patch] connect {host}:{port} failed: {e}"));
-        connect_err(e)
-    })?;
+    let connecting = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)));
+    let mut stream = match connecting.await {
+        Ok(Ok(stream)) => stream,
+        Ok(Err(e)) => {
+            log(format!("[patch] connect {host}:{port} failed: {e}"));
+            return Err(connect_err(e));
+        }
+        Err(_) => {
+            log(format!(
+                "[patch] connect {host}:{port} timed out after {}s",
+                CONNECT_TIMEOUT.as_secs()
+            ));
+            return Err(PatchFailure::Connect(format!(
+                "connect timed out after {}s",
+                CONNECT_TIMEOUT.as_secs()
+            )));
+        }
+    };
     wire::handshake(&mut stream).await?;
     stream
         .write_all(&wire::frame(&build_list_request()))

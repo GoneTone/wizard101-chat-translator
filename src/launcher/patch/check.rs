@@ -27,6 +27,7 @@ use crate::net;
 /// 一份安裝的檢查進度與結果，送給介面顯示。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PatchStatus {
+    Connecting,
     Checking { done: u64, total: u64 },
     Downloading { done: u64, total: u64 },
     UpToDate,
@@ -118,7 +119,7 @@ impl PatchEnv for SystemPatchEnv {
 
 /// 檢查一份安裝；官網版順便下載變動的檔案，Steam 版只檢查。
 ///
-/// 成功回報 `UpToDate`／`Updated`、失敗回報 `Failed`，各恰好一次；無論成敗都會試著存已驗證的紀錄，存不了只記 log。
+/// 一開始先回報 `Connecting`；成功回報 `UpToDate`／`Updated`、失敗回報 `Failed`，各恰好一次；無論成敗都會試著存已驗證的紀錄，存不了只記 log。
 pub async fn check_install<E: PatchEnv>(
     install: &Install,
     env: &E,
@@ -131,6 +132,7 @@ pub async fn check_install<E: PatchEnv>(
         install.source,
         root.display()
     ));
+    report(PatchStatus::Connecting);
     let mut records = Records::new(root);
     let mut list_fetched = false;
     let result = run(install, env, report, &mut records, &mut list_fetched).await;
@@ -814,11 +816,14 @@ mod tests {
             .filter(|s| {
                 !matches!(
                     s,
-                    PatchStatus::Checking { .. } | PatchStatus::Downloading { .. }
+                    PatchStatus::Connecting
+                        | PatchStatus::Checking { .. }
+                        | PatchStatus::Downloading { .. }
                 )
             })
             .count();
         assert_eq!(terminal, 1, "{statuses:?}");
+        assert_eq!(statuses.first(), Some(&PatchStatus::Connecting));
         assert_eq!(statuses.last(), Some(&expected));
     }
 
