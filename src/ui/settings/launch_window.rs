@@ -12,6 +12,7 @@ use super::widgets::{
 };
 use crate::i18n::t;
 use crate::launcher::Account;
+use crate::launcher::install::InstallSource;
 use crate::launcher::launch::LaunchError;
 use crate::launcher::login::LoginError;
 use crate::launcher::orchestrate::{Failure, LaunchStatus};
@@ -34,6 +35,8 @@ pub enum LaunchAction {
 /// 單一帳號啟動進度的顯示文字；伺服器拒絕登入時直接是伺服器原文。
 pub fn status_text(status: &LaunchStatus) -> String {
     match status {
+        LaunchStatus::Waiting(InstallSource::Official) => t("launch.waiting_update", &[]),
+        LaunchStatus::Waiting(InstallSource::Steam) => t("launch.waiting_check", &[]),
         LaunchStatus::LoggingIn => t("launch.logging_in", &[]),
         LaunchStatus::Opened => t("launch.opened", &[]),
         LaunchStatus::SkippedRunning => t("launch.already_running", &[]),
@@ -60,15 +63,19 @@ pub fn failure_text(failure: &Failure) -> String {
         Failure::Login(LoginError::Protocol(e)) => with_error("launch.failed_protocol", e),
         Failure::Launch(LaunchError::ClientMissing) => t("launch.failed_client_missing", &[]),
         Failure::Launch(LaunchError::Spawn(e)) => with_error("launch.failed_spawn", e),
+        Failure::Patch => t("launch.not_started", &[]),
     }
 }
 
-/// 啟動進度文字的顏色：已啟動綠、失敗紅、其餘說明色。
+/// 啟動進度文字的顏色：已啟動綠、失敗紅（檢查沒通過除外，錯誤已顯示在安裝狀態）、其餘說明色。
 pub(crate) fn status_color(status: &LaunchStatus) -> Color32 {
     match status {
         LaunchStatus::Opened => theme::OK,
+        LaunchStatus::Failed(Failure::Patch) => theme::TEXT_SECONDARY,
         LaunchStatus::Failed(_) => theme::ERROR,
-        LaunchStatus::LoggingIn | LaunchStatus::SkippedRunning => theme::TEXT_SECONDARY,
+        LaunchStatus::Waiting(_) | LaunchStatus::LoggingIn | LaunchStatus::SkippedRunning => {
+            theme::TEXT_SECONDARY
+        }
     }
 }
 

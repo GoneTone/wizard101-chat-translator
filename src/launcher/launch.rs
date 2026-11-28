@@ -47,6 +47,7 @@ pub fn build_args(
     install: &Install,
     kind: AccountKind,
     steam_running: bool,
+    patch_seconds: u64,
     creds: &Credentials,
 ) -> Vec<String> {
     let mut args: Vec<String> = ["-L", LOGIN_HOST, LOGIN_PORT, "-A", "en-US"]
@@ -60,8 +61,7 @@ pub fn build_args(
             args.extend(["-P".into(), "0".into()]);
         }
     }
-    // 本工具不做更新，啟動器本次更新秒數照實填 0
-    args.extend(["-PT".into(), "0".into()]);
+    args.extend(["-PT".into(), patch_seconds.to_string()]);
     args.extend([
         "-U".into(),
         format!("..{}", creds.user_id),
@@ -152,6 +152,7 @@ mod tests {
             &install(InstallSource::Steam),
             AccountKind::Steam,
             true,
+            0,
             &creds(),
         );
         assert_skeleton(&args);
@@ -166,6 +167,7 @@ mod tests {
             &install(InstallSource::Steam),
             AccountKind::Steam,
             false,
+            0,
             &creds(),
         );
         assert_skeleton(&args);
@@ -180,6 +182,7 @@ mod tests {
             &install(InstallSource::Official),
             AccountKind::Official,
             true,
+            0,
             &creds(),
         );
         assert_skeleton(&args);
@@ -194,11 +197,25 @@ mod tests {
             &install(InstallSource::Steam),
             AccountKind::Official,
             true,
+            0,
             &creds(),
         );
         assert_skeleton(&args);
         assert!(!has(&args, &["-ST"]));
         assert!(!has(&args, &["-P"]));
+    }
+
+    #[test]
+    fn pt_carries_the_patch_seconds() {
+        let args = build_args(
+            &install(InstallSource::Official),
+            AccountKind::Official,
+            true,
+            42,
+            &creds(),
+        );
+        assert_skeleton(&args);
+        assert!(has(&args, &["-PT", "42"]));
     }
 
     #[test]
@@ -230,6 +247,7 @@ mod tests {
             &install(InstallSource::Official),
             AccountKind::Steam,
             true,
+            0,
             &creds(),
         );
         assert_skeleton(&args);

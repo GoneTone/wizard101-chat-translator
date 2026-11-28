@@ -290,7 +290,7 @@ impl AccountsPane {
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&account.name));
         let status = self.statuses.get(&account.id);
-        let busy = running || status == Some(&LaunchStatus::LoggingIn);
+        let busy = running || status.is_some_and(LaunchStatus::in_progress);
         let (launch, edit, delete) = list_card(
             ui,
             Id::unique(("account_card_buttons", &account.id)),
@@ -331,7 +331,11 @@ impl AccountsPane {
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(account) => {
                     // 改過的帳號不留上次的結果，例如改好密碼後還掛著密碼錯誤
-                    if self.statuses.get(&account.id) != Some(&LaunchStatus::LoggingIn) {
+                    if !self
+                        .statuses
+                        .get(&account.id)
+                        .is_some_and(LaunchStatus::in_progress)
+                    {
                         self.statuses.remove(&account.id);
                     }
                     accounts::upsert(&mut self.accounts, account.clone());

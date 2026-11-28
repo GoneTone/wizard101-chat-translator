@@ -664,6 +664,7 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
+            UiEvent::PatchStatus { .. } => ctx.request_repaint(),
             UiEvent::LaunchStatus { id, status } => {
                 if let Some(wiring) = &mut self.settings {
                     wiring.host.apply(SettingsEvent::LaunchStatus {
