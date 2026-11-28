@@ -455,7 +455,7 @@
   "patch.install_official": "Official site version",
   "patch.install_steam": "Steam version",
   "patch.connecting": "Connecting to the update server…",
-  "patch.checking":"Checking game files {done} / {total}",
+  "patch.checking": "Checking game files {done} / {total}",
   "patch.up_to_date": "Up to date",
   "patch.updated": "Updated to the latest version",
   "patch.steam_outdated": "The game isn't on the latest version. Update it in Steam first.",

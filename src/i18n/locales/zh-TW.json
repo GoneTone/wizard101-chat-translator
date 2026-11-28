@@ -455,7 +455,7 @@
   "patch.install_official": "官網版",
   "patch.install_steam": "Steam 版",
   "patch.connecting": "正在連線更新伺服器…",
-  "patch.checking":"檢查遊戲檔案中 {done} / {total}",
+  "patch.checking": "檢查遊戲檔案中 {done} / {total}",
   "patch.up_to_date": "已是最新",
   "patch.updated": "已更新到最新版本",
   "patch.steam_outdated": "遊戲版本不是最新，請先在 Steam 更新遊戲。",

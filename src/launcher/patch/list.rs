@@ -244,10 +244,10 @@ pub fn parse_file_list(bytes: &[u8]) -> Result<Vec<FileEntry>, String> {
     Ok(out)
 }
 
-/// Steam 安裝裡由 Steam 管理、不跟清單比對的檔案。
+/// Steam 安裝裡由 Steam 管理的檔案：內容可與清單不同，官方 Steam 啟動器也不檢查。
 const STEAM_MANAGED: [&str; 2] = ["Bin/PatchConfig.xml", "Bin/Wizard101Installer.vdf"];
 
-/// 官網版要檢查 `Base` 與本機套件，Steam 版全部；兩者都排除官方啟動器自己（`PatchClient`）。
+/// 官網版要檢查 `Base` 與本機套件，Steam 版全部（略過 [`STEAM_MANAGED`]）；兩者都排除官方啟動器自己（`PatchClient`）。
 pub fn select<'a>(
     entries: &'a [FileEntry],
     source: InstallSource,
@@ -256,7 +256,6 @@ pub fn select<'a>(
     entries
         .iter()
         .filter(|e| e.package != "PatchClient")
-        // Steam 管理這兩個檔，內容可與清單不同；官方 Steam 啟動器也不檢查
         .filter(|e| {
             source != InstallSource::Steam
                 || !STEAM_MANAGED
@@ -488,7 +487,7 @@ pub(crate) mod tests {
     fn select_steam_skips_steam_managed_files() {
         let config = FileEntry {
             src: "Steam/Bin/PatchConfig.xml".into(),
-            tar: "Bin/PatchConfig.xml".into(),
+            tar: "bin/patchconfig.xml".into(),
             ..entry("Base")
         };
         let vdf = FileEntry {

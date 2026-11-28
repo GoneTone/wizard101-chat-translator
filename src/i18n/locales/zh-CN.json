@@ -455,7 +455,7 @@
   "patch.install_official": "官网版",
   "patch.install_steam": "Steam 版",
   "patch.connecting": "正在连接更新服务器…",
-  "patch.checking":"检查游戏文件中 {done} / {total}",
+  "patch.checking": "检查游戏文件中 {done} / {total}",
   "patch.up_to_date": "已是最新",
   "patch.updated": "已更新到最新版本",
   "patch.steam_outdated": "游戏版本不是最新，请先在 Steam 更新游戏。",
