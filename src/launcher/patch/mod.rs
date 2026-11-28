@@ -4,6 +4,7 @@ pub mod cache;
 pub mod crc;
 pub mod list;
 pub mod server;
+pub mod url;
 
 use super::wire::WireError;
 
