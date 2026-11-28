@@ -253,7 +253,7 @@ struct Queued<'a, D: LauncherDeps> {
     wait: PatchWait<'a, D>,
 }
 
-/// 檢查已通過、可以登入的帳號。
+/// 等完檢查的帳號：通過的帶著登入要用的東西，否則是已定的結果。
 type Checked<'a, D> = Result<(Queued<'a, D>, PatchOutcome), LaunchStatus>;
 
 /// 不必等檢查就能判定的先判定（已在執行、沒有安裝、密碼解不開），其餘排進該安裝的檢查。
@@ -377,12 +377,22 @@ pub async fn launch_accounts<D: LauncherDeps>(
         .partition(|(a, _)| a.kind == AccountKind::Official);
     // Steam 一次只能發一張票據：Steam 帳號逐一登入，但檢查一起等，通過就都顯示登入中
     let steam_in_turn = async {
-        let checked = steam.into_iter().map(|(account, queued)| async move {
-            (account, await_check(account, deps, queued).await)
+        let checks = steam.into_iter().map(|(account, queued)| async move {
+            match await_check(account, deps, queued).await {
+                Ok(passed) => Ok((account, passed)),
+                // 不必登入就有結果的立刻回報，不等其他 Steam 帳號的檢查
+                Err(status) => Err(run_one(account, Err(status), deps, machine).await),
+            }
         });
-        let mut out = Vec::new();
-        for (account, checked) in join_all(checked).await {
-            out.push(run_one(account, checked, deps, machine).await);
+        let (mut out, mut passed) = (Vec::new(), Vec::new());
+        for check in join_all(checks).await {
+            match check {
+                Ok(ready) => passed.push(ready),
+                Err(done) => out.push(done),
+            }
+        }
+        for (account, ready) in passed {
+            out.push(run_one(account, Ok(ready), deps, machine).await);
         }
         out
     };
@@ -414,7 +424,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    use tokio::sync::Barrier;
+    use tokio::sync::{Barrier, Notify};
 
     use crate::launcher::install::InstallSource;
 
@@ -439,6 +449,7 @@ mod tests {
         patch_reports: Mutex<Vec<(InstallSource, Option<PatchStatus>)>>,
         checks: AtomicUsize,
         gate: PatchGate,
+        logging_in: Notify,
         steam_active: AtomicUsize,
         steam_peak: AtomicUsize,
     }
@@ -464,6 +475,7 @@ mod tests {
                 patch_reports: Mutex::new(Vec::new()),
                 checks: AtomicUsize::new(0),
                 gate: PatchGate::default(),
+                logging_in: Notify::new(),
                 steam_active: AtomicUsize::new(0),
                 steam_peak: AtomicUsize::new(0),
             }
@@ -539,6 +551,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((id.into(), status.clone()));
+            if *status == LaunchStatus::LoggingIn {
+                self.logging_in.notify_one();
+            }
         }
         fn ensure_patched(
             &self,
@@ -711,6 +726,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_decided_steam_account_reports_before_the_check_finishes() {
+        let fake = Fake {
+            running: vec!["s1-name".into()],
+            ..Fake::default()
+        };
+        let selected = [
+            account("s1", AccountKind::Steam),
+            account("s2", AccountKind::Steam),
+        ];
+        launch_accounts(&selected, &fake).await;
+        let reports = fake.reports.lock().unwrap();
+        let at = |id: &str, status: LaunchStatus| {
+            reports
+                .iter()
+                .position(|r| *r == (id.to_owned(), status.clone()))
+                .unwrap()
+        };
+        assert!(at("s1", LaunchStatus::SkippedRunning) < at("s2", LaunchStatus::LoggingIn));
+    }
+
+    #[tokio::test]
     async fn a_cancelled_wait_releases_the_check_without_hiding_it() {
         let fake = Fake::default();
         let selected = [account("a", AccountKind::Official)];
@@ -731,9 +767,7 @@ mod tests {
         let second = [account("b", AccountKind::Official)];
         let late = async {
             // a 卡在登入（barrier），檢查已通過但它還沒離開
-            while !reports_of(&fake, "a").contains(&LaunchStatus::LoggingIn) {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
+            fake.logging_in.notified().await;
             launch_accounts(&second, &fake).await
         };
         tokio::time::timeout(Duration::from_secs(5), async {
