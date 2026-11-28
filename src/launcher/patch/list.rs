@@ -253,6 +253,11 @@ pub fn select<'a>(
     entries
         .iter()
         .filter(|e| e.package != "PatchClient")
+        // Steam 安裝附的是 Steam 版設定檔，與清單不同；官方 Steam 啟動器也不檢查它
+        .filter(|e| {
+            source != InstallSource::Steam
+                || !e.local_path().eq_ignore_ascii_case("Bin/PatchConfig.xml")
+        })
         .filter(|e| {
             source == InstallSource::Steam
                 || e.package == "Base"
@@ -471,6 +476,19 @@ pub(crate) mod tests {
         let all = [entry("Base"), entry("Other"), entry("PatchClient")];
         let got = select(&all, InstallSource::Steam, &[]);
         assert_eq!(got.len(), 2);
+    }
+
+    /// Steam 版的 `Bin/PatchConfig.xml` 是 Steam 自己的版本，官方 Steam 啟動器也不檢查。
+    #[test]
+    fn select_steam_skips_its_patch_config() {
+        let config = FileEntry {
+            src: "Steam/Bin/PatchConfig.xml".into(),
+            tar: "Bin/PatchConfig.xml".into(),
+            ..entry("Base")
+        };
+        let all = [entry("Base"), config.clone()];
+        assert_eq!(select(&all, InstallSource::Steam, &[]).len(), 1);
+        assert_eq!(select(&all, InstallSource::Official, &[]).len(), 2);
     }
 
     #[test]
