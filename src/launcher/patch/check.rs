@@ -181,6 +181,31 @@ pub async fn check_install<E: PatchEnv>(
 
 const REPORT_INTERVAL: Duration = Duration::from_millis(100);
 
+/// 暫時性失敗後每次重試前等的時間；用完就放棄。
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+
+/// 暫時性失敗（`Download`／`Io`）且還有次數時記 log、清掉 `dest` 的暫存並等一下；回 `true` 表示要再試。
+async fn retry<T>(
+    retried: &mut usize,
+    src: &str,
+    dest: &Path,
+    result: &Result<T, PatchFailure>,
+) -> bool {
+    let (Err(e @ (PatchFailure::Download(_) | PatchFailure::Io(_))), Some(&delay)) =
+        (result, RETRY_DELAYS.get(*retried))
+    else {
+        return false;
+    };
+    *retried += 1;
+    log(format!(
+        "[patch] retry {retried}/{} for {src}: {e:?}",
+        RETRY_DELAYS.len()
+    ));
+    fetch::remove_temps(dest);
+    tokio::time::sleep(delay).await;
+    true
+}
+
 fn io_failure(path: &Path) -> impl Fn(io::Error) -> PatchFailure + '_ {
     move |e| PatchFailure::Io(format!("{}: {e}", path.display()))
 }
@@ -303,8 +328,13 @@ async fn load_list<E: PatchEnv>(
             fs::create_dir_all(&dir).map_err(io_failure(&dir))?;
             *fetched = true;
             let limit = Some(u64::from(loc.size));
-            env.fetch(&loc.url, &temp, &AtomicU64::new(0), limit)
-                .await?;
+            let mut retried = 0;
+            loop {
+                let fetched = env.fetch(&loc.url, &temp, &AtomicU64::new(0), limit).await;
+                if !retry(&mut retried, &loc.url, &list_copy(root), &fetched).await {
+                    break fetched;
+                }
+            }?;
             let (size, crc) = (loc.size, loc.crc);
             blocking(move || {
                 let bytes = fs::read(&temp).map_err(io_failure(&temp))?;
@@ -450,34 +480,42 @@ async fn download<E: PatchEnv>(
             fs::create_dir_all(dir).map_err(io_failure(dir))?;
         }
         let url = file_url(loc, entry);
-        let fetched = {
-            let size = u64::from(entry.size);
-            // gzip 檔的 size 是解壓後大小；難壓縮的資料壓完會比原檔略大
-            let limit = Some(if is_gzip(entry) {
-                size + size / 100 + 1024
-            } else {
-                size
-            });
-            let fetch = env.fetch(&url, &temp, &done, limit);
-            tokio::pin!(fetch);
-            loop {
-                tokio::select! {
-                    r = &mut fetch => break r,
-                    _ = ticker.tick() => report(PatchStatus::Downloading {
-                        done: done.load(Ordering::Relaxed),
-                        total,
-                    }),
+        let size = u64::from(entry.size);
+        // gzip 檔的 size 是解壓後大小；難壓縮的資料壓完會比原檔略大
+        let limit = Some(if is_gzip(entry) {
+            size + size / 100 + 1024
+        } else {
+            size
+        });
+        let mut retried = 0;
+        let installed = loop {
+            // 失敗那次已收到的位元組不算進進度
+            done.store(finished, Ordering::Relaxed);
+            let fetched = {
+                let fetch = env.fetch(&url, &temp, &done, limit);
+                tokio::pin!(fetch);
+                loop {
+                    tokio::select! {
+                        r = &mut fetch => break r,
+                        _ = ticker.tick() => report(PatchStatus::Downloading {
+                            done: done.load(Ordering::Relaxed),
+                            total,
+                        }),
+                    }
                 }
+            };
+            let installed = match fetched {
+                // 下載途中才開的遊戲或啟動器會讀到換到一半的檔案
+                Ok(()) if env.install_busy(root).await => Err(PatchFailure::GameOpen),
+                Ok(()) => {
+                    let (e, t, d) = (entry.clone(), temp.clone(), dest.clone());
+                    blocking(move || install_file(&e, &t, &d)).await
+                }
+                Err(e) => Err(e),
+            };
+            if !retry(&mut retried, &entry.src, &dest, &installed).await {
+                break installed;
             }
-        };
-        let installed = match fetched {
-            // 下載途中才開的遊戲或啟動器會讀到換到一半的檔案
-            Ok(()) if env.install_busy(root).await => Err(PatchFailure::GameOpen),
-            Ok(()) => {
-                let (e, t, d) = (entry.clone(), temp.clone(), dest.clone());
-                blocking(move || install_file(&e, &t, &d)).await
-            }
-            Err(e) => Err(e),
         };
         let stamp = installed.inspect_err(|e| {
             let _ = fs::remove_file(&temp);
@@ -597,7 +635,10 @@ mod tests {
     struct FakeEnv {
         loc: ListLocation,
         bodies: HashMap<String, Vec<u8>>,
-        fail: Option<String>,
+        /// 各網址接下來幾次下載依序回的錯誤；用完就正常下載。
+        failures: Mutex<HashMap<String, Vec<PatchFailure>>>,
+        /// 下載開始時暫存檔還在（重試前沒清掉）。
+        saw_temp: AtomicBool,
         busy: AtomicBool,
         /// 下載這個網址後遊戲被開起來。
         busy_after: Option<String>,
@@ -625,7 +666,8 @@ mod tests {
             let mut env = Self {
                 loc,
                 bodies,
-                fail: None,
+                failures: Mutex::default(),
+                saw_temp: AtomicBool::new(false),
                 busy: AtomicBool::new(false),
                 busy_after: None,
                 free: u64::MAX,
@@ -654,6 +696,17 @@ mod tests {
         fn fetched(&self) -> Vec<String> {
             self.fetched.lock().unwrap().clone()
         }
+
+        fn fetch_count(&self, url: &str) -> usize {
+            self.fetched().iter().filter(|u| *u == url).count()
+        }
+
+        fn fail(&self, url: &str, errors: &[PatchFailure]) {
+            self.failures
+                .lock()
+                .unwrap()
+                .insert(url.into(), errors.to_vec());
+        }
     }
 
     impl PatchEnv for FakeEnv {
@@ -673,9 +726,17 @@ mod tests {
             if self.busy_after.as_deref() == Some(url) {
                 self.busy.store(true, Ordering::SeqCst);
             }
-            if self.fail.as_deref() == Some(url) {
+            self.saw_temp.fetch_or(temp.exists(), Ordering::SeqCst);
+            let failure = self
+                .failures
+                .lock()
+                .unwrap()
+                .get_mut(url)
+                .and_then(|errors| (!errors.is_empty()).then(|| errors.remove(0)));
+            if let Some(failure) = failure {
                 fs::write(temp, b"partial").unwrap();
-                return Err(PatchFailure::Download("connection reset".into()));
+                done.fetch_add(7, Ordering::Relaxed);
+                return Err(failure);
             }
             let body = self
                 .bodies
@@ -932,15 +993,19 @@ mod tests {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn download_failure_keeps_original_and_record() {
         let dir = tempfile::tempdir().unwrap();
         let inst = install(&dir, InstallSource::Official);
-        let mut env = FakeEnv::new(&[
+        let env = FakeEnv::new(&[
             ("Base", "Bin/a.dll", b"new a"),
             ("Base", "Bin/b.dll", b"new b"),
         ]);
-        env.fail = Some(format!("{PREFIX}/Bin/b.dll"));
+        let reset = PatchFailure::Download("connection reset".into());
+        env.fail(
+            &format!("{PREFIX}/Bin/b.dll"),
+            &[reset.clone(), reset.clone(), reset],
+        );
         put(dir.path(), "Bin/a.dll", b"old a");
         put(dir.path(), "Bin/b.dll", b"old b");
         let entries = env.entries();
@@ -962,11 +1027,63 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("Bin/b.dll")).unwrap(), b"old b");
         assert_eq!(record(dir.path(), &entries[1]), Some(old_b));
         assert!(!dir.path().join("Bin/b.dll.w101tmp").exists());
+        assert_eq!(env.fetch_count(&format!("{PREFIX}/Bin/b.dll")), 3);
         assert_no_list_copy(dir.path());
         assert_terminal(&statuses, PatchStatus::Failed(err));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
+    async fn transient_failures_are_retried_after_a_delay() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let env = FakeEnv::new(&[("Base", "Bin/a.dll", b"new!")]);
+        let a = format!("{PREFIX}/Bin/a.dll");
+        env.fail(LIST_URL, &[PatchFailure::Io("disk hiccup".into())]);
+        env.fail(
+            &a,
+            &[
+                PatchFailure::Download("connection reset".into()),
+                PatchFailure::Io("disk hiccup".into()),
+            ],
+        );
+        put(dir.path(), "Bin/a.dll", b"old");
+        let started = tokio::time::Instant::now();
+
+        let (result, statuses) = run(&inst, &env).await;
+        assert!(result.unwrap().downloaded);
+        assert_eq!(fs::read(dir.path().join("Bin/a.dll")).unwrap(), b"new!");
+        assert_eq!((env.fetch_count(LIST_URL), env.fetch_count(&a)), (2, 3));
+        assert!(started.elapsed() >= Duration::from_secs(1 + 1 + 3));
+        assert!(
+            !env.saw_temp.load(Ordering::SeqCst),
+            "temps are cleared before a retry"
+        );
+        assert!(!dir.path().join("Bin/a.dll.w101tmp").exists());
+        assert!(
+            statuses
+                .iter()
+                .all(|s| !matches!(s, PatchStatus::Downloading { done, total } if done > total)),
+            "{statuses:?}"
+        );
+        assert_terminal(&statuses, PatchStatus::Updated);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn permanent_failures_are_not_retried() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let env = FakeEnv::new(&[("Base", "Bin/a.dll", b"new!")]);
+        let a = format!("{PREFIX}/Bin/a.dll");
+        let no_space = PatchFailure::NoSpace { need: 2, free: 1 };
+        env.fail(&a, std::slice::from_ref(&no_space));
+        put(dir.path(), "Bin/a.dll", b"old");
+
+        let (result, _) = run(&inst, &env).await;
+        assert_eq!(result, Err(no_space));
+        assert_eq!(env.fetch_count(&a), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn corrupt_download_keeps_original_and_record() {
         let dir = tempfile::tempdir().unwrap();
         let inst = install(&dir, InstallSource::Official);
@@ -1053,7 +1170,7 @@ mod tests {
         assert_eq!(limits[&format!("{PREFIX}/Data/z.wad.gz")], Some(3 + 1024));
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(start_paused = true)]
     async fn an_oversized_gzip_body_fails_without_leaving_a_temp() {
         let dir = tempfile::tempdir().unwrap();
         let inst = install(&dir, InstallSource::Official);
@@ -1096,6 +1213,7 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("Bin/b.dll")).unwrap(), b"old b");
         assert!(record(dir.path(), &entries[1]).is_none());
         assert!(!dir.path().join("Bin/b.dll.w101tmp").exists());
+        assert_eq!(env.fetch_count(&format!("{PREFIX}/Bin/b.dll")), 1);
         assert_terminal(&statuses, PatchStatus::Failed(PatchFailure::GameOpen));
     }
 
