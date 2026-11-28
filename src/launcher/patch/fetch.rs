@@ -1,7 +1,7 @@
 //! 下載單一遊戲檔到暫存，CRC 驗證後換上正式位置。
 
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -48,14 +48,27 @@ pub async fn fetch_to(
         log(format!("[patch] download HTTP {status} url={url}"));
         return Err(PatchFailure::Download(format!("HTTP {status}")));
     }
+    let result = write_stream(response, temp, done).await;
+    if result.is_err() {
+        let _ = fs::remove_file(temp);
+    }
+    result
+}
+
+async fn write_stream(
+    response: reqwest::Response,
+    temp: &Path,
+    done: &AtomicU64,
+) -> Result<(), PatchFailure> {
     let mut file = File::create(temp).map_err(io_failure)?;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| PatchFailure::Download(error_chain(e)))?;
+        // 不用 block_in_place：current-thread runtime 會 panic，且每塊都很小。
         file.write_all(&bytes).map_err(io_failure)?;
         done.fetch_add(bytes.len() as u64, Ordering::Relaxed);
     }
-    Ok(())
+    file.sync_all().map_err(io_failure)
 }
 
 /// 驗證下載內容的 CRC 與大小後換上 `dest`，回新檔的 `file_stamp`；失敗時 `dest` 不動。
@@ -66,7 +79,7 @@ pub fn install_file(
 ) -> Result<(u64, u64), PatchFailure> {
     let decoded = with_suffix(dest, ".w101tmp2");
     let outcome = if is_gzip(entry) {
-        gunzip(temp, &decoded)
+        gunzip(temp, &decoded, u64::from(entry.size))
             .map_err(|e| PatchFailure::Download(format!("gunzip failed: {e}")))
             .and_then(|()| verify_and_swap(entry, &decoded, dest))
     } else {
@@ -81,9 +94,12 @@ pub fn install_file(
     file_stamp(dest).ok_or_else(|| PatchFailure::Io(format!("cannot stat {}", dest.display())))
 }
 
-fn gunzip(from: &Path, to: &Path) -> io::Result<()> {
-    let mut decoder = GzDecoder::new(File::open(from)?);
-    io::copy(&mut decoder, &mut File::create(to)?).map(|_| ())
+/// 解壓到 `to`，最多寫 `max + 1` 位元組（多出的一個位元組讓大小檢查擋下）。
+fn gunzip(from: &Path, to: &Path, max: u64) -> io::Result<()> {
+    let mut decoder = GzDecoder::new(File::open(from)?).take(max + 1);
+    let mut out = File::create(to)?;
+    io::copy(&mut decoder, &mut out)?;
+    out.sync_all()
 }
 
 fn verify_and_swap(entry: &FileEntry, source: &Path, dest: &Path) -> Result<(), PatchFailure> {
@@ -195,6 +211,61 @@ mod tests {
         fs::write(temp_path(&other), b"abc").unwrap();
         install_file(&entry(1, b"abc"), &temp_path(&other), &other).unwrap();
         assert!(other_utd.exists());
+    }
+
+    #[test]
+    fn install_file_rejects_corrupt_gzip_and_keeps_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.dat");
+        let temp = temp_path(&dest);
+        fs::write(&dest, b"old").unwrap();
+        fs::write(&temp, b"definitely not gzip").unwrap();
+        let err = install_file(&entry(4, b"plain bytes"), &temp, &dest).unwrap_err();
+        assert!(matches!(err, PatchFailure::Download(m) if m.contains("gunzip")));
+        assert_eq!(fs::read(&dest).unwrap(), b"old");
+        assert!(!temp.exists());
+        assert!(!with_suffix(&dest, ".w101tmp2").exists());
+    }
+
+    #[test]
+    fn install_file_rejects_oversized_gzip_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("f.dat");
+        let temp = temp_path(&dest);
+        fs::write(&dest, b"old").unwrap();
+        fs::write(&temp, gzip(&vec![0u8; 100_000])).unwrap();
+        let err = install_file(&entry(4, b"tiny"), &temp, &dest).unwrap_err();
+        assert!(matches!(err, PatchFailure::Download(m) if m.contains("CRC mismatch")));
+        assert_eq!(fs::read(&dest).unwrap(), b"old");
+        assert!(!with_suffix(&dest, ".w101tmp2").exists());
+    }
+
+    #[tokio::test]
+    async fn fetch_to_removes_partial_temp_on_disconnect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 2048];
+            let _ = s.read(&mut buf).await;
+            s.write_all(
+                b"HTTP/1.1 200 OK
+Content-Length: 1000
+
+short",
+            )
+            .await
+            .unwrap();
+        });
+        let url = format!("http://127.0.0.1:{port}/f");
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("f.w101tmp");
+        let http = crate::net::download_client(&url);
+        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0))
+            .await
+            .unwrap_err();
+        assert!(matches!(err, PatchFailure::Download(_)));
+        assert!(!temp.exists());
     }
 
     async fn serve_once(status: &'static str, body: Vec<u8>) -> String {
