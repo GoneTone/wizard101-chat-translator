@@ -44,8 +44,11 @@ fn split_args(cmdline: &str) -> Vec<String> {
     }
 }
 
-/// `exes` 裡是否有 `root` 底下的遊戲用戶端或官方啟動器（不分大小寫）。
-fn busy_paths(root: &Path, exes: &[String]) -> bool {
+/// `exes` 裡是否有 `root` 底下的遊戲用戶端或官方啟動器（不分大小寫）；列舉失敗（`None`）當成有。
+fn busy_paths(root: &Path, exes: Option<&[String]>) -> bool {
+    let Some(exes) = exes else {
+        return true;
+    };
     let root = PathBuf::from(root.to_string_lossy().to_lowercase());
     let names = [PROCESS_NAME, LAUNCHER_NAME].map(str::to_lowercase);
     exes.iter().any(|exe| {
@@ -60,20 +63,17 @@ fn busy_paths(root: &Path, exes: &[String]) -> bool {
 
 /// `root` 底下是否有遊戲用戶端或官方啟動器在執行。
 pub fn install_busy(root: &Path) -> bool {
-    let Some(pids) = process_ids() else {
+    let exes: Option<Vec<String>> =
+        process_ids().map(|pids| pids.into_iter().filter_map(process_exe_path).collect());
+    let busy = busy_paths(root, exes.as_deref());
+    // 下載時每換上一個檔案前都會查，沒在執行就不記
+    if busy {
+        let processes = exes.map_or_else(|| "enumeration failed".into(), |e| e.len().to_string());
         log(format!(
-            "[patch] install busy check: process enumeration failed, treating as not busy: root={}",
+            "[patch] install busy: root={} processes={processes}",
             root.display()
         ));
-        return false;
-    };
-    let exes: Vec<String> = pids.into_iter().filter_map(process_exe_path).collect();
-    let busy = busy_paths(root, &exes);
-    log(format!(
-        "[patch] install busy check: root={} processes={} busy={busy}",
-        root.display(),
-        exes.len()
-    ));
+    }
     busy
 }
 
@@ -127,7 +127,7 @@ mod tests {
     #[test]
     fn install_busy_matches_client_and_launcher_under_root() {
         let root = Path::new(r"D:\Games\Wizard101");
-        let busy = |exe: &str| busy_paths(root, &[exe.to_string()]);
+        let busy = |exe: &str| busy_paths(root, Some(&[exe.to_string()]));
         assert!(busy(r"D:\Games\Wizard101\Bin\WizardGraphicalClient.exe"));
         assert!(busy(r"d:\games\WIZARD101\bin\wizardgraphicalclient.EXE"));
         assert!(busy(r"D:\Games\Wizard101\WizardLauncher.exe"));
@@ -139,12 +139,13 @@ mod tests {
         assert!(!busy(r"C:\Steam\Wizard101\Bin\WizardGraphicalClient.exe"));
         assert!(busy_paths(
             Path::new("c:/program files (x86)/steam/steamapps/common/Wizard101"),
-            &[
+            Some(&[
                 r"C:\Windows\explorer.exe".into(),
                 r"C:\Program Files (x86)\Steam\steamapps\common\Wizard101\Bin\WizardGraphicalClient.exe".into(),
-            ]
+            ])
         ));
-        assert!(!busy_paths(root, &[]));
+        assert!(!busy_paths(root, Some(&[])));
+        assert!(busy_paths(root, None), "enumeration failure counts as busy");
     }
 
     #[test]

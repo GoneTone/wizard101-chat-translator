@@ -21,6 +21,25 @@ pub fn temp_path(dest: &Path) -> PathBuf {
     with_suffix(dest, ".w101tmp")
 }
 
+/// gzip 檔解壓暫存路徑：`<dest>.w101tmp2`。
+fn decoded_path(dest: &Path) -> PathBuf {
+    with_suffix(dest, ".w101tmp2")
+}
+
+/// 刪掉 `dest` 上次中斷留下的下載與解壓暫存。
+pub fn remove_temps(dest: &Path) {
+    for temp in [temp_path(dest), decoded_path(dest)] {
+        if let Err(e) = fs::remove_file(&temp)
+            && e.kind() != io::ErrorKind::NotFound
+        {
+            log(format!(
+                "[patch] cannot remove stale temp {}: {e}",
+                temp.display()
+            ));
+        }
+    }
+}
+
 fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
     let mut s = path.as_os_str().to_owned();
     s.push(suffix);
@@ -31,12 +50,13 @@ fn io_failure(e: io::Error) -> PatchFailure {
     PatchFailure::Io(e.to_string())
 }
 
-/// 串流下載 `url` 到 `temp`（覆寫舊檔），每塊累加 `done`。
+/// 串流下載 `url` 到 `temp`（覆寫舊檔），每塊累加 `done`；收到超過 `limit` 位元組就中止。
 pub async fn fetch_to(
     http: &reqwest::Client,
     url: &str,
     temp: &Path,
     done: &AtomicU64,
+    limit: Option<u64>,
 ) -> Result<(), PatchFailure> {
     let response = http
         .get(url)
@@ -48,7 +68,7 @@ pub async fn fetch_to(
         log(format!("[patch] download HTTP {status} url={url}"));
         return Err(PatchFailure::Download(format!("HTTP {status}")));
     }
-    let result = write_stream(response, temp, done).await;
+    let result = write_stream(response, url, temp, done, limit).await;
     if result.is_err() {
         let _ = fs::remove_file(temp);
     }
@@ -57,13 +77,27 @@ pub async fn fetch_to(
 
 async fn write_stream(
     response: reqwest::Response,
+    url: &str,
     temp: &Path,
     done: &AtomicU64,
+    limit: Option<u64>,
 ) -> Result<(), PatchFailure> {
     let mut file = File::create(temp).map_err(io_failure)?;
     let mut stream = response.bytes_stream();
+    let mut received = 0u64;
     while let Some(chunk) = stream.next().await {
         let bytes = chunk.map_err(|e| PatchFailure::Download(error_chain(e)))?;
+        received += bytes.len() as u64;
+        if let Some(limit) = limit
+            && received > limit
+        {
+            log(format!(
+                "[patch] download larger than expected: url={url} limit={limit} received={received}"
+            ));
+            return Err(PatchFailure::Download(format!(
+                "response larger than the expected {limit} bytes"
+            )));
+        }
         // 不用 block_in_place：current-thread runtime 會 panic，且每塊都很小。
         file.write_all(&bytes).map_err(io_failure)?;
         done.fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -77,7 +111,7 @@ pub fn install_file(
     temp: &Path,
     dest: &Path,
 ) -> Result<(u64, u64), PatchFailure> {
-    let decoded = with_suffix(dest, ".w101tmp2");
+    let decoded = decoded_path(dest);
     let outcome = if is_gzip(entry) {
         gunzip(temp, &decoded, u64::from(entry.size))
             .map_err(|e| PatchFailure::Download(format!("gunzip failed: {e}")))
@@ -122,7 +156,7 @@ fn verify_and_swap(entry: &FileEntry, source: &Path, dest: &Path) -> Result<(), 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::launcher::patch::crc::ki_crc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -139,7 +173,7 @@ mod tests {
         }
     }
 
-    fn gzip(data: &[u8]) -> Vec<u8> {
+    pub(crate) fn gzip(data: &[u8]) -> Vec<u8> {
         let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(data).unwrap();
         enc.finish().unwrap()
@@ -248,20 +282,15 @@ mod tests {
             let (mut s, _) = listener.accept().await.unwrap();
             let mut buf = [0u8; 2048];
             let _ = s.read(&mut buf).await;
-            s.write_all(
-                b"HTTP/1.1 200 OK
-Content-Length: 1000
-
-short",
-            )
-            .await
-            .unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nshort")
+                .await
+                .unwrap();
         });
         let url = format!("http://127.0.0.1:{port}/f");
         let dir = tempfile::tempdir().unwrap();
         let temp = dir.path().join("f.w101tmp");
         let http = crate::net::download_client(&url);
-        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0))
+        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0), None)
             .await
             .unwrap_err();
         assert!(matches!(err, PatchFailure::Download(_)));
@@ -294,7 +323,9 @@ short",
         fs::write(&temp, b"stale and longer than nothing").unwrap();
         let done = AtomicU64::new(0);
         let http = crate::net::download_client(&url);
-        fetch_to(&http, &url, &temp, &done).await.unwrap();
+        fetch_to(&http, &url, &temp, &done, Some(200_000))
+            .await
+            .unwrap();
         assert_eq!(fs::read(&temp).unwrap(), body);
         assert_eq!(done.load(Ordering::Relaxed), 200_000);
     }
@@ -305,10 +336,26 @@ short",
         let dir = tempfile::tempdir().unwrap();
         let temp = dir.path().join("f.w101tmp");
         let http = crate::net::download_client(&url);
-        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0))
+        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0), None)
             .await
             .unwrap_err();
         assert_eq!(err, PatchFailure::Download("HTTP 404 Not Found".into()));
+        assert!(!temp.exists());
+    }
+
+    #[tokio::test]
+    async fn fetch_to_stops_past_the_expected_size() {
+        let url = serve_once("200 OK", vec![1u8; 100]).await;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("f.w101tmp");
+        let http = crate::net::download_client(&url);
+        let err = fetch_to(&http, &url, &temp, &AtomicU64::new(0), Some(99))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, PatchFailure::Download(m) if m.contains("larger")),
+            "{err:?}"
+        );
         assert!(!temp.exists());
     }
 }

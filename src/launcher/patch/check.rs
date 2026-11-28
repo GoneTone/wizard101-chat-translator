@@ -16,7 +16,7 @@ use super::crc::{ki_crc, ki_crc_reader};
 use super::fetch::{self, install_file};
 use super::list::{FileEntry, parse_file_list, read_local_packages, select};
 use super::server::{self, ListLocation};
-use super::url::file_url;
+use super::url::{file_url, is_gzip};
 use crate::launcher::install::{Install, InstallSource};
 use crate::launcher::running;
 use crate::local::download::{self, FREE_SPACE_MARGIN};
@@ -46,11 +46,13 @@ pub trait PatchEnv: Sync {
         &self,
         install: &Install,
     ) -> impl Future<Output = Result<ListLocation, PatchFailure>> + Send;
+    /// 下載到 `temp`；`limit` 是預期大小，收到更多就失敗（gzip 檔不知道壓縮後大小，給 `None`）。
     fn fetch(
         &self,
         url: &str,
         temp: &Path,
         done: &AtomicU64,
+        limit: Option<u64>,
     ) -> impl Future<Output = Result<(), PatchFailure>> + Send;
     fn install_busy(&self, root: &Path) -> bool;
     fn free_space(&self, dir: &Path) -> Result<u64, PatchFailure>;
@@ -81,8 +83,14 @@ impl PatchEnv for SystemPatchEnv {
         server::list_location(&host, port).await
     }
 
-    async fn fetch(&self, url: &str, temp: &Path, done: &AtomicU64) -> Result<(), PatchFailure> {
-        fetch::fetch_to(&self.http, url, temp, done).await
+    async fn fetch(
+        &self,
+        url: &str,
+        temp: &Path,
+        done: &AtomicU64,
+        limit: Option<u64>,
+    ) -> Result<(), PatchFailure> {
+        fetch::fetch_to(&self.http, url, temp, done, limit).await
     }
 
     fn install_busy(&self, root: &Path) -> bool {
@@ -96,7 +104,7 @@ impl PatchEnv for SystemPatchEnv {
 
 /// 檢查一份安裝；官網版順便下載變動的檔案，Steam 版只檢查。
 ///
-/// 成功回報 `UpToDate`／`Updated`、失敗回報 `Failed`，各恰好一次；無論成敗都會先存好已驗證的紀錄。
+/// 成功回報 `UpToDate`／`Updated`、失敗回報 `Failed`，各恰好一次；無論成敗都會試著存已驗證的紀錄，存不了只記 log。
 pub async fn check_install<E: PatchEnv>(
     install: &Install,
     env: &E,
@@ -111,17 +119,22 @@ pub async fn check_install<E: PatchEnv>(
     ));
     let mut records = Records::new(root);
     let mut list_fetched = false;
-    let mut result = run(install, env, report, &mut records, &mut list_fetched).await;
+    let result = run(install, env, report, &mut records, &mut list_fetched).await;
     // 失敗時也要存，已驗證或已下載的檔案下次不必重做
     let saved = blocking(move || records.save_dirty()).await;
-    if let Ok(downloaded) = result {
-        result = saved.and_then(|()| {
-            if list_fetched {
-                fs::rename(list_temp(root), list_copy(root))
-                    .map_err(io_failure(&list_copy(root)))?;
-            }
-            Ok(downloaded)
-        });
+    if result.is_ok() {
+        let renamed = if list_fetched {
+            fs::rename(list_temp(root), list_copy(root)).map_err(io_failure(&list_copy(root)))
+        } else {
+            Ok(())
+        };
+        // 紀錄與清單副本只是快取，留不住下次重算就好，不擋開遊戲
+        if let Err(e) = saved.and(renamed) {
+            log(format!(
+                "[patch] cannot keep check cache: root={} error={e:?}",
+                root.display()
+            ));
+        }
     }
     // 成功時已改名，這裡只清掉失敗留下的清單暫存
     let _ = fs::remove_file(list_temp(root));
@@ -186,10 +199,21 @@ async fn run<E: PatchEnv>(
     let loc = env.list_location(install).await?;
     let entries = load_list(&install.root, &loc, env, list_fetched).await?;
     let local_packages = read_local_packages(&install.root);
-    let selected = select(&entries, install.source, &local_packages)
+    let mut selected: Vec<FileEntry> = select(&entries, install.source, &local_packages)
         .into_iter()
         .cloned()
         .collect();
+    // Steam 版從不下載，不會有暫存，也不碰它的遊戲檔
+    if install.source == InstallSource::Official {
+        let root = install.root.clone();
+        selected = blocking(move || {
+            for entry in &selected {
+                fetch::remove_temps(&root.join(entry.local_path()));
+            }
+            Ok(selected)
+        })
+        .await?;
+    }
     let stale = scan(&install.root, selected, records, report).await?;
     if stale.is_empty() {
         return Ok(false);
@@ -248,7 +272,9 @@ async fn load_list<E: PatchEnv>(
             let dir = root.join("PatchInfo");
             fs::create_dir_all(&dir).map_err(io_failure(&dir))?;
             *fetched = true;
-            env.fetch(&loc.url, &temp, &AtomicU64::new(0)).await?;
+            let limit = Some(u64::from(loc.size));
+            env.fetch(&loc.url, &temp, &AtomicU64::new(0), limit)
+                .await?;
             let (size, crc) = (loc.size, loc.crc);
             blocking(move || {
                 let bytes = fs::read(&temp).map_err(io_failure(&temp))?;
@@ -372,7 +398,9 @@ async fn download<E: PatchEnv>(
         }
         let url = file_url(loc, entry);
         let fetched = {
-            let fetch = env.fetch(&url, &temp, &done);
+            // gzip 檔的 size 是解壓後大小，壓縮檔的上限交給解壓時的大小檢查
+            let limit = (!is_gzip(entry)).then_some(u64::from(entry.size));
+            let fetch = env.fetch(&url, &temp, &done, limit);
             tokio::pin!(fetch);
             loop {
                 tokio::select! {
@@ -385,6 +413,8 @@ async fn download<E: PatchEnv>(
             }
         };
         let installed = match fetched {
+            // 下載途中才開的遊戲或啟動器會讀到換到一半的檔案
+            Ok(()) if env.install_busy(root) => Err(PatchFailure::GameOpen),
             Ok(()) => {
                 let (e, t, d) = (entry.clone(), temp.clone(), dest.clone());
                 blocking(move || install_file(&e, &t, &d)).await
@@ -399,7 +429,8 @@ async fn download<E: PatchEnv>(
             ));
         })?;
         records.set(entry, record_for(entry, stamp))?;
-        records.save(&entry.package)?;
+        // 存不了就留在 dirty，結束時再試；紀錄只是快取，不中斷更新
+        let _ = records.save(&entry.package);
         // gzip 檔收到的是壓縮後位元組，每檔完成時校正成解壓後大小的累計
         finished += u64::from(entry.size);
         done.store(finished, Ordering::Relaxed);
@@ -483,8 +514,10 @@ impl Records {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::launcher::patch::fetch::tests::gzip;
     use crate::launcher::patch::list::tests::{PKG_FIELDS, row, schema};
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
 
     const LIST_URL: &str = "http://list/LatestFileList.bin";
     const PREFIX: &str = "http://files";
@@ -507,36 +540,47 @@ mod tests {
         loc: ListLocation,
         bodies: HashMap<String, Vec<u8>>,
         fail: Option<String>,
-        busy: bool,
+        busy: AtomicBool,
+        /// 下載這個網址後遊戲被開起來。
+        busy_after: Option<String>,
         free: u64,
         fetched: Mutex<Vec<String>>,
+        limits: Mutex<HashMap<String, Option<u64>>>,
     }
 
     impl FakeEnv {
         /// 伺服器上的清單與檔案內容；檔案網址為 `PREFIX/src`。
         fn new(files: &[(&str, &str, &[u8])]) -> Self {
-            let list = list_bytes(files);
-            let mut bodies: HashMap<String, Vec<u8>> = files
+            let bodies = files
                 .iter()
                 .map(|(_, src, body)| (format!("{PREFIX}/{src}"), body.to_vec()))
                 .collect();
             let loc = ListLocation {
                 version: 1,
-                size: list.len() as u32,
-                crc: ki_crc(&list),
+                size: 0,
+                crc: 0,
                 url: LIST_URL.into(),
                 prefix: PREFIX.into(),
                 suffix: String::new(),
             };
-            bodies.insert(LIST_URL.into(), list);
-            Self {
+            let mut env = Self {
                 loc,
                 bodies,
                 fail: None,
-                busy: false,
+                busy: AtomicBool::new(false),
+                busy_after: None,
                 free: u64::MAX,
                 fetched: Mutex::new(Vec::new()),
-            }
+                limits: Mutex::default(),
+            };
+            env.set_list(list_bytes(files));
+            env
+        }
+
+        fn set_list(&mut self, list: Vec<u8>) {
+            self.loc.size = list.len() as u32;
+            self.loc.crc = ki_crc(&list);
+            self.bodies.insert(LIST_URL.into(), list);
         }
 
         fn list(&self) -> &[u8] {
@@ -562,8 +606,13 @@ mod tests {
             url: &str,
             temp: &Path,
             done: &AtomicU64,
+            limit: Option<u64>,
         ) -> Result<(), PatchFailure> {
             self.fetched.lock().unwrap().push(url.into());
+            self.limits.lock().unwrap().insert(url.into(), limit);
+            if self.busy_after.as_deref() == Some(url) {
+                self.busy.store(true, Ordering::SeqCst);
+            }
             if self.fail.as_deref() == Some(url) {
                 fs::write(temp, b"partial").unwrap();
                 return Err(PatchFailure::Download("connection reset".into()));
@@ -578,7 +627,7 @@ mod tests {
         }
 
         fn install_busy(&self, _root: &Path) -> bool {
-            self.busy
+            self.busy.load(Ordering::SeqCst)
         }
 
         fn free_space(&self, _dir: &Path) -> Result<u64, PatchFailure> {
@@ -744,7 +793,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let inst = install(&dir, InstallSource::Official);
         let mut env = FakeEnv::new(&[("Base", "Bin/a.dll", b"new!")]);
-        env.busy = true;
+        env.busy = AtomicBool::new(true);
         put(dir.path(), "Bin/a.dll", b"old");
 
         let (result, statuses) = run(&inst, &env).await;
@@ -856,6 +905,96 @@ mod tests {
         assert_eq!(env.fetched(), [LIST_URL]);
         assert_eq!(fs::read(dir.path().join("Bin/a.dll")).unwrap(), b"old");
         assert_terminal(&statuses, PatchStatus::Failed(expected));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn fetches_are_capped_at_the_listed_size_except_gzip() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let mut env = FakeEnv::new(&[("Base", "Bin/a.dll", b"plain")]);
+        let mut list = 1u32.to_le_bytes().to_vec();
+        list.extend(schema("Base", &PKG_FIELDS));
+        list.extend(row("Bin/a.dll", "", 1, 5, ki_crc(b"plain")));
+        list.extend(row("Data/z.wad", "", 4, 3, ki_crc(b"zzz")));
+        env.set_list(list);
+        env.bodies
+            .insert(format!("{PREFIX}/Data/z.wad.gz"), gzip(b"zzz"));
+
+        let (result, _) = run(&inst, &env).await;
+        assert!(result.unwrap().downloaded);
+        assert_eq!(fs::read(dir.path().join("Data/z.wad")).unwrap(), b"zzz");
+        let limits = env.limits.lock().unwrap();
+        assert_eq!(limits[LIST_URL], Some(u64::from(env.loc.size)));
+        assert_eq!(limits[&format!("{PREFIX}/Bin/a.dll")], Some(5));
+        assert_eq!(limits[&format!("{PREFIX}/Data/z.wad.gz")], None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_game_started_mid_download_stops_before_the_next_swap() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let mut env = FakeEnv::new(&[
+            ("Base", "Bin/a.dll", b"new a"),
+            ("Base", "Bin/b.dll", b"new b"),
+        ]);
+        env.busy_after = Some(format!("{PREFIX}/Bin/b.dll"));
+        put(dir.path(), "Bin/a.dll", b"old a");
+        put(dir.path(), "Bin/b.dll", b"old b");
+        let entries = env.entries();
+
+        let (result, statuses) = run(&inst, &env).await;
+        assert_eq!(result, Err(PatchFailure::GameOpen));
+        assert_eq!(fs::read(dir.path().join("Bin/a.dll")).unwrap(), b"new a");
+        assert_eq!(record(dir.path(), &entries[0]).unwrap().crc, entries[0].crc);
+        assert_eq!(fs::read(dir.path().join("Bin/b.dll")).unwrap(), b"old b");
+        assert!(record(dir.path(), &entries[1]).is_none());
+        assert!(!dir.path().join("Bin/b.dll.w101tmp").exists());
+        assert_terminal(&statuses, PatchStatus::Failed(PatchFailure::GameOpen));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unsaveable_cache_does_not_fail_a_passed_check() {
+        // 同名資料夾擋住紀錄暫存檔的寫入或清單副本的改名
+        let blockers: [fn(&Path) -> PathBuf; 2] = [
+            |root| record_path(root, "Base").with_extension("dat.w101tmp"),
+            list_copy,
+        ];
+        for blocker in blockers {
+            let dir = tempfile::tempdir().unwrap();
+            let inst = install(&dir, InstallSource::Official);
+            let env = FakeEnv::new(&[("Base", "Bin/a.dll", b"new!")]);
+            put(dir.path(), "Bin/a.dll", b"old");
+            fs::create_dir_all(blocker(dir.path()).join("x")).unwrap();
+
+            let (result, statuses) = run(&inst, &env).await;
+            assert!(result.unwrap().downloaded);
+            assert_eq!(fs::read(dir.path().join("Bin/a.dll")).unwrap(), b"new!");
+            assert!(!list_temp(dir.path()).exists());
+            assert_terminal(&statuses, PatchStatus::Updated);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stale_temps_are_removed_on_official_installs_only() {
+        for (source, removed) in [
+            (InstallSource::Official, true),
+            (InstallSource::Steam, false),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let inst = install(&dir, source);
+            let env = FakeEnv::new(&[("Base", "Bin/a.dll", b"aaa")]);
+            put(dir.path(), "Bin/a.dll", b"aaa");
+            let temps = [
+                put(dir.path(), "Bin/a.dll.w101tmp", b"x"),
+                put(dir.path(), "Bin/a.dll.w101tmp2", b"x"),
+            ];
+
+            let (result, _) = run(&inst, &env).await;
+            assert!(!result.unwrap().downloaded);
+            for temp in temps {
+                assert_eq!(temp.exists(), !removed, "{source:?} {}", temp.display());
+            }
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
