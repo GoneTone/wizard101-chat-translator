@@ -2,6 +2,7 @@
 
 pub mod cache;
 pub mod crc;
+pub mod fetch;
 pub mod list;
 pub mod server;
 pub mod url;
