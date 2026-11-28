@@ -54,7 +54,7 @@ pub trait PatchEnv: Sync {
         done: &AtomicU64,
         limit: Option<u64>,
     ) -> impl Future<Output = Result<(), PatchFailure>> + Send;
-    fn install_busy(&self, root: &Path) -> bool;
+    fn install_busy(&self, root: &Path) -> impl Future<Output = bool> + Send;
     fn free_space(&self, dir: &Path) -> Result<u64, PatchFailure>;
 }
 
@@ -93,8 +93,17 @@ impl PatchEnv for SystemPatchEnv {
         fetch::fetch_to(&self.http, url, temp, done, limit).await
     }
 
-    fn install_busy(&self, root: &Path) -> bool {
-        running::install_busy(root)
+    async fn install_busy(&self, root: &Path) -> bool {
+        let root = root.to_path_buf();
+        // 列舉程序是同步呼叫，不能卡住非同步執行緒；查不了就當成開著
+        tokio::task::spawn_blocking(move || running::install_busy(&root))
+            .await
+            .unwrap_or_else(|e| {
+                log(format!(
+                    "[patch] install busy check failed, assuming busy: {e}"
+                ));
+                true
+            })
     }
 
     fn free_space(&self, dir: &Path) -> Result<u64, PatchFailure> {
@@ -230,7 +239,7 @@ async fn run<E: PatchEnv>(
         ));
         return Err(PatchFailure::SteamOutdated);
     }
-    if env.install_busy(&install.root) {
+    if env.install_busy(&install.root).await {
         log(format!(
             "[patch] {} file(s) need download but the game or launcher is running",
             stale.len()
@@ -419,7 +428,7 @@ async fn download<E: PatchEnv>(
         };
         let installed = match fetched {
             // 下載途中才開的遊戲或啟動器會讀到換到一半的檔案
-            Ok(()) if env.install_busy(root) => Err(PatchFailure::GameOpen),
+            Ok(()) if env.install_busy(root).await => Err(PatchFailure::GameOpen),
             Ok(()) => {
                 let (e, t, d) = (entry.clone(), temp.clone(), dest.clone());
                 blocking(move || install_file(&e, &t, &d)).await
@@ -636,7 +645,7 @@ mod tests {
             Ok(())
         }
 
-        fn install_busy(&self, _root: &Path) -> bool {
+        async fn install_busy(&self, _root: &Path) -> bool {
             self.busy.load(Ordering::SeqCst)
         }
 

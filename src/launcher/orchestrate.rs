@@ -85,7 +85,7 @@ pub trait LauncherDeps: Sync {
     type Ticket: Borrow<SteamTicket> + Send;
 
     fn installs(&self) -> Vec<Install>;
-    fn running_accounts(&self) -> Vec<String>;
+    fn running_accounts(&self) -> impl Future<Output = Vec<String>> + Send;
     fn password(&self, account: &Account) -> Option<Zeroizing<String>>;
     fn machine_id(&self) -> String;
     fn acquire_ticket(
@@ -212,8 +212,14 @@ impl LauncherDeps for SystemDeps {
     fn installs(&self) -> Vec<Install> {
         self.installs.clone()
     }
-    fn running_accounts(&self) -> Vec<String> {
-        running::running_accounts()
+    async fn running_accounts(&self) -> Vec<String> {
+        // 列舉程序是同步呼叫；查不了就與列舉失敗一樣當成沒有帳號在執行
+        tokio::task::spawn_blocking(running::running_accounts)
+            .await
+            .unwrap_or_else(|e| {
+                log(format!("[launch] running account scan failed: {e}"));
+                Vec::new()
+            })
     }
     fn password(&self, account: &Account) -> Option<Zeroizing<String>> {
         decrypt_password(&account.password_dpapi)
@@ -332,7 +338,7 @@ async fn attempt<D: LauncherDeps>(
 ) -> Result<LaunchStatus, Failure> {
     let install = queued.install;
     // 等檢查或前一個 Steam 帳號時，使用者可能已自行開了這個帳號
-    if is_listed(&deps.running_accounts(), account) {
+    if is_listed(&deps.running_accounts().await, account) {
         return Ok(LaunchStatus::SkippedRunning);
     }
     // 跨批次也要排隊：兩批同時開時，一批的 Shutdown 會打斷另一批正在用的 Steam API
@@ -397,7 +403,7 @@ pub async fn launch_accounts<D: LauncherDeps>(
     deps: &D,
 ) -> Vec<(String, LaunchStatus)> {
     let installs = deps.installs();
-    let running = deps.running_accounts();
+    let running = deps.running_accounts().await;
     let machine = deps.machine_id();
     let machine = machine.as_str();
     // 先全部排進檢查：逐一輪到的 Steam 帳號也算等待中，檢查才不會被前一個帳號提早收掉
@@ -530,7 +536,7 @@ mod tests {
                 },
             ]
         }
-        fn running_accounts(&self) -> Vec<String> {
+        async fn running_accounts(&self) -> Vec<String> {
             self.running.lock().unwrap().clone()
         }
         fn password(&self, _: &Account) -> Option<Zeroizing<String>> {
