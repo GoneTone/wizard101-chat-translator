@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
 use futures_util::future::{BoxFuture, Shared, join_all};
+use tokio::sync::Notify;
+use tokio::sync::futures::Notified;
 use zeroize::Zeroizing;
 
 use super::accounts::decrypt_password;
@@ -116,11 +118,23 @@ pub trait LauncherDeps: Sync {
 type PatchResult = Result<PatchOutcome, PatchFailure>;
 type PatchCheck = Shared<BoxFuture<'static, PatchResult>>;
 
-/// 同一份安裝同時只跑一個更新檢查；不分批次，等待中的帳號共用結果。
+/// 同一種來源同時只跑一個更新檢查（介面依來源顯示狀態）；不分批次，等同一位置的帳號共用結果。
 #[derive(Default)]
 pub struct PatchGate {
-    checks: Mutex<HashMap<PathBuf, (PatchCheck, usize)>>,
+    checks: Mutex<HashMap<InstallSource, GateEntry>>,
+    /// 有檢查收起時通知，等同來源另一個位置的帳號再試著加入。
+    released: Notify,
 }
+
+/// 某來源正在跑的檢查、它的位置與等待中的帳號數。
+struct GateEntry {
+    root: PathBuf,
+    check: PatchCheck,
+    waiters: usize,
+}
+
+/// 加入檢查的結果：加入了，或同來源正在檢查另一個位置、等它收起的通知。
+type Entered<'a, D> = Result<PatchWait<'a, D>, Notified<'a>>;
 
 /// 一個帳號在等某份安裝的檢查；drop 時離開，最後離開的收起通過的狀態。
 struct PatchWait<'a, D: LauncherDeps> {
@@ -130,45 +144,76 @@ struct PatchWait<'a, D: LauncherDeps> {
 }
 
 impl<'a, D: LauncherDeps> PatchWait<'a, D> {
-    fn enter(deps: &'a D, install: &'a Install) -> Self {
-        let mut checks = lock(&deps.patch_gate().checks);
-        let (check, waiters) = checks.entry(install.root.clone()).or_insert_with(|| {
-            let check = catch_check_panic(deps.ensure_patched(install), |_| {});
-            (check.boxed().shared(), 0)
+    /// 加入同位置的檢查（沒有就開一個）；同來源正在檢查另一個位置時不加入。
+    fn enter(deps: &'a D, install: &'a Install) -> Entered<'a, D> {
+        let gate = deps.patch_gate();
+        let mut checks = lock(&gate.checks);
+        if let Some(entry) = checks.get(&install.source)
+            && entry.root != install.root
+        {
+            log(format!(
+                "[launch] install check waits for the previous location: source={:?} root={} previous={}",
+                install.source,
+                install.root.display(),
+                entry.root.display()
+            ));
+            // 在鎖內建立，收起時的通知才不會漏接
+            return Err(gate.released.notified());
+        }
+        let entry = checks.entry(install.source).or_insert_with(|| GateEntry {
+            root: install.root.clone(),
+            check: catch_check_panic(deps.ensure_patched(install), |_| {})
+                .boxed()
+                .shared(),
+            waiters: 0,
         });
-        *waiters += 1;
+        entry.waiters += 1;
         log(format!(
-            "[launch] waiting for install check: root={} waiters={waiters}",
-            install.root.display()
+            "[launch] waiting for install check: root={} waiters={}",
+            install.root.display(),
+            entry.waiters
         ));
-        let check = check.clone();
-        Self {
+        Ok(Self {
             deps,
             install,
-            check,
+            check: entry.check.clone(),
+        })
+    }
+
+    /// 等到加入為止：每次有檢查收起就再試一次。
+    async fn join(mut entered: Entered<'a, D>, deps: &'a D, install: &'a Install) -> Self {
+        loop {
+            match entered {
+                Ok(wait) => return wait,
+                Err(released) => {
+                    released.await;
+                    entered = Self::enter(deps, install);
+                }
+            }
         }
     }
 }
 
 impl<D: LauncherDeps> Drop for PatchWait<'_, D> {
     fn drop(&mut self) {
-        let root = &self.install.root;
-        let mut checks = lock(&self.deps.patch_gate().checks);
-        let Some((check, waiters)) = checks.get_mut(root) else {
+        let (gate, source) = (self.deps.patch_gate(), self.install.source);
+        let mut checks = lock(&gate.checks);
+        let Some(entry) = checks.get_mut(&source) else {
             return;
         };
-        *waiters -= 1;
-        if *waiters == 0 {
-            let passed = matches!(check.peek(), Some(Ok(_)));
+        entry.waiters -= 1;
+        if entry.waiters == 0 {
+            let passed = matches!(entry.check.peek(), Some(Ok(_)));
             log(format!(
                 "[launch] install check released: root={} passed={passed}",
-                root.display()
+                entry.root.display()
             ));
             // 與 enter 同一把鎖下收起，免得晚到的 None 蓋掉下一次檢查的狀態
             if passed {
-                self.deps.report_patch(self.install.source, None);
+                self.deps.report_patch(source, None);
             }
-            checks.remove(root);
+            checks.remove(&source);
+            gate.released.notify_waiters();
         }
     }
 }
@@ -285,8 +330,11 @@ static STEAM_SESSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(())
 struct Queued<'a, D: LauncherDeps> {
     install: &'a Install,
     password: Zeroizing<String>,
-    wait: PatchWait<'a, D>,
+    _wait: PatchWait<'a, D>,
 }
+
+/// 判定完不必等檢查的帳號：其餘帶著要用的安裝、密碼與加入檢查的結果。
+type Prepared<'a, D> = Result<(&'a Install, Zeroizing<String>, Entered<'a, D>), LaunchStatus>;
 
 /// 等完檢查的帳號：通過的帶著登入要用的東西，否則是已定的結果。
 type Checked<'a, D> = Result<(Queued<'a, D>, PatchOutcome), LaunchStatus>;
@@ -297,7 +345,7 @@ fn prepare<'a, D: LauncherDeps>(
     deps: &'a D,
     installs: &'a [Install],
     running: &[String],
-) -> Result<Queued<'a, D>, LaunchStatus> {
+) -> Prepared<'a, D> {
     if is_listed(running, account) {
         return Err(LaunchStatus::SkippedRunning);
     }
@@ -305,27 +353,28 @@ fn prepare<'a, D: LauncherDeps>(
     let install = select_install(installs, account.kind).map_err(|e| failed(Failure::Launch(e)))?;
     let password = deps.password(account).ok_or(failed(Failure::Password))?;
     deps.report(&account.id, &LaunchStatus::Waiting(install.source));
-    Ok(Queued {
-        install,
-        password,
-        wait: PatchWait::enter(deps, install),
-    })
+    Ok((install, password, PatchWait::enter(deps, install)))
 }
 
 /// 等這份安裝的檢查；通過就回報登入中。
 async fn await_check<'a, D: LauncherDeps>(
     account: &Account,
-    deps: &D,
-    queued: Result<Queued<'a, D>, LaunchStatus>,
+    deps: &'a D,
+    prepared: Prepared<'a, D>,
 ) -> Checked<'a, D> {
-    let queued = queued?;
-    let patched = queued
-        .wait
+    let (install, password, entered) = prepared?;
+    let wait = PatchWait::join(entered, deps, install).await;
+    let patched = wait
         .check
         .clone()
         .await
         .map_err(|_| LaunchStatus::Failed(Failure::Patch))?;
     deps.report(&account.id, &LaunchStatus::LoggingIn);
+    let queued = Queued {
+        install,
+        password,
+        _wait: wait,
+    };
     Ok((queued, patched))
 }
 
@@ -474,6 +523,11 @@ mod tests {
     }
 
     struct Fake {
+        official_root: Mutex<PathBuf>,
+        /// 登入要等一下的帳號。
+        slow_sign_in: Option<&'static str>,
+        /// 帳號進度、檢查開始／結束與收起狀態，依發生順序。
+        events: Arc<Mutex<Vec<String>>>,
         running: Mutex<Vec<String>>,
         /// 檢查途中被開起來的帳號。
         starts_running: Option<&'static str>,
@@ -502,6 +556,9 @@ mod tests {
     impl Default for Fake {
         fn default() -> Self {
             Self {
+                official_root: Mutex::new(PathBuf::from(r"C:\W101")),
+                slow_sign_in: None,
+                events: Arc::default(),
                 running: Mutex::default(),
                 starts_running: None,
                 reject: None,
@@ -532,7 +589,7 @@ mod tests {
                 },
                 Install {
                     source: InstallSource::Official,
-                    root: PathBuf::from(r"C:\W101"),
+                    root: self.official_root.lock().unwrap().clone(),
                 },
             ]
         }
@@ -563,6 +620,9 @@ mod tests {
             if let Some(barrier) = &self.barrier {
                 barrier.wait().await;
             }
+            if self.slow_sign_in == Some(account) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
             if steam.is_some() {
                 tokio::time::sleep(Duration::from_millis(20)).await;
                 self.steam_active.fetch_sub(1, Ordering::SeqCst);
@@ -586,6 +646,7 @@ mod tests {
             Ok(1)
         }
         fn report(&self, id: &str, status: &LaunchStatus) {
+            self.events.lock().unwrap().push(format!("{id} {status:?}"));
             self.reports
                 .lock()
                 .unwrap()
@@ -603,13 +664,19 @@ mod tests {
                 self.running.lock().unwrap().push(name.into());
             }
             let (patch, source) = (self.patch, install.source);
+            let (events, root) = (Arc::clone(&self.events), install.root.display().to_string());
             // 要真的讓出執行權，另一批才有機會在檢查途中加入
             async move {
+                events.lock().unwrap().push(format!("check {root} start"));
                 tokio::time::sleep(Duration::from_millis(20)).await;
+                events.lock().unwrap().push(format!("check {root} end"));
                 patch(source)
             }
         }
         fn report_patch(&self, source: InstallSource, status: Option<&PatchStatus>) {
+            if status.is_none() {
+                self.events.lock().unwrap().push(format!("hide {source:?}"));
+            }
             self.patch_reports
                 .lock()
                 .unwrap()
@@ -797,6 +864,42 @@ mod tests {
         assert!(fake.patch_reports.lock().unwrap().is_empty());
         launch_accounts(&selected, &fake).await;
         assert_eq!(fake.checks.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_moved_install_is_checked_after_the_previous_check_is_released() {
+        let fake = Fake {
+            slow_sign_in: Some("a-name"),
+            ..Fake::default()
+        };
+        let first = [account("a", AccountKind::Official)];
+        let second = [account("b", AccountKind::Official)];
+        let moved = async {
+            // a 的檢查已通過、還在登入時，使用者換了官網版的位置
+            fake.logging_in.notified().await;
+            *fake.official_root.lock().unwrap() = PathBuf::from(r"D:\W101");
+            launch_accounts(&second, &fake).await
+        };
+        tokio::join!(launch_accounts(&first, &fake), moved);
+        assert_eq!(
+            *fake.events.lock().unwrap(),
+            [
+                "a Waiting(Official)",
+                r"check C:\W101 start",
+                r"check C:\W101 end",
+                "a LoggingIn",
+                "b Waiting(Official)",
+                "a Opened",
+                "hide Official",
+                r"check D:\W101 start",
+                r"check D:\W101 end",
+                "b LoggingIn",
+                "b Opened",
+                "hide Official",
+            ]
+        );
+        assert_eq!(fake.checks.load(Ordering::SeqCst), 2);
+        assert!(lock(&fake.gate.checks).is_empty());
     }
 
     #[tokio::test]
