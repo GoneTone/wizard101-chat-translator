@@ -1,10 +1,11 @@
-//! 啟動遊戲帳號視窗的畫面：上方「全選」、中間可捲動的帳號列（勾選、標記、單獨〔啟動〕與進度），底部自動關窗選項與批次啟動。
+//! 啟動遊戲帳號視窗的畫面：上方「全選」、中間可捲動的區域（各安裝的更新狀態卡與帳號列：勾選、標記、單獨〔啟動〕與進度），底部自動關窗選項與批次啟動。
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{Checkbox, Color32, Frame, Id, Margin, Panel, Ui, WidgetInfo};
 
 use super::account_dialog::kind_label;
 use super::launch_list::{LaunchList, SelectAll};
+use super::patch_card::{PatchBoard, board_card};
 use super::release_card::{FOOTER_MARGIN, HEADER_MARGIN, LIST_PADDING};
 use super::theme;
 use super::widgets::{
@@ -12,6 +13,7 @@ use super::widgets::{
 };
 use crate::i18n::t;
 use crate::launcher::Account;
+use crate::launcher::install::InstallSource;
 use crate::launcher::launch::LaunchError;
 use crate::launcher::login::LoginError;
 use crate::launcher::orchestrate::{Failure, LaunchStatus};
@@ -21,7 +23,7 @@ use crate::logs::log;
 /// 視窗要 App 做的事。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchAction {
-    /// 啟動這些帳號（id）；執行中與登入中的已排除。
+    /// 啟動這些帳號（id）；執行中與等檢查、登入中的已排除。
     Launch(Vec<String>),
     /// 勾選改了：要記住的帳號 id（寫回 `launch_selection`）。
     SelectionChanged(Vec<String>),
@@ -34,6 +36,8 @@ pub enum LaunchAction {
 /// 單一帳號啟動進度的顯示文字；伺服器拒絕登入時直接是伺服器原文。
 pub fn status_text(status: &LaunchStatus) -> String {
     match status {
+        LaunchStatus::Waiting(InstallSource::Official) => t("launch.waiting_update", &[]),
+        LaunchStatus::Waiting(InstallSource::Steam) => t("launch.waiting_check", &[]),
         LaunchStatus::LoggingIn => t("launch.logging_in", &[]),
         LaunchStatus::Opened => t("launch.opened", &[]),
         LaunchStatus::SkippedRunning => t("launch.already_running", &[]),
@@ -60,15 +64,19 @@ pub fn failure_text(failure: &Failure) -> String {
         Failure::Login(LoginError::Protocol(e)) => with_error("launch.failed_protocol", e),
         Failure::Launch(LaunchError::ClientMissing) => t("launch.failed_client_missing", &[]),
         Failure::Launch(LaunchError::Spawn(e)) => with_error("launch.failed_spawn", e),
+        Failure::Patch => t("launch.not_started", &[]),
     }
 }
 
-/// 啟動進度文字的顏色：已啟動綠、失敗紅、其餘說明色。
+/// 啟動進度文字的顏色：已啟動綠、失敗紅（檢查沒通過除外，錯誤已顯示在安裝狀態）、其餘說明色。
 pub(crate) fn status_color(status: &LaunchStatus) -> Color32 {
     match status {
         LaunchStatus::Opened => theme::OK,
+        LaunchStatus::Failed(Failure::Patch) => theme::TEXT_SECONDARY,
         LaunchStatus::Failed(_) => theme::ERROR,
-        LaunchStatus::LoggingIn | LaunchStatus::SkippedRunning => theme::TEXT_SECONDARY,
+        LaunchStatus::Waiting(_) | LaunchStatus::LoggingIn | LaunchStatus::SkippedRunning => {
+            theme::TEXT_SECONDARY
+        }
     }
 }
 
@@ -85,8 +93,13 @@ pub(super) fn account_badges(account: &Account, running: bool) -> Vec<String> {
     badges
 }
 
-/// 畫一幀；`auto_close` 是「啟動後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
-pub fn show(ui: &mut Ui, list: &mut LaunchList, auto_close: &mut bool) -> Vec<LaunchAction> {
+/// 畫一幀；`patch` 是各安裝的更新狀態，`auto_close` 是「啟動後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
+pub fn show(
+    ui: &mut Ui,
+    list: &mut LaunchList,
+    patch: &PatchBoard,
+    auto_close: &mut bool,
+) -> Vec<LaunchAction> {
     let mut actions = Vec::new();
     if list.accounts().is_empty() {
         no_accounts(ui, &mut actions);
@@ -104,6 +117,7 @@ pub fn show(ui: &mut Ui, list: &mut LaunchList, auto_close: &mut bool) -> Vec<La
         .show(ui, |ui| header(ui, list, &mut actions));
     let margin = Margin::symmetric(20, LIST_PADDING);
     scroll_page(ui, "launch_window_list", margin, theme::CARD_GAP, |ui| {
+        board_card(ui, patch);
         for account in list.accounts().to_vec() {
             row(ui, list, &account, &mut actions);
         }

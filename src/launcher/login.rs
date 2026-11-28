@@ -4,19 +4,22 @@
 //! 流程：伺服器先送 SESSION_OFFER → 回 SESSION_ACCEPT → 送 MSG_USER_AUTHEN_V3 →
 //! 等 MSG_USER_AUTHEN_RSP。帳密與 ck2 都以 offer 的 sid／時間為金鑰的 Twofish 串流加密。
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use regex::bytes::Regex;
 use sha2::{Digest, Sha512};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use twofish::Twofish;
 use twofish::cipher::{Block, BlockCipherEncrypt, KeyInit};
 
 use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
 
+use super::wire::{
+    self, MAX_RESPONSE_FRAMES, MESSAGE_PREFIX, Offer, WireError, u16_at, u32_at, u64_at,
+};
 use super::{SteamTicket, reg_string};
 use crate::config::local_state_dir;
 use crate::logs::log;
@@ -24,14 +27,7 @@ use crate::util::{hex, random_u64, unhex};
 
 const LOGIN_ADDR: &str = "login.us.wizard101.com:12000";
 const TIMEOUT: Duration = Duration::from_secs(30);
-const FRAME_MAGIC: [u8; 2] = [0x0D, 0xF0];
-/// 等認證回應時最多讀幾則訊息（伺服器會先送其他通知）。
-const MAX_RESPONSE_FRAMES: usize = 30;
 
-/// SESSION_ACCEPT 範本：10..14 現在秒數、14..18 毫秒、18..20 sid 由 [`build_session_accept`] 改寫。
-const SESSION_ACCEPT: &str = "010500000000000000001066016bbd000000bb00010000000000";
-/// V3 本體開頭：一般訊息（非控制訊息）的 4 bytes 標頭。
-const MESSAGE_PREFIX: [u8; 4] = [0; 4];
 const LOGIN_SERVICE: u8 = 7;
 const MSG_USER_AUTHEN_RSP: u8 = 14;
 const MSG_USER_AUTHEN_V3: u8 = 27;
@@ -67,28 +63,17 @@ pub enum LoginError {
     Protocol(String),
 }
 
-/// SESSION_OFFER 裡登入要用到的欄位。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Offer {
-    sid: u32,
-    seconds: u32,
-    millis: u32,
+impl From<WireError> for LoginError {
+    fn from(e: WireError) -> Self {
+        match e {
+            WireError::Io(m) => LoginError::Connect(m),
+            WireError::Protocol(m) => LoginError::Protocol(m),
+        }
+    }
 }
 
 fn protocol(what: &str) -> LoginError {
     LoginError::Protocol(what.into())
-}
-
-fn u16_at(b: &[u8], at: usize) -> Option<u16> {
-    Some(u16::from_le_bytes(b.get(at..at + 2)?.try_into().ok()?))
-}
-
-fn u32_at(b: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?))
-}
-
-fn u64_at(b: &[u8], at: usize) -> Option<u64> {
-    Some(u64::from_le_bytes(b.get(at..at + 8)?.try_into().ok()?))
 }
 
 /// 字串以 ISO-8859-1 編碼；超出範圍的字元變 `?`。
@@ -96,46 +81,6 @@ fn latin1(s: &str) -> Vec<u8> {
     s.chars()
         .map(|c| u8::try_from(c as u32).unwrap_or(b'?'))
         .collect()
-}
-
-fn frame(body: &[u8]) -> Vec<u8> {
-    let mut out = FRAME_MAGIC.to_vec();
-    out.extend((body.len() as u16).to_le_bytes());
-    out.extend(body);
-    out
-}
-
-async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Vec<u8>, LoginError> {
-    let io = |e: std::io::Error| LoginError::Connect(e.to_string());
-    let mut header = [0u8; 4];
-    r.read_exact(&mut header).await.map_err(io)?;
-    if header[..2] != FRAME_MAGIC {
-        return Err(protocol("bad frame magic"));
-    }
-    let mut body = vec![0u8; u16::from_le_bytes([header[2], header[3]]) as usize];
-    r.read_exact(&mut body).await.map_err(io)?;
-    Ok(body)
-}
-
-fn parse_session_offer(body: &[u8]) -> Result<Offer, LoginError> {
-    if body.len() < 100 {
-        return Err(protocol("session offer too short"));
-    }
-    let read = |at| u32_at(body, at).ok_or_else(|| protocol("session offer truncated"));
-    // sid 本身是 u16，緊接的保留欄位為 0；照 u32 讀，兩者結果相同
-    Ok(Offer {
-        sid: read(4)?,
-        seconds: read(10)?,
-        millis: read(14)?,
-    })
-}
-
-fn build_session_accept(offer: &Offer, now_millis: u64) -> Vec<u8> {
-    let mut accept = unhex(SESSION_ACCEPT).expect("valid template");
-    accept[10..14].copy_from_slice(&((now_millis / 1000) as u32).to_le_bytes());
-    accept[14..18].copy_from_slice(&((now_millis % 1000) as u32).to_le_bytes());
-    accept[18..20].copy_from_slice(&(offer.sid as u16).to_le_bytes());
-    accept
 }
 
 /// 密碼雜湊：`base64(sha512(base64(sha512(密碼)) + sid + 秒 + 毫秒))`，數字為十進位。
@@ -293,30 +238,16 @@ async fn sign_in_on<S: AsyncRead + AsyncWrite + Unpin>(
     steam: Option<&SteamTicket>,
 ) -> Result<LoginOutcome, LoginError> {
     let io = |e: std::io::Error| LoginError::Connect(e.to_string());
-    let offer_body = read_frame(&mut stream).await?;
-    let offer = parse_session_offer(&offer_body)?;
-    log(format!(
-        "[login] session offer: {} bytes, sid={}",
-        offer_body.len(),
-        offer.sid
-    ));
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64;
-    stream
-        .write_all(&frame(&build_session_accept(&offer, now)))
-        .await
-        .map_err(io)?;
+    let offer = wire::handshake(&mut stream).await?;
     let auth = build_authentication(account, password, &offer, machine, mac, steam)?;
-    stream.write_all(&frame(&auth)).await.map_err(io)?;
+    stream.write_all(&wire::frame(&auth)).await.map_err(io)?;
     log(format!(
         "[login] sent authentication ({} bytes, steam={})",
         auth.len(),
         steam.is_some()
     ));
     for _ in 0..MAX_RESPONSE_FRAMES {
-        let body = read_frame(&mut stream).await?;
+        let body = wire::read_frame(&mut stream).await?;
         if let Some(result) = parse_auth_response(&body, &offer) {
             if result.is_ok() {
                 log("[login] sign-in accepted");
@@ -441,24 +372,11 @@ pub fn machine_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::launcher::wire::{OFFER, frame, offer_body, read_frame};
 
-    const OFFER: Offer = Offer {
-        sid: 187,
-        seconds: 1_795_266_064,
-        millis: 189,
-    };
     const MACHINE: &str =
         "{0123ABCD-0000-1111-2222-333344445555}:{00112233445566778899AABBCCDDEEFF}";
     const MAC: u64 = 0x0000_E642_A6B7_2B72;
-
-    fn offer_body() -> Vec<u8> {
-        let mut body = vec![0u8; 120];
-        body[0] = 1;
-        body[4..8].copy_from_slice(&OFFER.sid.to_le_bytes());
-        body[10..14].copy_from_slice(&OFFER.seconds.to_le_bytes());
-        body[14..18].copy_from_slice(&OFFER.millis.to_le_bytes());
-        body
-    }
 
     /// 依回應訊息欄位順序組一份 MSG_USER_AUTHEN_RSP 本體。
     fn response_body(error: u32, user_id: u64, rec1: &[u8], reason: &str) -> Vec<u8> {
@@ -471,25 +389,6 @@ mod tests {
         body.extend(reason.as_bytes());
         body.extend([0u8; 12]);
         body
-    }
-
-    #[test]
-    fn parse_session_offer_reads_fields() {
-        assert_eq!(parse_session_offer(&offer_body()).unwrap(), OFFER);
-        assert!(matches!(
-            parse_session_offer(&offer_body()[..60]),
-            Err(LoginError::Protocol(_))
-        ));
-    }
-
-    #[test]
-    fn build_session_accept_is_26_bytes() {
-        let accept = build_session_accept(&OFFER, 1_700_000_123_456);
-        assert_eq!(accept.len(), 26);
-        assert_eq!(accept[..2], [1, 5]);
-        assert_eq!(accept[10..14], 1_700_000_123u32.to_le_bytes());
-        assert_eq!(accept[14..18], 456u32.to_le_bytes());
-        assert_eq!(accept[18..20], 187u16.to_le_bytes());
     }
 
     #[test]

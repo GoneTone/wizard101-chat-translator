@@ -298,6 +298,7 @@ impl App {
             Some(wiring) => {
                 let cfg = read(&wiring.cfg).clone();
                 wiring.host.open(&cfg);
+                replay_patch_status(&mut wiring.host, &self.launch);
             }
             None => log("[ui] settings button clicked but no settings window is wired"),
         }
@@ -309,6 +310,7 @@ impl App {
             Some(wiring) => {
                 let cfg = read(&wiring.cfg).clone();
                 wiring.host.open_at(&cfg, page);
+                replay_patch_status(&mut wiring.host, &self.launch);
             }
             None => log(format!(
                 "[ui] settings page {page:?} requested but no settings window is wired"
@@ -664,6 +666,15 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
+            UiEvent::PatchStatus { source, status } => {
+                if let Some(wiring) = &mut self.settings {
+                    wiring.host.apply(SettingsEvent::PatchStatus {
+                        source,
+                        status: status.clone(),
+                    });
+                }
+                self.launch.set_patch_status(source, status);
+            }
             UiEvent::LaunchStatus { id, status } => {
                 if let Some(wiring) = &mut self.settings {
                     wiring.host.apply(SettingsEvent::LaunchStatus {
@@ -1047,6 +1058,21 @@ impl eframe::App for App {
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
+}
+
+/// 設定頁每次開窗都是新的，把啟動視窗留著的各安裝狀態補送過去，兩邊才一致。
+fn replay_patch_status(host: &mut SettingsHost, launch: &LaunchHost) {
+    let mut count = 0;
+    for (source, status) in launch.patch().entries() {
+        let status = Some(status.clone());
+        host.apply(SettingsEvent::PatchStatus { source, status });
+        count += 1;
+    }
+    if count > 0 {
+        log(format!(
+            "[ui] settings opened: replayed {count} install update status(es)"
+        ));
     }
 }
 

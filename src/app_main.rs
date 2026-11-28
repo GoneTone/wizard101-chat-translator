@@ -39,7 +39,7 @@ use crate::launcher::accounts::{set_launch_auto_close, set_launch_selection, sto
 use crate::launcher::install::{detect_installs, installs_with};
 use crate::launcher::launch::LaunchError;
 use crate::launcher::orchestrate::{
-    Failure, LaunchStatus, StatusSink, SystemDeps, launch_accounts,
+    Failure, LaunchStatus, PatchGate, PatchSink, StatusSink, SystemDeps, launch_accounts,
 };
 use crate::launcher::running::running_accounts;
 use crate::local::engine::RELEASES_API;
@@ -563,6 +563,7 @@ pub fn launch_actions(
     ui: UiPoster,
 ) -> impl FnMut(LaunchAction) {
     let in_flight = Arc::new(Mutex::new(HashSet::new()));
+    let patch_gate = Arc::new(PatchGate::default());
     move |action| match action {
         LaunchAction::SelectionChanged(ids) => {
             let saved = edit_then_save(
@@ -582,7 +583,7 @@ pub fn launch_actions(
             );
             report_save(&ui, saved.is_ok());
         }
-        LaunchAction::Launch(ids) => launch(&settings, &rt, &ui, &in_flight, &ids),
+        LaunchAction::Launch(ids) => launch(&settings, &rt, &ui, &in_flight, &patch_gate, &ids),
         // App 自己開設定視窗
         LaunchAction::AddAccount => {}
     }
@@ -593,6 +594,7 @@ fn launch(
     rt: &Handle,
     ui: &UiPoster,
     in_flight: &Arc<Mutex<HashSet<String>>>,
+    patch_gate: &Arc<PatchGate>,
     ids: &[String],
 ) {
     let (known, game_path) = {
@@ -619,6 +621,7 @@ fn launch(
         accounts.len()
     ));
     let (in_flight, ui, handle) = (Arc::clone(in_flight), ui.clone(), rt.clone());
+    let patch_gate = Arc::clone(patch_gate);
     rt.spawn(async move {
         // 偵測要探測各磁碟，不能卡住非同步執行緒
         let installs = tokio::task::spawn_blocking(move || {
@@ -629,6 +632,8 @@ fn launch(
         let deps = SystemDeps {
             installs,
             on_status: status_sink(ui.clone(), Arc::clone(&in_flight)),
+            on_patch: patch_sink(ui.clone()),
+            patch_gate,
         };
         let outcome = AssertUnwindSafe(launch_accounts(&accounts, &deps))
             .catch_unwind()
@@ -687,13 +692,22 @@ fn claim(in_flight: &Mutex<HashSet<String>>, accounts: Vec<Account>) -> Vec<Acco
 /// 進度送回 UI；帳號一有結果就放掉，同一批其他帳號還在跑時也能重開它。
 fn status_sink(ui: UiPoster, in_flight: Arc<Mutex<HashSet<String>>>) -> StatusSink {
     Box::new(move |id, status| {
-        if *status != LaunchStatus::LoggingIn {
+        if !status.in_progress() {
             lock(&in_flight).remove(id);
         }
         ui.post(UiEvent::LaunchStatus {
             id: id.to_owned(),
             status: status.clone(),
         });
+    })
+}
+
+fn patch_sink(ui: UiPoster) -> PatchSink {
+    Arc::new(move |source, status| {
+        ui.post(UiEvent::PatchStatus {
+            source,
+            status: status.cloned(),
+        })
     })
 }
 
@@ -1145,6 +1159,7 @@ mod tests {
     use windows_sys::Win32::System::Console::CTRL_BREAK_EVENT;
 
     use super::*;
+    use crate::launcher::install::InstallSource;
 
     #[test]
     fn only_ctrl_c_posts_quit() {
@@ -1258,6 +1273,12 @@ mod tests {
         claim(&in_flight, accounts(&["a", "b"]));
         let (ui, rx) = UiPoster::for_test();
         let sink = status_sink(ui, Arc::clone(&in_flight));
+        let waiting = LaunchStatus::Waiting(InstallSource::Official);
+        sink("a", &waiting);
+        assert!(
+            claim(&in_flight, accounts(&["a"])).is_empty(),
+            "still waiting for the install check"
+        );
         sink("a", &LaunchStatus::LoggingIn);
         assert!(
             claim(&in_flight, accounts(&["a"])).is_empty(),
@@ -1274,6 +1295,10 @@ mod tests {
         assert_eq!(
             posted,
             [
+                UiEvent::LaunchStatus {
+                    id: "a".into(),
+                    status: waiting
+                },
                 UiEvent::LaunchStatus {
                     id: "a".into(),
                     status: LaunchStatus::LoggingIn

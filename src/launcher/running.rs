@@ -1,18 +1,22 @@
-//! 執行中帳號偵測：讀遊戲程序的命令列，取出 `-U` 末段的帳號名。
+//! 執行中程序偵測：從遊戲命令列取出帳號名，並判斷某份安裝是否有程式開著。
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use windows_sys::Win32::Foundation::LocalFree;
 use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
 
 use crate::game::process::{
-    is_game_process_path, process_command_line, process_exe_path, process_ids,
+    PROCESS_NAME, is_game_process_path, process_command_line, process_exe_path, process_ids,
 };
 use crate::logs::log;
 use crate::util::lock;
 
 /// 介面開著時重新掃描執行中帳號的間隔（秒）；掃描要列舉程序，不能每幀做。
 pub const RUNNING_REFRESH_SECS: f64 = 3.0;
+
+/// 官方啟動器的執行檔名。
+const LAUNCHER_NAME: &str = "WizardLauncher.exe";
 
 /// 依用戶端的切法拆命令列。
 fn split_args(cmdline: &str) -> Vec<String> {
@@ -38,6 +42,39 @@ fn split_args(cmdline: &str) -> Vec<String> {
         LocalFree(argv.cast());
         args
     }
+}
+
+/// `exes` 裡是否有 `root` 底下的遊戲用戶端或官方啟動器（不分大小寫）；列舉失敗（`None`）當成有。
+fn busy_paths(root: &Path, exes: Option<&[String]>) -> bool {
+    let Some(exes) = exes else {
+        return true;
+    };
+    let root = PathBuf::from(root.to_string_lossy().to_lowercase());
+    let names = [PROCESS_NAME, LAUNCHER_NAME].map(str::to_lowercase);
+    exes.iter().any(|exe| {
+        // Path::starts_with 比整段路徑元件，`Wizard101-Test` 不會被當成 `Wizard101` 底下
+        let exe = PathBuf::from(exe.to_lowercase());
+        exe.starts_with(&root)
+            && exe
+                .file_name()
+                .is_some_and(|n| names.iter().any(|name| n == name.as_str()))
+    })
+}
+
+/// `root` 底下是否有遊戲用戶端或官方啟動器在執行。
+pub fn install_busy(root: &Path) -> bool {
+    let exes: Option<Vec<String>> =
+        process_ids().map(|pids| pids.into_iter().filter_map(process_exe_path).collect());
+    let busy = busy_paths(root, exes.as_deref());
+    // 下載時每換上一個檔案前都會查，沒在執行就不記
+    if busy {
+        let processes = exes.map_or_else(|| "enumeration failed".into(), |e| e.len().to_string());
+        log(format!(
+            "[patch] install busy: root={} processes={processes}",
+            root.display()
+        ));
+    }
+    busy
 }
 
 /// 從遊戲命令列取出帳號名（`-U ..{UserID} {ck2} {帳號}` 的第三段）；沒有就回 `None`，絕不回傳 ck2。
@@ -85,6 +122,30 @@ mod tests {
             r#""D:\Games\Wizard101\Bin\WizardGraphicalClient.exe" -L login.us.wizard101.com 12000 -A en-US -ST -P 0 -PT 0 -U ..1234567890123 {} alice"#,
             ck2()
         )
+    }
+
+    #[test]
+    fn install_busy_matches_client_and_launcher_under_root() {
+        let root = Path::new(r"D:\Games\Wizard101");
+        let busy = |exe: &str| busy_paths(root, Some(&[exe.to_string()]));
+        assert!(busy(r"D:\Games\Wizard101\Bin\WizardGraphicalClient.exe"));
+        assert!(busy(r"d:\games\WIZARD101\bin\wizardgraphicalclient.EXE"));
+        assert!(busy(r"D:\Games\Wizard101\WizardLauncher.exe"));
+        assert!(busy(r"D:\Games\Wizard101\PatchClient\WizardLauncher.exe"));
+        assert!(!busy(r"D:\Games\Wizard101\Bin\Other.exe"));
+        assert!(!busy(
+            r"D:\Games\Wizard101-Test\Bin\WizardGraphicalClient.exe"
+        ));
+        assert!(!busy(r"C:\Steam\Wizard101\Bin\WizardGraphicalClient.exe"));
+        assert!(busy_paths(
+            Path::new("c:/program files (x86)/steam/steamapps/common/Wizard101"),
+            Some(&[
+                r"C:\Windows\explorer.exe".into(),
+                r"C:\Program Files (x86)\Steam\steamapps\common\Wizard101\Bin\WizardGraphicalClient.exe".into(),
+            ])
+        ));
+        assert!(!busy_paths(root, Some(&[])));
+        assert!(busy_paths(root, None), "enumeration failure counts as busy");
     }
 
     #[test]

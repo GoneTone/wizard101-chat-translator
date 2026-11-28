@@ -18,8 +18,9 @@ use windows_sys::w;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSpec};
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
-use crate::launcher::install::{self, Install};
+use crate::launcher::install::{self, Install, InstallSource};
 use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::patch::PatchStatus;
 use crate::launcher::running;
 use crate::local;
 use crate::logs::log;
@@ -100,6 +101,11 @@ pub enum SettingsEvent {
     RunningAccounts { names: Vec<String> },
     /// 某帳號的開啟進度有變（不論從開啟遊戲帳號視窗還是設定頁開啟）。
     LaunchStatus { id: String, status: LaunchStatus },
+    /// 某份安裝的更新狀態有變；`None` 是收起。
+    PatchStatus {
+        source: InstallSource,
+        status: Option<PatchStatus>,
+    },
     /// 開啟遊戲帳號視窗改了「開好後自動關閉」並已存檔。
     LaunchAutoClose(bool),
 }

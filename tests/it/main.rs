@@ -44,6 +44,7 @@ mod net_proxy;
 mod no_hardcoded_ui_text;
 mod ocr;
 mod ocr_golden;
+mod patch_download_probe;
 mod pattern_golden;
 mod pool;
 mod postprocess_golden;

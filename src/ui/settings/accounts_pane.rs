@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{Id, Label, RichText, Ui};
 use serde_json::Value;
@@ -11,6 +11,7 @@ use super::account_dialog::AccountDialog;
 use super::dialog::{Choice, confirm_delete};
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::launch_window::{account_badges, status_line};
+use super::patch_card::{PatchBoard, status_block};
 use super::theme;
 use super::widgets::{
     card, danger_secondary_button, dashed_button, hint, list_card, secondary_button, setting_row,
@@ -22,6 +23,7 @@ use crate::i18n::t;
 use crate::launcher::accounts::{self, Account, launch_auto_close, set_launch_auto_close};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
 use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
+use crate::launcher::patch::PatchStatus;
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
 
@@ -56,6 +58,8 @@ pub struct AccountsPane {
     scanning: bool,
     /// 各帳號（id）最近一次的啟動進度。
     statuses: HashMap<String, LaunchStatus>,
+    /// 各安裝的更新狀態。
+    patch: PatchBoard,
     folder_round: Round,
     /// 上次選到的資料夾不是有效的安裝。
     invalid_folder: bool,
@@ -83,6 +87,7 @@ impl AccountsPane {
             running_at: None,
             scanning: false,
             statuses: HashMap::new(),
+            patch: PatchBoard::default(),
             folder_round: Round::new("game folder dialog"),
             invalid_folder: false,
             committed: None,
@@ -137,7 +142,7 @@ impl AccountsPane {
         self.launch.take()
     }
 
-    /// 背景結果：偵測到的安裝、執行中帳號、啟動進度與選到的資料夾。
+    /// 背景結果：偵測到的安裝、執行中帳號、啟動與更新進度、選到的資料夾。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::InstallsDetected { installs } => {
@@ -152,11 +157,24 @@ impl AccountsPane {
             SettingsEvent::LaunchStatus { id, status } => {
                 self.statuses.insert(id.clone(), status.clone());
             }
+            SettingsEvent::PatchStatus { source, status } => {
+                self.set_patch_status(*source, status.clone(), Instant::now())
+            }
             SettingsEvent::GameFolderPicked { round, path } => {
                 self.folder_picked(*round, path.as_deref())
             }
             _ => {}
         }
+    }
+
+    /// 換上某份安裝在 `now` 時的更新狀態；`None` 是收起。
+    pub fn set_patch_status(
+        &mut self,
+        source: InstallSource,
+        status: Option<PatchStatus>,
+        now: Instant,
+    ) {
+        self.patch.apply(source, status, now);
     }
 
     /// 是有效的安裝才採用，否則顯示錯誤；過期或取消的結果丟掉。
@@ -196,7 +214,6 @@ impl AccountsPane {
                 });
             });
             hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
-            hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             ui.add_space(6.0);
             ui.add(Label::new(
                 RichText::new(t("accounts.my_accounts", &[])).font(theme::bold(theme::TEXT_SIZE)),
@@ -254,6 +271,7 @@ impl AccountsPane {
         let detected = self.detected.clone().unwrap_or_default();
         let installs = installs_with(detected, self.game_path.as_deref());
         let invalid = self.invalid_folder;
+        let patch = &self.patch;
         let mut change = false;
         card(ui, |ui| {
             let details = |ui: &mut Ui| {
@@ -262,13 +280,20 @@ impl AccountsPane {
                 } else if installs.is_empty() {
                     hint(ui, &t("accounts.install_none", &[]), theme::TEXT_SECONDARY);
                 }
-                for install in &installs {
+                for (i, install) in installs.iter().enumerate() {
                     let key = match install.source {
                         InstallSource::Steam => "accounts.install_steam",
                         InstallSource::Official => "accounts.install_official",
                     };
                     let path = install.root.display().to_string();
                     hint(ui, &t(key, &[("path", &path)]), theme::TEXT_SECONDARY);
+                    if patch.status(install.source).is_some() {
+                        status_block(ui, patch, install.source);
+                        // 卡內列距是 0，不隔開的話狀態像是下一份安裝的
+                        if i + 1 < installs.len() {
+                            ui.add_space(6.0);
+                        }
+                    }
                 }
                 if invalid {
                     hint(ui, &t("accounts.invalid_folder", &[]), theme::ERROR);
@@ -290,7 +315,7 @@ impl AccountsPane {
             .iter()
             .any(|name| name.eq_ignore_ascii_case(&account.name));
         let status = self.statuses.get(&account.id);
-        let busy = running || status == Some(&LaunchStatus::LoggingIn);
+        let busy = running || status.is_some_and(LaunchStatus::in_progress);
         let (launch, edit, delete) = list_card(
             ui,
             Id::unique(("account_card_buttons", &account.id)),
@@ -331,7 +356,11 @@ impl AccountsPane {
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(account) => {
                     // 改過的帳號不留上次的結果，例如改好密碼後還掛著密碼錯誤
-                    if self.statuses.get(&account.id) != Some(&LaunchStatus::LoggingIn) {
+                    if !self
+                        .statuses
+                        .get(&account.id)
+                        .is_some_and(LaunchStatus::in_progress)
+                    {
                         self.statuses.remove(&account.id);
                     }
                     accounts::upsert(&mut self.accounts, account.clone());

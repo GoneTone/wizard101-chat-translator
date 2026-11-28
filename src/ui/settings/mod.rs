@@ -20,6 +20,7 @@ mod local_models;
 pub mod local_pane;
 pub mod local_rate;
 mod local_rows;
+pub mod patch_card;
 pub mod provider_picker;
 mod quant_table;
 mod release_card;

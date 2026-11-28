@@ -23,6 +23,19 @@ pub(super) fn gb(bytes: u64) -> String {
     format!("{:.1}", bytes as f64 / (1u64 << 30) as f64)
 }
 
+/// 千分位分隔的整數，如 `2,310`。
+pub(super) fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// 進度條的比例；`total` 為 0（還不知道大小）時為 0。
 pub(super) fn fraction(done: u64, total: u64) -> f32 {
     if total == 0 {

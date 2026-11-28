@@ -17,7 +17,7 @@ const UNINSTALL_WOW64: &str = r"Software\WOW6432Node\Microsoft\Windows\CurrentVe
 pub const STEAM_API_DLL: &str = "steam_api64.dll";
 
 /// 安裝來源；決定啟動參數與 Steam 票據能不能取得。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InstallSource {
     Steam,
     Official,

@@ -1,12 +1,17 @@
 //! 托管啟動遊戲帳號視窗：帳號清單與啟動進度常駐（關窗也保留），開著時才畫視窗；從視窗開的帳號都啟動就依設定自動關窗。
 
+use std::time::Instant;
+
 use eframe::egui;
 
 use crate::launcher::Account;
+use crate::launcher::install::InstallSource;
 use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::patch::PatchStatus;
 use crate::logs::log;
 use crate::ui::settings::launch_list::LaunchList;
 use crate::ui::settings::launch_window::{self, LaunchAction};
+use crate::ui::settings::patch_card::PatchBoard;
 use crate::ui::settings::theme;
 use crate::ui::settings_host::{HostedWindow, Spec, WindowOps};
 
@@ -21,6 +26,8 @@ const LAUNCH: Spec = Spec {
 /// 啟動遊戲帳號視窗與它的狀態；所有方法都在 UI 執行緒呼叫。
 pub struct LaunchHost {
     list: LaunchList,
+    /// 各安裝的更新狀態；關窗也保留，重開照常顯示。
+    patch: PatchBoard,
     /// 從視窗啟動帳號後要不要自動關窗（設定的 `launch_auto_close`）。
     auto_close: bool,
     open: bool,
@@ -31,6 +38,7 @@ impl Default for LaunchHost {
     fn default() -> Self {
         Self {
             list: LaunchList::default(),
+            patch: PatchBoard::default(),
             auto_close: true,
             open: false,
             win: HostedWindow::new(LAUNCH),
@@ -122,6 +130,16 @@ impl LaunchHost {
         }
     }
 
+    /// 各安裝目前的更新狀態。
+    pub fn patch(&self) -> &PatchBoard {
+        &self.patch
+    }
+
+    /// 某份安裝的更新狀態有變；`None` 是收起。
+    pub fn set_patch_status(&mut self, source: InstallSource, status: Option<PatchStatus>) {
+        self.patch.apply(source, status, Instant::now());
+    }
+
     /// 每幀呼叫：開著就畫出視窗；✕ 或 Alt+F4 直接關窗，其餘動作交給 App。
     pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Vec<LaunchAction> {
         if !self.open {
@@ -129,6 +147,7 @@ impl LaunchHost {
         }
         let Self {
             list,
+            patch,
             auto_close,
             win,
             ..
@@ -136,7 +155,7 @@ impl LaunchHost {
         let mut closing = false;
         let actions = win.show(ctx, known, |ui, close| {
             closing |= close;
-            launch_window::show(ui, list, auto_close)
+            launch_window::show(ui, list, patch, auto_close)
         });
         if closing {
             self.close();

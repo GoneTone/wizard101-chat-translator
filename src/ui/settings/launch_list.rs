@@ -1,4 +1,4 @@
-//! 啟動遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量，以及這次啟動何時算全部完成。
+//! 啟動遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行、等檢查或登入中、全選三態、實際會開的數量，以及這次啟動何時算全部完成。
 
 use std::collections::HashMap;
 
@@ -51,9 +51,9 @@ impl LaunchList {
         // 刪掉的帳號不留進度，免得同 id 卡在登入中；改過的帳號不留上次的結果
         let old = std::mem::take(&mut self.accounts);
         self.statuses.retain(|id, status| {
-            accounts.iter().any(|a| {
-                &a.id == id && (*status == LaunchStatus::LoggingIn || old.iter().any(|o| o == a))
-            })
+            accounts
+                .iter()
+                .any(|a| &a.id == id && (status.in_progress() || old.iter().any(|o| o == a)))
         });
         self.accounts = accounts;
     }
@@ -86,9 +86,13 @@ impl LaunchList {
             .any(|r| r.eq_ignore_ascii_case(&account.name))
     }
 
-    /// 能不能勾：不在執行、也不在登入中。
+    /// 能不能勾：不在執行、也不在等檢查或登入中。
     pub fn checkable(&self, account: &Account) -> bool {
-        !self.is_running(account) && self.status(&account.id) != Some(&LaunchStatus::LoggingIn)
+        !self.is_running(account) && !self.in_progress(&account.id)
+    }
+
+    fn in_progress(&self, id: &str) -> bool {
+        self.status(id).is_some_and(LaunchStatus::in_progress)
     }
 
     /// 帳號是否勾選（含停用中仍保留的勾）。
@@ -165,7 +169,7 @@ impl LaunchList {
         ids
     }
 
-    /// 單獨啟動一個帳號；執行中或登入中就不開，回傳 `None`。
+    /// 單獨啟動一個帳號；執行中、等檢查或登入中就不開，回傳 `None`。
     pub fn begin_launch_one(&mut self, id: &str) -> Option<String> {
         let account = self.accounts.iter().find(|a| a.id == id)?;
         if !self.checkable(account) {
@@ -185,12 +189,11 @@ impl LaunchList {
         }
     }
 
-    /// 從視窗啟動的帳號都有結果了就結算並清掉；還有登入中的、或沒在啟動時回 `None`。
+    /// 從視窗啟動的帳號都有結果了就結算並清掉；還有等檢查或登入中的、或沒在啟動時回 `None`。
     ///
     /// 已經沒有進度的帳號（刪掉了，或啟動後遊戲又關了）不算失敗。
     pub fn settle(&mut self) -> Option<Settled> {
-        let pending = |id: &String| self.status(id) == Some(&LaunchStatus::LoggingIn);
-        if self.batch.is_empty() || self.batch.iter().any(pending) {
+        if self.batch.is_empty() || self.batch.iter().any(|id| self.in_progress(id)) {
             return None;
         }
         let batch = std::mem::take(&mut self.batch);
@@ -214,6 +217,7 @@ impl LaunchList {
 mod tests {
     use super::*;
     use crate::launcher::AccountKind;
+    use crate::launcher::install::InstallSource;
     use crate::launcher::login::LoginError;
     use crate::launcher::orchestrate::Failure;
 
@@ -415,6 +419,25 @@ mod tests {
         state.set_status("a", LaunchStatus::LoggingIn);
         state.set_status("a", LaunchStatus::Opened);
         assert_eq!(state.settle(), None);
+    }
+
+    #[test]
+    fn an_account_waiting_for_the_check_is_still_launching() {
+        let mut state = LaunchList::new(three(), &ids(&["a"]));
+        state.begin_launch();
+        state.set_status("a", LaunchStatus::Waiting(InstallSource::Official));
+        assert!(!state.checkable(&three()[0]));
+        assert_eq!(state.settle(), None);
+        state.set_status("a", LaunchStatus::Failed(Failure::Patch));
+        let settled = Settled {
+            opened: 0,
+            failed: 1,
+        };
+        assert_eq!(
+            state.settle(),
+            Some(settled),
+            "a blocked check keeps the window"
+        );
     }
 
     #[test]

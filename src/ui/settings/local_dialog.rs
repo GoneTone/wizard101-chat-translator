@@ -7,10 +7,11 @@ use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, RichText, TextStyle,
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field_with_hint;
 use super::local_rows::{Have, basis, have_of, row_buttons, row_text};
-use super::quant_table::{self, combined, gb};
+use super::quant_table::{self, combined, gb, grouped};
 use super::theme;
 use super::widgets::{
-    error_with_retry, primary_button, row_group, secondary_button, skeleton, text_with_controls,
+    error_with_retry, primary_button, row_group, secondary_button, separator, skeleton,
+    text_with_controls,
 };
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
@@ -516,29 +517,6 @@ fn hit_row(ui: &mut Ui, name: RichText, hit: &SearchHit) -> bool {
             });
         });
     view
-}
-
-/// 列與列之間的分隔線。
-fn separator(ui: &Ui) {
-    let y = ui.cursor().top();
-    ui.painter().hline(
-        ui.max_rect().x_range(),
-        y,
-        eframe::egui::Stroke::new(1.0, theme::CARD_BORDER),
-    );
-}
-
-/// 千分位分隔的整數（下載數）。
-fn grouped(n: u64) -> String {
-    let digits = n.to_string();
-    let mut out = String::new();
-    for (i, c) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// 查詢中（或硬體偵測中）的 repo 列：版面同查好的列，說明、徽章與按鈕都是佔位。

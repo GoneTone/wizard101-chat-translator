@@ -80,7 +80,7 @@ pub const WIZARD_SIZE: Vec2 = vec2(600.0, 760.0);
 pub const WIZARD_MIN_SIZE: Vec2 = vec2(600.0, 380.0);
 /// 開啟遊戲帳號視窗預設大小。
 pub const LAUNCH_SIZE: Vec2 = vec2(520.0, 560.0);
-/// 開啟遊戲帳號視窗最小大小：頂端「全選」、底部選項與按鈕之間至少還看得到兩列帳號。
+/// 開啟遊戲帳號視窗最小大小：頂端「全選」與底部選項、按鈕都完整，中間的更新狀態卡與帳號清單靠捲動。
 pub const LAUNCH_MIN_SIZE: Vec2 = vec2(460.0, 340.0);
 /// 側欄寬。
 pub const SIDEBAR_WIDTH: f32 = 200.0;

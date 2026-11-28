@@ -3,7 +3,9 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+use crate::launcher::install::InstallSource;
 use crate::launcher::orchestrate::LaunchStatus;
+use crate::launcher::patch::PatchStatus;
 use crate::reader::chat_tabs::TabState;
 use crate::region::capture::CaptureError;
 use crate::region::pipeline::RegionResult;
@@ -91,6 +93,11 @@ pub enum UiEvent {
     LocalLoading(Option<String>),
     /// 某帳號的開啟進度有變。
     LaunchStatus { id: String, status: LaunchStatus },
+    /// 某份安裝的更新檢查狀態有變；`None` 表示收起。
+    PatchStatus {
+        source: InstallSource,
+        status: Option<PatchStatus>,
+    },
     /// 重新掃描到的執行中帳號名稱。
     RunningAccounts(Vec<String>),
     /// 結束程式。

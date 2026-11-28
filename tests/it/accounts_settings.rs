@@ -21,9 +21,11 @@ use wizard101_chat_translator::launcher::accounts::{
 use wizard101_chat_translator::launcher::install::{Install, InstallSource};
 use wizard101_chat_translator::launcher::login::LoginError;
 use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
+use wizard101_chat_translator::launcher::patch::PatchStatus;
 use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::launch_window::status_text;
+use wizard101_chat_translator::ui::settings::patch_card;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::card_label;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
@@ -154,7 +156,6 @@ fn accounts_page_lists_saved_accounts() {
         &card_label("bob", &[tr("accounts.kind_steam")])
     ));
     assert!(has_label(&h, &tr("accounts.steam_limit")));
-    assert!(has_label(&h, &tr("launch.update_hint")));
 }
 
 #[test]
@@ -309,6 +310,50 @@ fn entering_the_page_detects_in_the_background() {
         &[("path", r"D:\Games\Wizard101")],
     );
     assert!(has_label(&h, &line));
+}
+
+#[test]
+fn install_card_shows_patch_status_under_its_path() {
+    let mut h = open(&two_accounts(), FakeEnv::default());
+    let (steam, official) = (r"D:\Steam\Wizard101", r"D:\Games\Wizard101");
+    let installs = vec![
+        Install {
+            source: InstallSource::Steam,
+            root: steam.into(),
+        },
+        Install {
+            source: InstallSource::Official,
+            root: official.into(),
+        },
+    ];
+    apply(&mut h, SettingsEvent::InstallsDetected { installs });
+    let checking = PatchStatus::Checking {
+        done: 2310,
+        total: 3735,
+    };
+    let status = Some(checking.clone());
+    let source = InstallSource::Steam;
+    apply(&mut h, SettingsEvent::PatchStatus { source, status });
+    let rect = |key: &str, path: &str| {
+        let line = i18n::t(key, &[("path", path)]);
+        h.get_by_label(&line).rect()
+    };
+    let steam_line = rect("accounts.install_steam", steam);
+    let official_line = rect("accounts.install_official", official);
+    let (text, color) = patch_card::status_text(&checking, None);
+    let status = h.get_by_label(&text).rect();
+    let bar = h.get_by_role(Role::ProgressIndicator).rect();
+    assert!(steam_line.max.y <= bar.min.y, "{steam_line:?} {bar:?}");
+    assert!(bar.max.y <= status.min.y, "{bar:?} {status:?}");
+    assert!(
+        status.max.y <= official_line.min.y,
+        "{status:?} {official_line:?}"
+    );
+    assert_eq!(text_sections(&h, &text)[0].1, color);
+
+    let status = None;
+    apply(&mut h, SettingsEvent::PatchStatus { source, status });
+    assert!(!has_label(&h, &text));
 }
 
 #[test]

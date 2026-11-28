@@ -18,7 +18,7 @@ use crate::net::error_chain;
 use crate::util::hex;
 
 /// 下載完成後磁碟上至少要剩的空間。
-const FREE_SPACE_MARGIN: u64 = 1 << 30;
+pub(crate) const FREE_SPACE_MARGIN: u64 = 1 << 30;
 const BODY_PREVIEW_CHARS: usize = 200;
 
 /// 錯誤回應內文的開頭一段（錯誤訊息與 log 用，整頁 HTML 不要整段帶出去）。
