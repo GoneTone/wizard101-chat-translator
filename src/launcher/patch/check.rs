@@ -113,7 +113,7 @@ pub async fn check_install<E: PatchEnv>(
     let mut list_fetched = false;
     let mut result = run(install, env, report, &mut records, &mut list_fetched).await;
     // 失敗時也要存，已驗證或已下載的檔案下次不必重做
-    let saved = records.save_dirty();
+    let saved = blocking(move || records.save_dirty()).await;
     if let Ok(downloaded) = result {
         result = saved.and_then(|()| {
             if list_fetched {
