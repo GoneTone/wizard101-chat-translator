@@ -92,11 +92,11 @@
 - 檢查失敗時不開遊戲（官方顯示錯誤頁，內容未查到）；通過才以 `-ST -P 0 -PT 0` 開遊戲。
 - Steam 版遊戲檔由 Steam 更新（depot 為完整遊戲，約 21 GB）。
 
-### 下載網址（未實測）
+### 下載網址
 
-- 一般檔案：`URLPrefix + "/" + SrcFileName`，`FileType` 4 再加 `.gz`，最後接 `URLSuffix`。
-- `TarFileName` 非空時是本機存放路徑，否則用 `SrcFileName`。
-- 大檔有 HTTP Range 分段下載（推測對應 `FileType` 5）；wad 的 header 另有 `.wad.hdr.gz`。
+- 已實測（`FileType` 1、3、4、5 各兩個檔，CRC 與大小皆相符）：`URLPrefix + "/" + SrcFileName`，`FileType` 4 再加 `.gz`（下載後解壓），最後接 `URLSuffix`（實測為空）。`FileType` 5 直接整檔 GET 即可，不必分段。
+- `TarFileName` 非空時是本機存放路徑，否則用 `SrcFileName`（未實測）。
+- 官方對大檔另有 HTTP Range 分段下載，wad 的 header 另有 `.wad.hdr.gz`；本工具不需要。
 - 下載 `FileType` 3 的檔案前，官方會先刪掉同名的 `.utd` 檔。
 - `HeaderSize`／`CompressedHeaderSize`／`HeaderCRC` 的用途未查到。
 
