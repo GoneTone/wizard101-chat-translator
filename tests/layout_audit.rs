@@ -125,6 +125,7 @@ fn service_form(index: usize) -> Harness<'static, Settings> {
     h.state_mut().win.set_page(Page::Services);
     h.run_steps(3);
     click_nth(&mut h, &tr("button.edit"), index);
+    h.run_steps(3);
     h
 }
 
@@ -163,9 +164,16 @@ fn service_states() {
     });
     save(&mut h, "service_form_test_failed");
 
+    // 開表單就自動讀模型清單，直接回覆那一輪
     let mut h = service_form(0);
-    click(&mut h, Role::Button, &tr("button.refresh"));
-    let round = h.state().env.lists.borrow().last().unwrap().0;
+    let round = h
+        .state()
+        .env
+        .lists
+        .borrow()
+        .last()
+        .expect("models requested")
+        .0;
     let models = [
         "claude-3-5-haiku-latest",
         "claude-haiku-4-5",
