@@ -46,7 +46,7 @@ pub trait PatchEnv: Sync {
         &self,
         install: &Install,
     ) -> impl Future<Output = Result<ListLocation, PatchFailure>> + Send;
-    /// 下載到 `temp`；`limit` 是預期大小，收到更多就失敗（gzip 檔不知道壓縮後大小，給 `None`）。
+    /// 下載到 `temp`；收到超過 `limit` 位元組就失敗。
     fn fetch(
         &self,
         url: &str,
@@ -398,8 +398,13 @@ async fn download<E: PatchEnv>(
         }
         let url = file_url(loc, entry);
         let fetched = {
-            // gzip 檔的 size 是解壓後大小，壓縮檔的上限交給解壓時的大小檢查
-            let limit = (!is_gzip(entry)).then_some(u64::from(entry.size));
+            let size = u64::from(entry.size);
+            // gzip 檔的 size 是解壓後大小；難壓縮的資料壓完會比原檔略大
+            let limit = Some(if is_gzip(entry) {
+                size + size / 100 + 1024
+            } else {
+                size
+            });
             let fetch = env.fetch(&url, &temp, &done, limit);
             tokio::pin!(fetch);
             loop {
@@ -621,6 +626,11 @@ mod tests {
                 .bodies
                 .get(url)
                 .ok_or_else(|| PatchFailure::Download("HTTP 404".into()))?;
+            if limit.is_some_and(|l| body.len() as u64 > l) {
+                return Err(PatchFailure::Download(
+                    "response larger than expected".into(),
+                ));
+            }
             fs::write(temp, body).map_err(|e| PatchFailure::Io(e.to_string()))?;
             done.fetch_add(body.len() as u64, Ordering::Relaxed);
             Ok(())
@@ -908,7 +918,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn fetches_are_capped_at_the_listed_size_except_gzip() {
+    async fn fetches_are_capped_at_the_listed_size() {
         let dir = tempfile::tempdir().unwrap();
         let inst = install(&dir, InstallSource::Official);
         let mut env = FakeEnv::new(&[("Base", "Bin/a.dll", b"plain")]);
@@ -926,7 +936,30 @@ mod tests {
         let limits = env.limits.lock().unwrap();
         assert_eq!(limits[LIST_URL], Some(u64::from(env.loc.size)));
         assert_eq!(limits[&format!("{PREFIX}/Bin/a.dll")], Some(5));
-        assert_eq!(limits[&format!("{PREFIX}/Data/z.wad.gz")], None);
+        assert_eq!(limits[&format!("{PREFIX}/Data/z.wad.gz")], Some(3 + 1024));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_oversized_gzip_body_fails_without_leaving_a_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let mut env = FakeEnv::new(&[]);
+        let mut list = 1u32.to_le_bytes().to_vec();
+        list.extend(schema("Base", &PKG_FIELDS));
+        list.extend(row("Data/z.wad", "", 4, 3, ki_crc(b"zzz")));
+        env.set_list(list);
+        // 合法的 gzip 後面接填充：沒有上限就會解出正確內容
+        let mut body = gzip(b"zzz");
+        body.resize(3 + 1024 + 1, 0);
+        env.bodies.insert(format!("{PREFIX}/Data/z.wad.gz"), body);
+
+        let (result, _) = run(&inst, &env).await;
+        assert!(
+            matches!(result, Err(PatchFailure::Download(_))),
+            "{result:?}"
+        );
+        assert!(!dir.path().join("Data/z.wad").exists());
+        assert!(!dir.path().join("Data/z.wad.w101tmp").exists());
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
