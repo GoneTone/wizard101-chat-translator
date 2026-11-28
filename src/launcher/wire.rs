@@ -12,6 +12,8 @@ use crate::util::unhex;
 pub const FRAME_MAGIC: [u8; 2] = [0x0D, 0xF0];
 /// 本體開頭：一般訊息（非控制訊息）的 4 bytes 標頭。
 pub const MESSAGE_PREFIX: [u8; 4] = [0; 4];
+/// 等回應時最多讀幾則訊息（伺服器會先送其他通知）。
+pub const MAX_RESPONSE_FRAMES: usize = 30;
 /// SESSION_ACCEPT 範本：10..14 現在秒數、14..18 毫秒、18..20 sid 由 [`build_session_accept`] 改寫。
 const SESSION_ACCEPT: &str = "010500000000000000001066016bbd000000bb00010000000000";
 

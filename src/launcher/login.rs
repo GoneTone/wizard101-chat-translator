@@ -17,7 +17,9 @@ use twofish::cipher::{Block, BlockCipherEncrypt, KeyInit};
 
 use windows_sys::Win32::System::Registry::HKEY_CURRENT_USER;
 
-use super::wire::{self, MESSAGE_PREFIX, Offer, WireError, u16_at, u32_at, u64_at};
+use super::wire::{
+    self, MAX_RESPONSE_FRAMES, MESSAGE_PREFIX, Offer, WireError, u16_at, u32_at, u64_at,
+};
 use super::{SteamTicket, reg_string};
 use crate::config::local_state_dir;
 use crate::logs::log;
@@ -25,8 +27,6 @@ use crate::util::{hex, random_u64, unhex};
 
 const LOGIN_ADDR: &str = "login.us.wizard101.com:12000";
 const TIMEOUT: Duration = Duration::from_secs(30);
-/// 等認證回應時最多讀幾則訊息（伺服器會先送其他通知）。
-const MAX_RESPONSE_FRAMES: usize = 30;
 
 const LOGIN_SERVICE: u8 = 7;
 const MSG_USER_AUTHEN_RSP: u8 = 14;

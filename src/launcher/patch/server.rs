@@ -1,6 +1,7 @@
 //! 向更新伺服器要最新檔案清單的位置（service 8 的清單請求）。
 
 use std::path::Path;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use regex::Regex;
@@ -8,12 +9,10 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 
 use super::PatchFailure;
-use crate::launcher::wire::{self, MESSAGE_PREFIX, u16_at, u32_at};
+use crate::launcher::wire::{self, MAX_RESPONSE_FRAMES, MESSAGE_PREFIX, u16_at, u32_at};
 use crate::logs::log;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
-/// 等清單回應時最多讀幾則訊息（伺服器會先送其他通知）。
-const MAX_RESPONSE_FRAMES: usize = 30;
 const PATCH_SERVICE: u8 = 8;
 const MSG_LATEST_FILE_LIST: u8 = 2;
 
@@ -28,6 +27,10 @@ pub struct ListLocation {
     pub suffix: String,
 }
 
+fn attribute(tag: &str, name: &str) -> Regex {
+    Regex::new(&format!(r#"<{tag}\b[^>]*\b{name}\s*=\s*"([^"]*)""#)).expect("valid regex")
+}
+
 /// 從遊戲目錄的 `PatchConfig.xml` 讀更新伺服器的主機與埠。
 pub fn patch_server(root: &Path) -> Result<(String, u16), PatchFailure> {
     let path = root.join(r"PatchClient\BankA\PatchConfig.xml");
@@ -35,12 +38,11 @@ pub fn patch_server(root: &Path) -> Result<(String, u16), PatchFailure> {
         log(format!("[patch] cannot read {}: {e}", path.display()));
         PatchFailure::Io(format!("{}: {e}", path.display()))
     })?;
-    let attr = |tag: &str, name: &str| {
-        let re = Regex::new(&format!(r#"<{tag}\s+{name}="([^"]*)""#)).expect("valid regex");
-        re.captures(&xml).map(|c| c[1].to_string())
-    };
-    let host = attr("PatchServerHostname", "host");
-    let port = attr("PatchServerPort", "port").and_then(|p| p.parse::<u16>().ok());
+    let attr = |re: &Regex| re.captures(&xml).map(|c| c[1].to_string());
+    static HOST: LazyLock<Regex> = LazyLock::new(|| attribute("PatchServerHostname", "host"));
+    static PORT: LazyLock<Regex> = LazyLock::new(|| attribute("PatchServerPort", "port"));
+    let host = attr(&HOST);
+    let port = attr(&PORT).and_then(|p| p.parse::<u16>().ok());
     match (host, port) {
         (Some(host), Some(port)) if !host.is_empty() => Ok((host, port)),
         _ => Err(PatchFailure::Protocol(
