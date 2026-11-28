@@ -244,6 +244,9 @@ pub fn parse_file_list(bytes: &[u8]) -> Result<Vec<FileEntry>, String> {
     Ok(out)
 }
 
+/// Steam 安裝裡由 Steam 管理、不跟清單比對的檔案。
+const STEAM_MANAGED: [&str; 2] = ["Bin/PatchConfig.xml", "Bin/Wizard101Installer.vdf"];
+
 /// 官網版要檢查 `Base` 與本機套件，Steam 版全部；兩者都排除官方啟動器自己（`PatchClient`）。
 pub fn select<'a>(
     entries: &'a [FileEntry],
@@ -253,10 +256,12 @@ pub fn select<'a>(
     entries
         .iter()
         .filter(|e| e.package != "PatchClient")
-        // Steam 安裝附的是 Steam 版設定檔，與清單不同；官方 Steam 啟動器也不檢查它
+        // Steam 管理這兩個檔，內容可與清單不同；官方 Steam 啟動器也不檢查
         .filter(|e| {
             source != InstallSource::Steam
-                || !e.local_path().eq_ignore_ascii_case("Bin/PatchConfig.xml")
+                || !STEAM_MANAGED
+                    .iter()
+                    .any(|p| e.local_path().eq_ignore_ascii_case(p))
         })
         .filter(|e| {
             source == InstallSource::Steam
@@ -478,17 +483,21 @@ pub(crate) mod tests {
         assert_eq!(got.len(), 2);
     }
 
-    /// Steam 版的 `Bin/PatchConfig.xml` 是 Steam 自己的版本，官方 Steam 啟動器也不檢查。
+    /// Steam 管理的設定檔與安裝描述檔不比對，官方 Steam 啟動器也不檢查。
     #[test]
-    fn select_steam_skips_its_patch_config() {
+    fn select_steam_skips_steam_managed_files() {
         let config = FileEntry {
             src: "Steam/Bin/PatchConfig.xml".into(),
             tar: "Bin/PatchConfig.xml".into(),
             ..entry("Base")
         };
-        let all = [entry("Base"), config.clone()];
+        let vdf = FileEntry {
+            src: "Bin/Wizard101Installer.vdf".into(),
+            ..entry("Base")
+        };
+        let all = [entry("Base"), config, vdf];
         assert_eq!(select(&all, InstallSource::Steam, &[]).len(), 1);
-        assert_eq!(select(&all, InstallSource::Official, &[]).len(), 2);
+        assert_eq!(select(&all, InstallSource::Official, &[]).len(), 3);
     }
 
     #[test]

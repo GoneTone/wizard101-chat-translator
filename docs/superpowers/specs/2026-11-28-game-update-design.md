@@ -116,7 +116,7 @@
 
 1. 讀該安裝的 `PatchConfig.xml` 取主機與 port，向更新伺服器要清單位置。
 2. 若 `PatchInfo\LatestFileList.bin` 的 CRC 等於伺服器回的清單 CRC，直接用本機副本；否則下載新清單（約 1.2 MB）並驗 CRC。
-3. 決定要檢查的檔案：官網安裝＝`Base`＋`LocalPackagesList.txt` 的套件（不含 `PatchClient`）；Steam 安裝＝全部套件，但略過 `Bin/PatchConfig.xml`（Steam 附的是 Steam 版設定檔，與清單不同，官方 Steam 版啟動器也不檢查它），範圍與官方 Steam 版啟動器一致。
+3. 決定要檢查的檔案：官網安裝＝`Base`＋`LocalPackagesList.txt` 的套件（不含 `PatchClient`）；Steam 安裝＝全部套件，但略過 Steam 管理的 `Bin/PatchConfig.xml` 與 `Bin/Wizard101Installer.vdf`（內容可與清單不同，官方 Steam 版啟動器也不檢查），範圍與官方 Steam 版啟動器一致。
 4. 逐檔比對檢查紀錄；紀錄對不上的檔案重算 CRC。被鎖住讀不了的檔案，若這份安裝有遊戲用戶端或官方啟動器在執行，視為使用中而略過（不算不符、不改紀錄）；否則照一般讀檔錯誤。
 5. **Steam 安裝**：重算相符的寫回紀錄；有任何檔案不符或缺少就判定「不是最新」，結束。
 6. **官網安裝**：仍不符的檔案列為要下載。
