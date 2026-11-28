@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::time::MissedTickBehavior;
+use windows_sys::Win32::Foundation::{ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION};
 
 use super::PatchFailure;
 use super::cache::{CacheRecord, PackageRecords, file_stamp, is_fresh, record_for, record_path};
@@ -56,6 +57,10 @@ pub trait PatchEnv: Sync {
     ) -> impl Future<Output = Result<(), PatchFailure>> + Send;
     fn install_busy(&self, root: &Path) -> impl Future<Output = bool> + Send;
     fn free_space(&self, dir: &Path) -> Result<u64, PatchFailure>;
+    /// 算檔案 CRC 的函式；測試換成會模擬檔案被鎖住的版本。
+    fn hasher(&self) -> fn(&Path) -> io::Result<u32> {
+        file_crc
+    }
 }
 
 /// 實際連線、下載與查程序的 `PatchEnv`。
@@ -223,7 +228,23 @@ async fn run<E: PatchEnv>(
         })
         .await?;
     }
-    let stale = scan(&install.root, selected, records, report).await?;
+    let Scanned { stale, locked } =
+        scan(&install.root, selected, records, report, env.hasher()).await?;
+    if let Some((_, first)) = locked.first() {
+        // 只有這份安裝的程式開著時，被鎖住才是正在用；否則照一般讀檔錯誤處理
+        if !env.install_busy(&install.root).await {
+            return Err(first.clone());
+        }
+        log(format!(
+            "[patch] {} file(s) in use by a running client, skipped: first={:?}",
+            locked.len(),
+            locked
+                .iter()
+                .take(5)
+                .map(|(src, _)| src)
+                .collect::<Vec<_>>()
+        ));
+    }
     if stale.is_empty() {
         return Ok(false);
     }
@@ -313,14 +334,16 @@ async fn scan(
     selected: Vec<FileEntry>,
     records: &mut Records,
     report: &(dyn Fn(PatchStatus) + Sync),
-) -> Result<Vec<FileEntry>, PatchFailure> {
+    hash: fn(&Path) -> io::Result<u32>,
+) -> Result<Scanned, PatchFailure> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut taken = std::mem::replace(records, Records::new(root));
     let root = root.to_path_buf();
     let task = tokio::task::spawn_blocking(move || {
-        let stale = scan_files(&root, &selected, &mut taken, &|status| {
+        let send = |status| {
             let _ = tx.send(status);
-        });
+        };
+        let stale = scan_files(&root, &selected, &mut taken, &send, hash);
         (taken, stale)
     });
     while let Some(status) = rx.recv().await {
@@ -331,18 +354,25 @@ async fn scan(
     stale
 }
 
-/// 逐檔比對紀錄、必要時重算 CRC；回仍不符或缺少的檔案。
+/// 比對結果：仍不符或缺少的檔案，與被鎖住讀不了的檔案（檔名與讀檔錯誤）。
+struct Scanned {
+    stale: Vec<FileEntry>,
+    locked: Vec<(String, PatchFailure)>,
+}
+
+/// 逐檔比對紀錄、必要時重算 CRC；被鎖住的檔案不改紀錄、留給呼叫端判斷。
 fn scan_files(
     root: &Path,
     selected: &[FileEntry],
     records: &mut Records,
     report: &dyn Fn(PatchStatus),
-) -> Result<Vec<FileEntry>, PatchFailure> {
+    hash: fn(&Path) -> io::Result<u32>,
+) -> Result<Scanned, PatchFailure> {
     let started = Instant::now();
     let total = selected.len() as u64;
     let mut last_report = Instant::now();
     report(PatchStatus::Checking { done: 0, total });
-    let (mut hashed, mut stale) = (0usize, Vec::new());
+    let (mut hashed, mut stale, mut locked) = (0usize, Vec::new(), Vec::new());
     for (i, entry) in selected.iter().enumerate() {
         let dest = root.join(entry.local_path());
         let stamp = file_stamp(&dest);
@@ -350,10 +380,18 @@ fn scan_files(
             match stamp {
                 Some(stamp) if stamp.0 == u64::from(entry.size) => {
                     hashed += 1;
-                    if file_crc(&dest)? == entry.crc {
-                        records.set(entry, record_for(entry, stamp))?;
-                    } else {
-                        stale.push(entry.clone());
+                    match hash(&dest) {
+                        Ok(crc) if crc == entry.crc => {
+                            records.set(entry, record_for(entry, stamp))?;
+                        }
+                        Ok(_) => stale.push(entry.clone()),
+                        Err(e) if is_locked(&e) => {
+                            locked.push((entry.src.clone(), io_failure(&dest)(e)));
+                        }
+                        Err(e) => {
+                            log(format!("[patch] cannot read {}: {e}", dest.display()));
+                            return Err(io_failure(&dest)(e));
+                        }
                     }
                 }
                 _ => stale.push(entry.clone()),
@@ -366,18 +404,24 @@ fn scan_files(
         }
     }
     log(format!(
-        "[patch] checked {total} file(s): hashed={hashed} stale={} elapsed={}ms",
+        "[patch] checked {total} file(s): hashed={hashed} stale={} locked={} elapsed={}ms",
         stale.len(),
+        locked.len(),
         started.elapsed().as_millis()
     ));
-    Ok(stale)
+    Ok(Scanned { stale, locked })
 }
 
-fn file_crc(path: &Path) -> Result<u32, PatchFailure> {
-    File::open(path).and_then(ki_crc_reader).map_err(|e| {
-        log(format!("[patch] cannot read {}: {e}", path.display()));
-        io_failure(path)(e)
-    })
+/// 檔案被別的程式以不共用方式開著或鎖住區段。
+fn is_locked(e: &io::Error) -> bool {
+    matches!(
+        e.raw_os_error().map(|code| code as u32),
+        Some(ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION)
+    )
+}
+
+fn file_crc(path: &Path) -> io::Result<u32> {
+    File::open(path).and_then(ki_crc_reader)
 }
 
 /// 逐檔下載、驗證、換上並立刻存該套件的紀錄。
@@ -558,6 +602,7 @@ mod tests {
         /// 下載這個網址後遊戲被開起來。
         busy_after: Option<String>,
         free: u64,
+        hasher: fn(&Path) -> io::Result<u32>,
         fetched: Mutex<Vec<String>>,
         limits: Mutex<HashMap<String, Option<u64>>>,
     }
@@ -584,6 +629,7 @@ mod tests {
                 busy: AtomicBool::new(false),
                 busy_after: None,
                 free: u64::MAX,
+                hasher: file_crc,
                 fetched: Mutex::new(Vec::new()),
                 limits: Mutex::default(),
             };
@@ -651,6 +697,10 @@ mod tests {
 
         fn free_space(&self, _dir: &Path) -> Result<u64, PatchFailure> {
             Ok(self.free)
+        }
+
+        fn hasher(&self) -> fn(&Path) -> io::Result<u32> {
+            self.hasher
         }
     }
 
@@ -825,6 +875,61 @@ mod tests {
         let (result, statuses) = run(&inst, &env).await;
         assert!(!result.unwrap().downloaded);
         assert_terminal(&statuses, PatchStatus::UpToDate);
+    }
+
+    /// `b.dll` 被別的程式鎖住（ERROR_SHARING_VIOLATION）。
+    fn b_locked(path: &Path) -> io::Result<u32> {
+        if path.ends_with("b.dll") {
+            return Err(io::Error::from_raw_os_error(32));
+        }
+        file_crc(path)
+    }
+
+    /// `b.dll` 讀不了，但不是被鎖住（存取被拒）。
+    fn b_denied(path: &Path) -> io::Result<u32> {
+        if path.ends_with("b.dll") {
+            return Err(io::Error::from_raw_os_error(5));
+        }
+        file_crc(path)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_locked_by_a_running_client_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let mut env = FakeEnv::new(&[("Base", "Bin/a.dll", b"aaa"), ("Base", "Bin/b.dll", b"bbb")]);
+        env.hasher = b_locked;
+        env.busy = AtomicBool::new(true);
+        put(dir.path(), "Bin/a.dll", b"aaa");
+        put(dir.path(), "Bin/b.dll", b"bbb");
+        let entries = env.entries();
+
+        let (result, statuses) = run(&inst, &env).await;
+        assert!(!result.unwrap().downloaded);
+        assert_eq!(env.fetched(), [LIST_URL]);
+        assert!(record(dir.path(), &entries[0]).is_some());
+        assert!(record(dir.path(), &entries[1]).is_none());
+        assert_terminal(&statuses, PatchStatus::UpToDate);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn unreadable_files_fail_unless_locked_by_a_running_client() {
+        for (hasher, busy) in [(b_locked as fn(&Path) -> _, false), (b_denied, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let inst = install(&dir, InstallSource::Official);
+            let mut env = FakeEnv::new(&[("Base", "Bin/b.dll", b"bbb")]);
+            env.hasher = hasher;
+            env.busy = AtomicBool::new(busy);
+            put(dir.path(), "Bin/b.dll", b"bbb");
+
+            let (result, statuses) = run(&inst, &env).await;
+            let err = result.unwrap_err();
+            assert!(
+                matches!(&err, PatchFailure::Io(m) if m.contains("b.dll")),
+                "{err:?}"
+            );
+            assert_terminal(&statuses, PatchStatus::Failed(err));
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
