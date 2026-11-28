@@ -463,7 +463,7 @@
   "patch.failed_protocol": "更新服务器响应格式不符：{error}",
   "patch.failed_download": "下载游戏文件失败：{error}",
   "patch.no_space": "磁盘空间不足：需要 {need} GB，剩 {free} GB",
-  "patch.failed_io": "写入游戏文件失败：{error}",
+  "patch.failed_io": "读写游戏文件失败：{error}",
   "launch.failed_password": "无法解开保存的密码，请重新输入",
   "launch.failed_steam_not_running": "Steam 没有启动",
   "launch.failed_steam_unavailable": "无法加载 Steam 组件",

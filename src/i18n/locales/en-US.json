@@ -463,7 +463,7 @@
   "patch.failed_protocol": "Unexpected response from the update server: {error}",
   "patch.failed_download": "Could not download game files: {error}",
   "patch.no_space": "Not enough disk space: {need} GB needed, {free} GB free",
-  "patch.failed_io": "Could not write game files: {error}",
+  "patch.failed_io": "Could not access game files: {error}",
   "launch.failed_password": "Could not decrypt the saved password; enter it again",
   "launch.failed_steam_not_running": "Steam is not running",
   "launch.failed_steam_unavailable": "Could not load the Steam component",

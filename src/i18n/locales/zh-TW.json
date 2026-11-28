@@ -463,7 +463,7 @@
   "patch.failed_protocol": "更新伺服器回應格式不符：{error}",
   "patch.failed_download": "下載遊戲檔案失敗：{error}",
   "patch.no_space": "磁碟空間不足：需要 {need} GB，剩 {free} GB",
-  "patch.failed_io": "寫入遊戲檔案失敗：{error}",
+  "patch.failed_io": "讀寫遊戲檔案失敗：{error}",
   "launch.failed_password": "無法解開儲存的密碼，請重新輸入",
   "launch.failed_steam_not_running": "Steam 沒有啟動",
   "launch.failed_steam_unavailable": "無法載入 Steam 元件",

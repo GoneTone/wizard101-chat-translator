@@ -3,6 +3,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::future::Future;
+use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +19,7 @@ use super::patch::{self, PatchFailure, PatchOutcome, PatchStatus, SystemPatchEnv
 use super::steam::{self, SteamError, SteamSession};
 use super::{Account, AccountKind, SteamTicket, running};
 use crate::logs::log;
-use crate::util::lock;
+use crate::util::{lock, panic_message};
 
 /// 單一帳號為什麼沒開成；介面依類型轉成文字，伺服器拒絕時直接顯示原文。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,11 +59,9 @@ pub fn forget_exited(
     before: &[String],
     after: &[String],
 ) {
-    let listed =
-        |names: &[String], a: &Account| names.iter().any(|n| n.eq_ignore_ascii_case(&a.name));
     for account in accounts
         .iter()
-        .filter(|a| listed(before, a) && !listed(after, a))
+        .filter(|a| is_listed(before, a) && !is_listed(after, a))
     {
         if matches!(
             statuses.get(&account.id),
@@ -71,6 +70,13 @@ pub fn forget_exited(
             statuses.remove(&account.id);
         }
     }
+}
+
+/// 帳號名在不在執行中清單裡（不分大小寫）。
+fn is_listed(running: &[String], account: &Account) -> bool {
+    running
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(&account.name))
 }
 
 /// 一鍵啟動用到的外部動作；測試以假實作替換。
@@ -126,9 +132,10 @@ struct PatchWait<'a, D: LauncherDeps> {
 impl<'a, D: LauncherDeps> PatchWait<'a, D> {
     fn enter(deps: &'a D, install: &'a Install) -> Self {
         let mut checks = lock(&deps.patch_gate().checks);
-        let (check, waiters) = checks
-            .entry(install.root.clone())
-            .or_insert_with(|| (deps.ensure_patched(install).boxed().shared(), 0));
+        let (check, waiters) = checks.entry(install.root.clone()).or_insert_with(|| {
+            let check = catch_check_panic(deps.ensure_patched(install), |_| {});
+            (check.boxed().shared(), 0)
+        });
         *waiters += 1;
         log(format!(
             "[launch] waiting for install check: root={} waiters={waiters}",
@@ -164,6 +171,25 @@ impl<D: LauncherDeps> Drop for PatchWait<'_, D> {
             checks.remove(root);
         }
     }
+}
+
+/// 檢查 panic 時轉成 `Io` 失敗並交給 `on_panic`，共用的 `Shared` 才不會中毒（drop 時再 panic 會中止程式）。
+async fn catch_check_panic(
+    check: impl Future<Output = PatchResult>,
+    on_panic: impl FnOnce(&PatchFailure),
+) -> PatchResult {
+    AssertUnwindSafe(check)
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|payload| {
+            let failure = PatchFailure::Io(format!(
+                "update check panicked: {}",
+                panic_message(payload.as_ref())
+            ));
+            log(format!("[launch] install check panicked: {failure:?}"));
+            on_panic(&failure);
+            Err(failure)
+        })
 }
 
 /// 收到單一帳號進度的回呼。
@@ -226,7 +252,10 @@ impl LauncherDeps for SystemDeps {
         let (install, sink) = (install.clone(), Arc::clone(&self.on_patch));
         async move {
             let report = |status: PatchStatus| sink(install.source, Some(&status));
-            patch::check_install(&install, &SystemPatchEnv::new(), &report).await
+            let env = SystemPatchEnv::new();
+            let check = patch::check_install(&install, &env, &report);
+            // panic 時 check_install 送不出結束狀態，這裡補送，安裝卡片才不會停在檢查中
+            catch_check_panic(check, |f| report(PatchStatus::Failed(f.clone()))).await
         }
     }
     fn report_patch(&self, source: InstallSource, status: Option<&PatchStatus>) {
@@ -263,10 +292,7 @@ fn prepare<'a, D: LauncherDeps>(
     installs: &'a [Install],
     running: &[String],
 ) -> Result<Queued<'a, D>, LaunchStatus> {
-    if running
-        .iter()
-        .any(|r| r.eq_ignore_ascii_case(&account.name))
-    {
+    if is_listed(running, account) {
         return Err(LaunchStatus::SkippedRunning);
     }
     let failed = LaunchStatus::Failed;
@@ -305,6 +331,10 @@ async fn attempt<D: LauncherDeps>(
     machine: &str,
 ) -> Result<LaunchStatus, Failure> {
     let install = queued.install;
+    // 等檢查或前一個 Steam 帳號時，使用者可能已自行開了這個帳號
+    if is_listed(&deps.running_accounts(), account) {
+        return Ok(LaunchStatus::SkippedRunning);
+    }
     // 跨批次也要排隊：兩批同時開時，一批的 Shutdown 會打斷另一批正在用的 Steam API
     let steam_turn = match account.kind {
         AccountKind::Steam => Some(STEAM_SESSION.lock().await),
@@ -438,7 +468,9 @@ mod tests {
     }
 
     struct Fake {
-        running: Vec<String>,
+        running: Mutex<Vec<String>>,
+        /// 檢查途中被開起來的帳號。
+        starts_running: Option<&'static str>,
         reject: Option<(&'static str, &'static str)>,
         steam: Result<(), SteamError>,
         patch: fn(InstallSource) -> PatchResult,
@@ -464,7 +496,8 @@ mod tests {
     impl Default for Fake {
         fn default() -> Self {
             Self {
-                running: Vec::new(),
+                running: Mutex::default(),
+                starts_running: None,
                 reject: None,
                 steam: Ok(()),
                 patch: |_| passed(0),
@@ -498,7 +531,7 @@ mod tests {
             ]
         }
         fn running_accounts(&self) -> Vec<String> {
-            self.running.clone()
+            self.running.lock().unwrap().clone()
         }
         fn password(&self, _: &Account) -> Option<Zeroizing<String>> {
             Some(Zeroizing::new("pw".into()))
@@ -560,11 +593,14 @@ mod tests {
             install: &Install,
         ) -> impl Future<Output = PatchResult> + Send + 'static {
             self.checks.fetch_add(1, Ordering::SeqCst);
-            let result = (self.patch)(install.source);
+            if let Some(name) = self.starts_running {
+                self.running.lock().unwrap().push(name.into());
+            }
+            let (patch, source) = (self.patch, install.source);
             // 要真的讓出執行權，另一批才有機會在檢查途中加入
             async move {
                 tokio::time::sleep(Duration::from_millis(20)).await;
-                result
+                patch(source)
             }
         }
         fn report_patch(&self, source: InstallSource, status: Option<&PatchStatus>) {
@@ -618,7 +654,7 @@ mod tests {
     #[tokio::test]
     async fn running_account_is_skipped() {
         let fake = Fake {
-            running: vec!["A-NAME".into()],
+            running: Mutex::new(vec!["A-NAME".into()]),
             ..Fake::default()
         };
         let selected = [
@@ -728,7 +764,7 @@ mod tests {
     #[tokio::test]
     async fn a_decided_steam_account_reports_before_the_check_finishes() {
         let fake = Fake {
-            running: vec!["s1-name".into()],
+            running: Mutex::new(vec!["s1-name".into()]),
             ..Fake::default()
         };
         let selected = [
@@ -776,6 +812,59 @@ mod tests {
         .await
         .expect("both sign-ins meet at the barrier");
         assert_eq!(fake.checks.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *fake.patch_reports.lock().unwrap(),
+            hidden(InstallSource::Official)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_panicking_check_fails_its_accounts_and_is_checked_again() {
+        let fake = Fake {
+            patch: |_| panic!("boom"),
+            ..Fake::default()
+        };
+        let selected = [
+            account("a", AccountKind::Official),
+            account("b", AccountKind::Official),
+        ];
+        let results = launch_accounts(&selected, &fake).await;
+        let blocked = LaunchStatus::Failed(Failure::Patch);
+        assert_eq!(*status_of(&results, "a"), blocked);
+        assert_eq!(*status_of(&results, "b"), blocked);
+        assert!(fake.spawned.lock().unwrap().is_empty());
+        assert!(lock(&fake.gate.checks).is_empty());
+        launch_accounts(&selected, &fake).await;
+        assert_eq!(fake.checks.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_check_panic_becomes_one_reported_io_failure() {
+        let reported = Mutex::new(Vec::new());
+        let panicking = std::future::ready(()).map(|()| -> PatchResult { panic!("boom") });
+        let result =
+            catch_check_panic(panicking, |f| reported.lock().unwrap().push(f.clone())).await;
+        let expected = PatchFailure::Io("update check panicked: boom".into());
+        assert_eq!(result, Err(expected.clone()));
+        assert_eq!(*reported.lock().unwrap(), [expected]);
+        let ok = catch_check_panic(std::future::ready(passed(3)), |_| unreachable!()).await;
+        assert_eq!(ok, passed(3));
+    }
+
+    #[tokio::test]
+    async fn an_account_started_during_the_check_is_skipped() {
+        let fake = Fake {
+            starts_running: Some("b-name"),
+            ..Fake::default()
+        };
+        let selected = [
+            account("a", AccountKind::Official),
+            account("b", AccountKind::Official),
+        ];
+        let results = launch_accounts(&selected, &fake).await;
+        assert_eq!(*status_of(&results, "a"), LaunchStatus::Opened);
+        assert_eq!(*status_of(&results, "b"), LaunchStatus::SkippedRunning);
+        assert_eq!(*fake.spawned.lock().unwrap(), vec!["a-name".to_string()]);
         assert_eq!(
             *fake.patch_reports.lock().unwrap(),
             hidden(InstallSource::Official)
