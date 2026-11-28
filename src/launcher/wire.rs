@@ -75,9 +75,6 @@ pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Vec<u8>, Wire
 }
 
 pub fn parse_session_offer(body: &[u8]) -> Result<Offer, WireError> {
-    if body.len() < 100 {
-        return Err(protocol("session offer too short"));
-    }
     let read = |at| u32_at(body, at).ok_or_else(|| protocol("session offer truncated"));
     // sid 本身是 u16，緊接的保留欄位為 0；照 u32 讀，兩者結果相同
     Ok(Offer {
@@ -141,9 +138,15 @@ mod tests {
     fn parse_session_offer_reads_fields() {
         assert_eq!(parse_session_offer(&offer_body()).unwrap(), OFFER);
         assert!(matches!(
-            parse_session_offer(&offer_body()[..60]),
+            parse_session_offer(&offer_body()[..17]),
             Err(WireError::Protocol(_))
         ));
+    }
+
+    /// 更新伺服器的 offer 比登入伺服器短；只要欄位讀得到就能解析。
+    #[test]
+    fn parse_session_offer_accepts_a_short_body() {
+        assert_eq!(parse_session_offer(&offer_body()[..18]).unwrap(), OFFER);
     }
 
     #[test]

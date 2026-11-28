@@ -48,8 +48,9 @@ mod tests {
         }
     }
 
+    /// 只有 FileType 4 加 `.gz`，其他型別不加。
     #[test]
-    fn file_url_appends_gz_for_type_4() {
+    fn file_url_adds_gz_only_for_type_4() {
         assert_eq!(
             file_url(&loc(), &entry("a/b.dat", 4)),
             "http://host/pre/a/b.dat.gz?q=1"
@@ -62,6 +63,7 @@ mod tests {
         assert!(!is_gzip(&entry("x", 5)));
     }
 
+    /// `src` 的反斜線換成斜線。
     #[test]
     fn file_url_uses_forward_slashes() {
         assert_eq!(

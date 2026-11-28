@@ -56,7 +56,7 @@ async fn probe_download_rules() {
         loc.url,
         list_bytes.len()
     );
-    assert_eq!(list_bytes.len() as u32, loc.size, "list size");
+    assert_eq!(list_bytes.len() as u64, u64::from(loc.size), "list size");
     assert_eq!(ki_crc(&list_bytes), loc.crc, "list crc");
     let entries = parse_file_list(&list_bytes).expect("parse list");
 
@@ -78,7 +78,7 @@ async fn probe_download_rules() {
                 let (raw, status, downloaded) = fetch(&client, &url).await?;
                 let bytes = decode(entry, raw)?;
                 let crc_ok = ki_crc(&bytes) == entry.crc;
-                let size_ok = bytes.len() as u32 == entry.size;
+                let size_ok = bytes.len() as u64 == u64::from(entry.size);
                 println!(
                     "type {file_type}: url={url} status={status} downloaded={downloaded} decoded={} expected={} crc_ok={crc_ok}",
                     bytes.len(),
