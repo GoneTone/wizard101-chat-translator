@@ -259,7 +259,7 @@ fn patch_card_hidden_when_board_empty() {
     patch(&mut h, InstallSource::Official, None);
     assert!(!has_label(&h, &name));
     assert!(!has_label(&h, &tr("patch.up_to_date")));
-    assert_eq!(top(&h), bare, "the header shrinks back");
+    assert_eq!(top(&h), bare, "the list moves back up");
 }
 
 #[test]
