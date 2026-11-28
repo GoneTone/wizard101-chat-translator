@@ -5,6 +5,7 @@ pub mod install;
 pub mod launch;
 pub mod login;
 pub mod orchestrate;
+pub mod patch;
 pub mod running;
 pub mod steam;
 pub mod wire;
