@@ -5,6 +5,7 @@ use eframe::egui::{Checkbox, Color32, Frame, Id, Margin, Panel, Ui, WidgetInfo};
 
 use super::account_dialog::kind_label;
 use super::launch_list::{LaunchList, SelectAll};
+use super::patch_card::{PatchBoard, board_card};
 use super::release_card::{FOOTER_MARGIN, HEADER_MARGIN, LIST_PADDING};
 use super::theme;
 use super::widgets::{
@@ -92,8 +93,13 @@ pub(super) fn account_badges(account: &Account, running: bool) -> Vec<String> {
     badges
 }
 
-/// 畫一幀；`auto_close` 是「啟動後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
-pub fn show(ui: &mut Ui, list: &mut LaunchList, auto_close: &mut bool) -> Vec<LaunchAction> {
+/// 畫一幀；`patch` 是各安裝的更新狀態，`auto_close` 是「啟動後自動關閉」的勾選，改了就回 `AutoCloseChanged`。
+pub fn show(
+    ui: &mut Ui,
+    list: &mut LaunchList,
+    patch: &PatchBoard,
+    auto_close: &mut bool,
+) -> Vec<LaunchAction> {
     let mut actions = Vec::new();
     if list.accounts().is_empty() {
         no_accounts(ui, &mut actions);
@@ -108,7 +114,7 @@ pub fn show(ui: &mut Ui, list: &mut LaunchList, auto_close: &mut bool) -> Vec<La
         .show(ui, |ui| footer(ui, list, auto_close, &mut actions));
     Panel::top("launch_window_header")
         .frame(Frame::new().inner_margin(HEADER_MARGIN))
-        .show(ui, |ui| header(ui, list, &mut actions));
+        .show(ui, |ui| header(ui, list, patch, &mut actions));
     let margin = Margin::symmetric(20, LIST_PADDING);
     scroll_page(ui, "launch_window_list", margin, theme::CARD_GAP, |ui| {
         for account in list.accounts().to_vec() {
@@ -133,7 +139,7 @@ fn no_accounts(ui: &mut Ui, actions: &mut Vec<LaunchAction>) {
     });
 }
 
-fn header(ui: &mut Ui, list: &mut LaunchList, actions: &mut Vec<LaunchAction>) {
+fn header(ui: &mut Ui, list: &mut LaunchList, patch: &PatchBoard, actions: &mut Vec<LaunchAction>) {
     let all = list.select_all_state();
     let any = list.accounts().iter().any(|a| list.checkable(a));
     let mut on = all == SelectAll::All;
@@ -142,6 +148,10 @@ fn header(ui: &mut Ui, list: &mut LaunchList, actions: &mut Vec<LaunchAction>) {
     if ui.add_enabled(any, check).changed() {
         list.toggle_all();
         actions.push(selection_changed(list));
+    }
+    if !patch.is_empty() {
+        ui.add_space(12.0 - ui.spacing().item_spacing.y);
+        board_card(ui, patch);
     }
 }
 

@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Instant;
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Vec2};
@@ -11,8 +12,10 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use crate::common::frames::Frames;
 use crate::common::kittest::{click, click_nth, has_label, run, themed_harness, tr};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::launcher::install::InstallSource;
 use wizard101_chat_translator::launcher::login::LoginError;
 use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
+use wizard101_chat_translator::launcher::patch::{PatchFailure, PatchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::ui::app::{App, channel};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -21,6 +24,7 @@ use wizard101_chat_translator::ui::launch_host::LaunchHost;
 use wizard101_chat_translator::ui::overlay::frame::{BAR_HEIGHT, Frame};
 use wizard101_chat_translator::ui::settings::launch_list::LaunchList;
 use wizard101_chat_translator::ui::settings::launch_window::{self, LaunchAction};
+use wizard101_chat_translator::ui::settings::patch_card::{PatchBoard, install_name, status_text};
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::WindowOps;
 
@@ -58,6 +62,7 @@ fn rejected(raw: &str) -> LaunchStatus {
 
 struct Window {
     list: LaunchList,
+    patch: PatchBoard,
     auto_close: bool,
     actions: Vec<LaunchAction>,
 }
@@ -73,6 +78,7 @@ fn window_sized(
     list.set_running(ids(running));
     let window = Window {
         list,
+        patch: PatchBoard::default(),
         auto_close: true,
         actions: Vec::new(),
     };
@@ -80,7 +86,7 @@ fn window_sized(
         size,
         "en-US",
         |ui, w: &mut Window| {
-            let actions = launch_window::show(ui, &mut w.list, &mut w.auto_close);
+            let actions = launch_window::show(ui, &mut w.list, &w.patch, &mut w.auto_close);
             w.actions.extend(actions);
         },
         window,
@@ -188,7 +194,108 @@ fn a_rejected_login_shows_only_the_server_text() {
     h.state_mut().list.set_status("a", rejected(raw));
     run(&mut h);
     h.get_by_label(raw);
-    assert!(!has_label(&h, &tr("launch.update_hint")));
+}
+
+fn patch(h: &mut Harness<Window>, source: InstallSource, status: Option<PatchStatus>) {
+    h.state_mut().patch.apply(source, status, Instant::now());
+    run(h);
+}
+
+#[test]
+fn patch_card_shows_progress_and_waiting_rows() {
+    let mut h = window(three(), &["a", "b"], &[]);
+    let downloading = PatchStatus::Downloading {
+        done: 1 << 30,
+        total: 3 << 30,
+    };
+    patch(&mut h, InstallSource::Official, Some(downloading.clone()));
+    for id in ["a", "b"] {
+        let waiting = LaunchStatus::Waiting(InstallSource::Official);
+        h.state_mut().list.set_status(id, waiting);
+    }
+    run(&mut h);
+    h.get_by_label(&install_name(InstallSource::Official));
+    h.get_by_role(Role::ProgressIndicator);
+    h.get_by_label(&status_text(&downloading, None).0);
+    let waiting = h.query_all_by_label(&tr("launch.waiting_update")).count();
+    assert_eq!(waiting, 2);
+    assert!(launch_disabled(&h, 0) && launch_disabled(&h, 1));
+    assert!(!launch_disabled(&h, 2), "Carol is not waiting");
+}
+
+#[test]
+fn steam_outdated_shows_reason_once_and_rows_not_started() {
+    let mut h = window(three(), &["a", "b"], &[]);
+    let outdated = PatchStatus::Failed(PatchFailure::SteamOutdated);
+    patch(&mut h, InstallSource::Steam, Some(outdated.clone()));
+    for id in ["a", "b"] {
+        h.state_mut()
+            .list
+            .set_status(id, LaunchStatus::Failed(Failure::Patch));
+    }
+    run(&mut h);
+    let (reason, _) = status_text(&outdated, None);
+    assert_eq!(h.query_all_by_label(&reason).count(), 1);
+    assert_eq!(h.query_all_by_label(&tr("launch.not_started")).count(), 2);
+    h.get_by_label(&install_name(InstallSource::Steam));
+    assert!(h.query_by_role(Role::ProgressIndicator).is_none());
+    assert!(!launch_disabled(&h, 0), "a failed row can be retried");
+}
+
+#[test]
+fn patch_card_hidden_when_board_empty() {
+    let mut h = window(three(), &[], &[]);
+    let top = |h: &Harness<Window>| {
+        h.get_by_role_and_label(Role::CheckBox, "Alice")
+            .rect()
+            .top()
+    };
+    let bare = top(&h);
+    let name = install_name(InstallSource::Official);
+    assert!(!has_label(&h, &name));
+    patch(&mut h, InstallSource::Official, Some(PatchStatus::UpToDate));
+    h.get_by_label(&tr("patch.up_to_date"));
+    assert!(top(&h) > bare, "the card pushes the list down");
+    patch(&mut h, InstallSource::Official, None);
+    assert!(!has_label(&h, &name));
+    assert!(!has_label(&h, &tr("patch.up_to_date")));
+    assert_eq!(top(&h), bare, "the header shrinks back");
+}
+
+#[test]
+fn two_rows_stay_visible_under_the_patch_card_at_min_size() {
+    let mut h = window_sized(theme::LAUNCH_MIN_SIZE, three(), &["a", "b"], &[]);
+    let downloading = PatchStatus::Downloading {
+        done: 1 << 30,
+        total: 3 << 30,
+    };
+    let checking = PatchStatus::Checking {
+        done: 2310,
+        total: 3735,
+    };
+    patch(&mut h, InstallSource::Official, Some(downloading));
+    patch(&mut h, InstallSource::Steam, Some(checking));
+    h.state_mut()
+        .list
+        .set_status("a", LaunchStatus::Waiting(InstallSource::Official));
+    h.state_mut()
+        .list
+        .set_status("b", LaunchStatus::Waiting(InstallSource::Steam));
+    run(&mut h);
+    let card_bottom = h
+        .query_all_by_role(Role::ProgressIndicator)
+        .map(|n| n.rect().max.y)
+        .fold(0.0, f32::max);
+    let footer = h.get_by_role_and_label(Role::Button, &open_count(0)).rect();
+    let mut buttons: Vec<_> = h
+        .query_all_by_role_and_label(Role::Button, &tr("button.launch"))
+        .map(|n| n.rect())
+        .collect();
+    buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    for button in &buttons[..2] {
+        assert!(button.min.y > card_bottom, "{button:?} below the card");
+        assert!(button.max.y <= footer.min.y, "{button:?} above {footer:?}");
+    }
 }
 
 #[test]

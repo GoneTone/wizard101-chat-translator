@@ -229,7 +229,8 @@ impl SettingsWindow {
             }
             SettingsEvent::InstallsDetected { .. }
             | SettingsEvent::RunningAccounts { .. }
-            | SettingsEvent::LaunchStatus { .. } => self.accounts.apply(event),
+            | SettingsEvent::LaunchStatus { .. }
+            | SettingsEvent::PatchStatus { .. } => self.accounts.apply(event),
             // 另一個視窗已存檔：草稿與「上次存下的值」一起換，不算未存的變更
             SettingsEvent::LaunchAutoClose(on) => {
                 self.accounts.set_auto_close(*on);

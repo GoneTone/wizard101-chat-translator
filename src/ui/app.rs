@@ -664,7 +664,15 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
-            UiEvent::PatchStatus { .. } => ctx.request_repaint(),
+            UiEvent::PatchStatus { source, status } => {
+                if let Some(wiring) = &mut self.settings {
+                    wiring.host.apply(SettingsEvent::PatchStatus {
+                        source,
+                        status: status.clone(),
+                    });
+                }
+                self.launch.set_patch_status(source, status);
+            }
             UiEvent::LaunchStatus { id, status } => {
                 if let Some(wiring) = &mut self.settings {
                     wiring.host.apply(SettingsEvent::LaunchStatus {

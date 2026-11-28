@@ -138,6 +138,7 @@ impl Wizard {
             | SettingsEvent::InstallsDetected { .. }
             | SettingsEvent::RunningAccounts { .. }
             | SettingsEvent::LaunchStatus { .. }
+            | SettingsEvent::PatchStatus { .. }
             | SettingsEvent::LaunchAutoClose(_) => {}
         }
     }

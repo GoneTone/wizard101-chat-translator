@@ -7,7 +7,7 @@
 mod common;
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Key, Ui, Vec2};
@@ -24,6 +24,7 @@ use wizard101_chat_translator::launcher::accounts::store;
 use wizard101_chat_translator::launcher::install::{Install, InstallSource};
 use wizard101_chat_translator::launcher::login::LoginError;
 use wizard101_chat_translator::launcher::orchestrate::{Failure, LaunchStatus};
+use wizard101_chat_translator::launcher::patch::{PatchFailure, PatchStatus};
 use wizard101_chat_translator::launcher::{Account, AccountKind};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::clients::ModelInfo;
@@ -32,6 +33,7 @@ use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::launch_list::LaunchList;
 use wizard101_chat_translator::ui::settings::launch_window;
+use wizard101_chat_translator::ui::settings::patch_card::PatchBoard;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsWindow};
 use wizard101_chat_translator::ui::settings::wizard::Wizard;
@@ -334,7 +336,46 @@ fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
         });
     }
     save(&mut h, &format!("accounts_{tag}_list"));
-    click_nth(&mut h, &tr("button.edit"), 0);
+    {
+        let win = &mut h.state_mut().win;
+        let patch = |source, status| SettingsEvent::PatchStatus { source, status };
+        // 兩筆下載進度相隔超過取樣間隔，才量得到速度、畫出最寬的一行
+        for done in [400 << 20, 520 << 20] {
+            let status = Some(PatchStatus::Downloading {
+                done,
+                total: 3 << 30,
+            });
+            win.apply(&patch(InstallSource::Official, status));
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        let checking = PatchStatus::Checking {
+            done: 2310,
+            total: 3735,
+        };
+        win.apply(&patch(InstallSource::Steam, Some(checking)));
+    }
+    save(&mut h, &format!("accounts_{tag}_updating"));
+    {
+        let win = &mut h.state_mut().win;
+        let patch = |source, status| SettingsEvent::PatchStatus { source, status };
+        let outdated = PatchStatus::Failed(PatchFailure::SteamOutdated);
+        win.apply(&patch(InstallSource::Steam, Some(outdated)));
+        win.apply(&patch(InstallSource::Official, None));
+        win.apply(&SettingsEvent::LaunchStatus {
+            id: "b".into(),
+            status: LaunchStatus::Failed(Failure::Patch),
+        });
+    }
+    save(&mut h, &format!("accounts_{tag}_steam_outdated"));
+    // 最小尺寸下〔編輯〕在可見範圍外：先捲過去畫一幀，點擊才落在按鈕的新位置
+    let edit = tr("button.edit");
+    let first = h
+        .query_all_by_role_and_label(Role::Button, &edit)
+        .min_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
+        .expect("an edit button");
+    first.scroll_to_me();
+    h.run_steps(3);
+    click_nth(&mut h, &edit, 0);
     h.get_by_label(&tr("accounts.field_name")).click();
     h.run_steps(3);
     h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
@@ -346,7 +387,7 @@ fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
     save(&mut h, &format!("accounts_{tag}_new"));
 }
 
-/// 開啟遊戲帳號視窗：沒有帳號，以及執行中、登入中、開好、被拒（伺服器原文）各一的帳號清單。
+/// 開啟遊戲帳號視窗：沒有帳號；執行中、登入中、開好、被拒（伺服器原文）各一的帳號清單；兩份安裝更新中；Steam 不是最新。
 fn launch_states(language: &'static str, size: Vec2, tag: &str) {
     let account = |id: &str, name: &str, kind| Account {
         id: id.into(),
@@ -365,26 +406,66 @@ fn launch_states(language: &'static str, size: Vec2, tag: &str) {
         account("d", "dave", AccountKind::Steam),
         account("e", "erin", AccountKind::Official),
     ];
-    for (name, accounts) in [("empty", Vec::new()), ("list", accounts)] {
+    for name in ["empty", "list", "updating", "steam_outdated"] {
         i18n::set_language(language);
+        let accounts = if name == "empty" {
+            Vec::new()
+        } else {
+            accounts.clone()
+        };
         let mut list = LaunchList::new(accounts, &["c".into(), "d".into(), "e".into()]);
         list.set_running(vec!["alice".into()]);
-        list.set_status("c", LaunchStatus::LoggingIn);
-        list.set_status("d", LaunchStatus::Opened);
-        let raw = "Your client is out of date (0xd)".to_owned();
-        list.set_status(
-            "e",
-            LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
-        );
+        let mut patch = PatchBoard::default();
+        let now = Instant::now();
+        match name {
+            "updating" => {
+                list.set_status("c", LaunchStatus::Waiting(InstallSource::Official));
+                list.set_status("d", LaunchStatus::Waiting(InstallSource::Steam));
+                list.set_status("e", LaunchStatus::Waiting(InstallSource::Official));
+                for (secs, done) in [(0, 400 << 20), (2, 520 << 20)] {
+                    let status = Some(PatchStatus::Downloading {
+                        done,
+                        total: 3 << 30,
+                    });
+                    patch.apply(
+                        InstallSource::Official,
+                        status,
+                        now + Duration::from_secs(secs),
+                    );
+                }
+                let checking = PatchStatus::Checking {
+                    done: 2310,
+                    total: 3735,
+                };
+                patch.apply(InstallSource::Steam, Some(checking), now);
+            }
+            "steam_outdated" => {
+                list.set_status("b", LaunchStatus::Failed(Failure::Patch));
+                list.set_status("c", LaunchStatus::Opened);
+                list.set_status("d", LaunchStatus::Failed(Failure::Patch));
+                let outdated = PatchStatus::Failed(PatchFailure::SteamOutdated);
+                patch.apply(InstallSource::Steam, Some(outdated), now);
+                patch.apply(InstallSource::Official, Some(PatchStatus::Updated), now);
+            }
+            _ => {
+                list.set_status("c", LaunchStatus::LoggingIn);
+                list.set_status("d", LaunchStatus::Opened);
+                let raw = "Your client is out of date (0xd)".to_owned();
+                list.set_status(
+                    "e",
+                    LaunchStatus::Failed(Failure::Login(LoginError::Rejected { raw })),
+                );
+            }
+        }
         let mut h = themed_harness_with(
             Harness::builder().wgpu(),
             size,
             language,
-            |ui: &mut Ui, s: &mut (LaunchList, bool)| {
+            |ui: &mut Ui, s: &mut (LaunchList, PatchBoard, bool)| {
                 paint_window_bg(ui);
-                let _ = launch_window::show(ui, &mut s.0, &mut s.1);
+                let _ = launch_window::show(ui, &mut s.0, &s.1, &mut s.2);
             },
-            (list, true),
+            (list, patch, true),
         );
         save(&mut h, &format!("launch_{tag}_{name}"));
     }

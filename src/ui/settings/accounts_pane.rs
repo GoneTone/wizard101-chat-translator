@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use eframe::egui::{Id, Label, RichText, Ui};
 use serde_json::Value;
@@ -11,6 +11,7 @@ use super::account_dialog::AccountDialog;
 use super::dialog::{Choice, confirm_delete};
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::launch_window::{account_badges, status_line};
+use super::patch_card::{PatchBoard, status_block};
 use super::theme;
 use super::widgets::{
     card, danger_secondary_button, dashed_button, hint, list_card, secondary_button, setting_row,
@@ -56,6 +57,8 @@ pub struct AccountsPane {
     scanning: bool,
     /// 各帳號（id）最近一次的啟動進度。
     statuses: HashMap<String, LaunchStatus>,
+    /// 各安裝的更新狀態。
+    patch: PatchBoard,
     folder_round: Round,
     /// 上次選到的資料夾不是有效的安裝。
     invalid_folder: bool,
@@ -83,6 +86,7 @@ impl AccountsPane {
             running_at: None,
             scanning: false,
             statuses: HashMap::new(),
+            patch: PatchBoard::default(),
             folder_round: Round::new("game folder dialog"),
             invalid_folder: false,
             committed: None,
@@ -137,7 +141,7 @@ impl AccountsPane {
         self.launch.take()
     }
 
-    /// 背景結果：偵測到的安裝、執行中帳號、啟動進度與選到的資料夾。
+    /// 背景結果：偵測到的安裝、執行中帳號、啟動與更新進度、選到的資料夾。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::InstallsDetected { installs } => {
@@ -151,6 +155,9 @@ impl AccountsPane {
             }
             SettingsEvent::LaunchStatus { id, status } => {
                 self.statuses.insert(id.clone(), status.clone());
+            }
+            SettingsEvent::PatchStatus { source, status } => {
+                self.patch.apply(*source, status.clone(), Instant::now())
             }
             SettingsEvent::GameFolderPicked { round, path } => {
                 self.folder_picked(*round, path.as_deref())
@@ -196,7 +203,6 @@ impl AccountsPane {
                 });
             });
             hint(ui, &t("accounts.steam_limit", &[]), theme::TEXT_SECONDARY);
-            hint(ui, &t("launch.update_hint", &[]), theme::TEXT_SECONDARY);
             ui.add_space(6.0);
             ui.add(Label::new(
                 RichText::new(t("accounts.my_accounts", &[])).font(theme::bold(theme::TEXT_SIZE)),
@@ -254,6 +260,7 @@ impl AccountsPane {
         let detected = self.detected.clone().unwrap_or_default();
         let installs = installs_with(detected, self.game_path.as_deref());
         let invalid = self.invalid_folder;
+        let patch = &self.patch;
         let mut change = false;
         card(ui, |ui| {
             let details = |ui: &mut Ui| {
@@ -269,6 +276,7 @@ impl AccountsPane {
                     };
                     let path = install.root.display().to_string();
                     hint(ui, &t(key, &[("path", &path)]), theme::TEXT_SECONDARY);
+                    status_block(ui, patch, install.source);
                 }
                 if invalid {
                     hint(ui, &t("accounts.invalid_folder", &[]), theme::ERROR);
