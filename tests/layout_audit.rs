@@ -338,21 +338,22 @@ fn accounts_states(language: &'static str, size: Vec2, tag: &str) {
     save(&mut h, &format!("accounts_{tag}_list"));
     {
         let win = &mut h.state_mut().win;
-        let patch = |source, status| SettingsEvent::PatchStatus { source, status };
         // 兩筆下載進度相隔超過取樣間隔，才量得到速度、畫出最寬的一行
-        for done in [400 << 20, 520 << 20] {
+        let now = Instant::now();
+        for (secs, done) in [(0, 400 << 20), (2, 520 << 20)] {
             let status = Some(PatchStatus::Downloading {
                 done,
                 total: 3 << 30,
             });
-            win.apply(&patch(InstallSource::Official, status));
-            std::thread::sleep(Duration::from_millis(120));
+            let at = now + Duration::from_secs(secs);
+            win.set_patch_status(InstallSource::Official, status, at);
         }
         let checking = PatchStatus::Checking {
             done: 2310,
             total: 3735,
         };
-        win.apply(&patch(InstallSource::Steam, Some(checking)));
+        let at = now + Duration::from_secs(2);
+        win.set_patch_status(InstallSource::Steam, Some(checking), at);
     }
     save(&mut h, &format!("accounts_{tag}_updating"));
     {

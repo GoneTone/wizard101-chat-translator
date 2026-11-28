@@ -49,6 +49,13 @@ impl PatchBoard {
     pub fn status(&self, source: InstallSource) -> Option<&PatchStatus> {
         self.statuses.get(&source)
     }
+
+    /// 目前有狀態的安裝，Steam 在前。
+    pub fn entries(&self) -> impl Iterator<Item = (InstallSource, &PatchStatus)> {
+        self.statuses
+            .iter()
+            .map(|(source, status)| (*source, status))
+    }
 }
 
 fn rate_key(source: InstallSource) -> &'static str {
@@ -118,22 +125,20 @@ pub(super) fn board_card(ui: &mut Ui, board: &PatchBoard) {
         return;
     }
     card(ui, |ui| {
-        Frame::new()
-            .inner_margin(Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 6.0;
-                for (i, &source) in board.statuses.keys().enumerate() {
-                    if i > 0 {
-                        ui.add_space(4.0);
-                        separator(ui);
-                        ui.add_space(10.0);
-                    }
+        for (i, &source) in board.statuses.keys().enumerate() {
+            if i > 0 {
+                separator(ui);
+            }
+            Frame::new()
+                .inner_margin(Margin::symmetric(16, 10))
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
                     let name =
                         RichText::new(install_name(source)).font(theme::bold(theme::TEXT_SIZE));
                     ui.add(Label::new(name));
                     status_block(ui, board, source);
-                }
-            });
+                });
+        }
     });
 }
 

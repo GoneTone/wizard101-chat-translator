@@ -6,6 +6,8 @@ mod about;
 mod advanced;
 mod basic;
 
+use std::time::Instant;
+
 use eframe::egui::{
     Align, Align2, FontId, Frame, Id, Label, Layout, Margin, Rect, RichText, Role, Sense, Stroke,
     Ui, UiBuilder, WidgetInfo, pos2, vec2,
@@ -32,6 +34,8 @@ use crate::config::services::{
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
 use crate::launcher::accounts;
+use crate::launcher::install::InstallSource;
+use crate::launcher::patch::PatchStatus;
 use crate::local::Snapshot;
 use crate::local::fit::{Fit, combined_fit};
 use crate::local::hardware::effective;
@@ -237,6 +241,16 @@ impl SettingsWindow {
                 self.saved.insert("launch_auto_close".into(), (*on).into());
             }
         }
+    }
+
+    /// 換上某份安裝在 `now` 時的更新狀態；`None` 是收起。
+    pub fn set_patch_status(
+        &mut self,
+        source: InstallSource,
+        status: Option<PatchStatus>,
+        now: Instant,
+    ) {
+        self.accounts.set_patch_status(source, status, now);
     }
 
     /// 畫整個視窗內容；回傳這一幀要 App 做的事。

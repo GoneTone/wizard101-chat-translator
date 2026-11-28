@@ -130,6 +130,11 @@ impl LaunchHost {
         }
     }
 
+    /// 各安裝目前的更新狀態。
+    pub fn patch(&self) -> &PatchBoard {
+        &self.patch
+    }
+
     /// 某份安裝的更新狀態有變；`None` 是收起。
     pub fn set_patch_status(&mut self, source: InstallSource, status: Option<PatchStatus>) {
         self.patch.apply(source, status, Instant::now());

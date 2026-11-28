@@ -24,6 +24,8 @@ use common::wizard::configured_cfg as wizard_cfg;
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::config::{Config, app_name};
 use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
+use wizard101_chat_translator::launcher::install::{Install, InstallSource};
+use wizard101_chat_translator::launcher::patch::{PatchFailure, PatchStatus};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::ui::app::{App, Inbox, channel};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -31,6 +33,7 @@ use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::release_notes_host::ReleaseNotesHost;
 use wizard101_chat_translator::ui::settings::env::{SettingsEnv, SettingsEvent};
+use wizard101_chat_translator::ui::settings::patch_card::status_text;
 use wizard101_chat_translator::ui::settings::release_notes_window::NotesAction;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::{
@@ -585,6 +588,60 @@ fn applying_a_changed_language_without_a_preview_relabels_once() {
     }
     assert_eq!(relabels(), before + 1);
     assert_eq!(h.state().ui_language(), "en-US");
+}
+
+/// 開設定視窗的遊戲帳號頁，偵測結果是 Steam 與官網兩份安裝。
+fn open_accounts_with_installs(h: &mut Harness<'_, App>, wired: &Wired) {
+    open_settings(h);
+    click(h, Role::Tab, &tr("settings.tab.accounts"));
+    let installs = vec![
+        Install {
+            source: InstallSource::Steam,
+            root: r"D:\Steam\Wizard101".into(),
+        },
+        Install {
+            source: InstallSource::Official,
+            root: r"D:\Games\Wizard101".into(),
+        },
+    ];
+    let event = SettingsEvent::InstallsDetected { installs };
+    wired.poster.post(UiEvent::Settings(event));
+    run(h);
+}
+
+/// `reason` 畫在官網版路徑下方。
+fn reason_under_official_path(h: &Harness<'_, App>, reason: &str) -> bool {
+    let path = t(
+        "accounts.install_official",
+        &[("path", r"D:\Games\Wizard101")],
+    );
+    let path = h.get_by_label(&path).rect();
+    h.query_by_label(reason)
+        .is_some_and(|r| r.rect().min.y >= path.max.y)
+}
+
+#[test]
+fn install_status_received_while_settings_was_closed_shows_on_open_and_reopen() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, wired) = settings_app(settings_cfg());
+    let failed = PatchStatus::Failed(PatchFailure::GameOpen);
+    wired.poster.post(UiEvent::PatchStatus {
+        source: InstallSource::Official,
+        status: Some(failed.clone()),
+    });
+    run(&mut h);
+    let (reason, _) = status_text(&failed, None);
+    open_accounts_with_installs(&mut h, &wired);
+    assert!(reason_under_official_path(&h, &reason));
+
+    click(&mut h, Role::Button, &tr("button.cancel"));
+    assert!(!has_label(&h, &reason));
+    open_accounts_with_installs(&mut h, &wired);
+    assert!(
+        reason_under_official_path(&h, &reason),
+        "kept across reopen"
+    );
 }
 
 #[test]

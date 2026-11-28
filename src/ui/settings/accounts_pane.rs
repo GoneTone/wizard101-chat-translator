@@ -23,6 +23,7 @@ use crate::i18n::t;
 use crate::launcher::accounts::{self, Account, launch_auto_close, set_launch_auto_close};
 use crate::launcher::install::{Install, InstallSource, installs_with, is_valid_install};
 use crate::launcher::orchestrate::{LaunchStatus, forget_exited};
+use crate::launcher::patch::PatchStatus;
 use crate::launcher::running::RUNNING_REFRESH_SECS;
 use crate::logs::log;
 
@@ -157,13 +158,23 @@ impl AccountsPane {
                 self.statuses.insert(id.clone(), status.clone());
             }
             SettingsEvent::PatchStatus { source, status } => {
-                self.patch.apply(*source, status.clone(), Instant::now())
+                self.set_patch_status(*source, status.clone(), Instant::now())
             }
             SettingsEvent::GameFolderPicked { round, path } => {
                 self.folder_picked(*round, path.as_deref())
             }
             _ => {}
         }
+    }
+
+    /// 換上某份安裝在 `now` 時的更新狀態；`None` 是收起。
+    pub fn set_patch_status(
+        &mut self,
+        source: InstallSource,
+        status: Option<PatchStatus>,
+        now: Instant,
+    ) {
+        self.patch.apply(source, status, now);
     }
 
     /// 是有效的安裝才採用，否則顯示錯誤；過期或取消的結果丟掉。
@@ -269,14 +280,20 @@ impl AccountsPane {
                 } else if installs.is_empty() {
                     hint(ui, &t("accounts.install_none", &[]), theme::TEXT_SECONDARY);
                 }
-                for install in &installs {
+                for (i, install) in installs.iter().enumerate() {
                     let key = match install.source {
                         InstallSource::Steam => "accounts.install_steam",
                         InstallSource::Official => "accounts.install_official",
                     };
                     let path = install.root.display().to_string();
                     hint(ui, &t(key, &[("path", &path)]), theme::TEXT_SECONDARY);
-                    status_block(ui, patch, install.source);
+                    if patch.status(install.source).is_some() {
+                        status_block(ui, patch, install.source);
+                        // 卡內列距是 0，不隔開的話狀態像是下一份安裝的
+                        if i + 1 < installs.len() {
+                            ui.add_space(6.0);
+                        }
+                    }
                 }
                 if invalid {
                     hint(ui, &t("accounts.invalid_folder", &[]), theme::ERROR);
