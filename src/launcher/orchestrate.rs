@@ -94,7 +94,7 @@ pub trait LauncherDeps: Sync {
         steam: Option<&SteamTicket>,
     ) -> impl Future<Output = Result<LoginOutcome, LoginError>> + Send;
     fn spawn(&self, install: &Install, args: &[String]) -> Result<u32, LaunchError>;
-    /// 某帳號的進度有變（登入中、完成、失敗）。
+    /// 某帳號的進度有變（等檢查、登入中、完成、失敗）。
     fn report(&self, id: &str, status: &LaunchStatus);
     /// 檢查（官網版順便更新）一份安裝；不借用 `self`，別批的帳號才能一起等。
     fn ensure_patched(
@@ -152,8 +152,13 @@ impl<D: LauncherDeps> Drop for PatchWait<'_, D> {
         };
         *waiters -= 1;
         if *waiters == 0 {
+            let passed = matches!(check.peek(), Some(Ok(_)));
+            log(format!(
+                "[launch] install check released: root={} passed={passed}",
+                root.display()
+            ));
             // 與 enter 同一把鎖下收起，免得晚到的 None 蓋掉下一次檢查的狀態
-            if matches!(check.peek(), Some(Ok(_))) {
+            if passed {
                 self.deps.report_patch(self.install.source, None);
             }
             checks.remove(root);
@@ -242,11 +247,14 @@ impl Borrow<SteamTicket> for SteamSession {
 static STEAM_SESSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 帳號已排進某份安裝的檢查：要用的安裝、密碼與正在等的檢查。
-struct Ready<'a, D: LauncherDeps> {
+struct Queued<'a, D: LauncherDeps> {
     install: &'a Install,
     password: Zeroizing<String>,
     wait: PatchWait<'a, D>,
 }
+
+/// 檢查已通過、可以登入的帳號。
+type Checked<'a, D> = Result<(Queued<'a, D>, PatchOutcome), LaunchStatus>;
 
 /// 不必等檢查就能判定的先判定（已在執行、沒有安裝、密碼解不開），其餘排進該安裝的檢查。
 fn prepare<'a, D: LauncherDeps>(
@@ -254,7 +262,7 @@ fn prepare<'a, D: LauncherDeps>(
     deps: &'a D,
     installs: &'a [Install],
     running: &[String],
-) -> Result<Ready<'a, D>, LaunchStatus> {
+) -> Result<Queued<'a, D>, LaunchStatus> {
     if running
         .iter()
         .any(|r| r.eq_ignore_ascii_case(&account.name))
@@ -265,22 +273,38 @@ fn prepare<'a, D: LauncherDeps>(
     let install = select_install(installs, account.kind).map_err(|e| failed(Failure::Launch(e)))?;
     let password = deps.password(account).ok_or(failed(Failure::Password))?;
     deps.report(&account.id, &LaunchStatus::Waiting(install.source));
-    Ok(Ready {
+    Ok(Queued {
         install,
         password,
         wait: PatchWait::enter(deps, install),
     })
 }
 
+/// 等這份安裝的檢查；通過就回報登入中。
+async fn await_check<'a, D: LauncherDeps>(
+    account: &Account,
+    deps: &D,
+    queued: Result<Queued<'a, D>, LaunchStatus>,
+) -> Checked<'a, D> {
+    let queued = queued?;
+    let patched = queued
+        .wait
+        .check
+        .clone()
+        .await
+        .map_err(|_| LaunchStatus::Failed(Failure::Patch))?;
+    deps.report(&account.id, &LaunchStatus::LoggingIn);
+    Ok((queued, patched))
+}
+
 async fn attempt<D: LauncherDeps>(
     account: &Account,
     deps: &D,
-    ready: &Ready<'_, D>,
+    queued: &Queued<'_, D>,
+    patched: PatchOutcome,
     machine: &str,
 ) -> Result<LaunchStatus, Failure> {
-    let install = ready.install;
-    let patched = ready.wait.check.clone().await.map_err(|_| Failure::Patch)?;
-    deps.report(&account.id, &LaunchStatus::LoggingIn);
+    let install = queued.install;
     // 跨批次也要排隊：兩批同時開時，一批的 Shutdown 會打斷另一批正在用的 Steam API
     let steam_turn = match account.kind {
         AccountKind::Steam => Some(STEAM_SESSION.lock().await),
@@ -293,7 +317,7 @@ async fn attempt<D: LauncherDeps>(
     let outcome = deps
         .sign_in(
             &account.name,
-            &ready.password,
+            &queued.password,
             machine,
             ticket.as_ref().map(Borrow::borrow),
         )
@@ -320,12 +344,12 @@ async fn attempt<D: LauncherDeps>(
 /// 跑完一個帳號並回報結果。
 async fn run_one<D: LauncherDeps>(
     account: &Account,
-    ready: Result<Ready<'_, D>, LaunchStatus>,
+    checked: Checked<'_, D>,
     deps: &D,
     machine: &str,
 ) -> (String, LaunchStatus) {
-    let status = match &ready {
-        Ok(ready) => attempt(account, deps, ready, machine)
+    let status = match &checked {
+        Ok((queued, patched)) => attempt(account, deps, queued, *patched, machine)
             .await
             .unwrap_or_else(LaunchStatus::Failed),
         Err(status) => status.clone(),
@@ -333,7 +357,7 @@ async fn run_one<D: LauncherDeps>(
     log(format!("[launch] account {}: {status:?}", account.id));
     deps.report(&account.id, &status);
     // 帳號結果送出後才離開等待，安裝狀態才不會比帳號結果先收起
-    drop(ready);
+    drop(checked);
     (account.id.clone(), status)
 }
 
@@ -351,17 +375,26 @@ pub async fn launch_accounts<D: LauncherDeps>(
         .iter()
         .map(|a| (a, prepare(a, deps, &installs, &running)))
         .partition(|(a, _)| a.kind == AccountKind::Official);
-    // Steam 一次只能發一張票據：Steam 帳號逐一，與官網帳號同時進行
+    // Steam 一次只能發一張票據：Steam 帳號逐一登入，但檢查一起等，通過就都顯示登入中
     let steam_in_turn = async {
+        let checked = steam.into_iter().map(|(account, queued)| async move {
+            (account, await_check(account, deps, queued).await)
+        });
         let mut out = Vec::new();
-        for (account, ready) in steam {
-            out.push(run_one(account, ready, deps, machine).await);
+        for (account, checked) in join_all(checked).await {
+            out.push(run_one(account, checked, deps, machine).await);
         }
         out
     };
-    let official = official
-        .into_iter()
-        .map(|(account, ready)| run_one(account, ready, deps, machine));
+    let official = official.into_iter().map(|(account, queued)| async move {
+        run_one(
+            account,
+            await_check(account, deps, queued).await,
+            deps,
+            machine,
+        )
+        .await
+    });
     let (mut done, steam_done) = futures_util::join!(join_all(official), steam_in_turn);
     done.extend(steam_done);
     selected
@@ -663,6 +696,55 @@ mod tests {
         assert_eq!(
             *fake.patch_reports.lock().unwrap(),
             hidden(InstallSource::Steam)
+        );
+        let reports = fake.reports.lock().unwrap();
+        let at = |id: &str, status: LaunchStatus| {
+            reports
+                .iter()
+                .position(|r| *r == (id.to_owned(), status.clone()))
+                .unwrap()
+        };
+        assert!(
+            at("s2", LaunchStatus::LoggingIn) < at("s1", LaunchStatus::Opened),
+            "a queued Steam account shows logging-in once the check passes"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_wait_releases_the_check_without_hiding_it() {
+        let fake = Fake::default();
+        let selected = [account("a", AccountKind::Official)];
+        assert!(launch_accounts(&selected, &fake).now_or_never().is_none());
+        assert!(lock(&fake.gate.checks).is_empty());
+        assert!(fake.patch_reports.lock().unwrap().is_empty());
+        launch_accounts(&selected, &fake).await;
+        assert_eq!(fake.checks.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_late_launch_reuses_a_passed_check_still_in_use() {
+        let fake = Fake {
+            barrier: Some(Barrier::new(2)),
+            ..Fake::default()
+        };
+        let first = [account("a", AccountKind::Official)];
+        let second = [account("b", AccountKind::Official)];
+        let late = async {
+            // a 卡在登入（barrier），檢查已通過但它還沒離開
+            while !reports_of(&fake, "a").contains(&LaunchStatus::LoggingIn) {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+            launch_accounts(&second, &fake).await
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(launch_accounts(&first, &fake), late)
+        })
+        .await
+        .expect("both sign-ins meet at the barrier");
+        assert_eq!(fake.checks.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *fake.patch_reports.lock().unwrap(),
+            hidden(InstallSource::Official)
         );
     }
 

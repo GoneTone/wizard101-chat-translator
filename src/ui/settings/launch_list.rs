@@ -1,4 +1,4 @@
-//! 啟動遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行或登入中、全選三態、實際會開的數量，以及這次啟動何時算全部完成。
+//! 啟動遊戲帳號視窗的純狀態：勾了哪些帳號、哪些在執行、等檢查或登入中、全選三態、實際會開的數量，以及這次啟動何時算全部完成。
 
 use std::collections::HashMap;
 
@@ -169,7 +169,7 @@ impl LaunchList {
         ids
     }
 
-    /// 單獨啟動一個帳號；執行中或登入中就不開，回傳 `None`。
+    /// 單獨啟動一個帳號；執行中、等檢查或登入中就不開，回傳 `None`。
     pub fn begin_launch_one(&mut self, id: &str) -> Option<String> {
         let account = self.accounts.iter().find(|a| a.id == id)?;
         if !self.checkable(account) {
@@ -189,7 +189,7 @@ impl LaunchList {
         }
     }
 
-    /// 從視窗啟動的帳號都有結果了就結算並清掉；還有登入中的、或沒在啟動時回 `None`。
+    /// 從視窗啟動的帳號都有結果了就結算並清掉；還有等檢查或登入中的、或沒在啟動時回 `None`。
     ///
     /// 已經沒有進度的帳號（刪掉了，或啟動後遊戲又關了）不算失敗。
     pub fn settle(&mut self) -> Option<Settled> {

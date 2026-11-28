@@ -22,7 +22,7 @@ use crate::logs::log;
 /// 視窗要 App 做的事。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchAction {
-    /// 啟動這些帳號（id）；執行中與登入中的已排除。
+    /// 啟動這些帳號（id）；執行中與等檢查、登入中的已排除。
     Launch(Vec<String>),
     /// 勾選改了：要記住的帳號 id（寫回 `launch_selection`）。
     SelectionChanged(Vec<String>),
