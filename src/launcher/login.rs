@@ -372,25 +372,11 @@ pub fn machine_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::launcher::wire::{frame, read_frame};
+    use crate::launcher::wire::{OFFER, frame, offer_body, read_frame};
 
-    const OFFER: Offer = Offer {
-        sid: 187,
-        seconds: 1_795_266_064,
-        millis: 189,
-    };
     const MACHINE: &str =
         "{0123ABCD-0000-1111-2222-333344445555}:{00112233445566778899AABBCCDDEEFF}";
     const MAC: u64 = 0x0000_E642_A6B7_2B72;
-
-    fn offer_body() -> Vec<u8> {
-        let mut body = vec![0u8; 120];
-        body[0] = 1;
-        body[4..8].copy_from_slice(&OFFER.sid.to_le_bytes());
-        body[10..14].copy_from_slice(&OFFER.seconds.to_le_bytes());
-        body[14..18].copy_from_slice(&OFFER.millis.to_le_bytes());
-        body
-    }
 
     /// 依回應訊息欄位順序組一份 MSG_USER_AUTHEN_RSP 本體。
     fn response_body(error: u32, user_id: u64, rec1: &[u8], reason: &str) -> Vec<u8> {

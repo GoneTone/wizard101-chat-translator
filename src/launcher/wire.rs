@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+use crate::logs::log;
 use crate::util::unhex;
 
 pub const FRAME_MAGIC: [u8; 2] = [0x0D, 0xF0];
@@ -96,7 +97,7 @@ pub fn build_session_accept(offer: &Offer, now_millis: u64) -> Vec<u8> {
 pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> Result<Offer, WireError> {
     let offer_body = read_frame(s).await?;
     let offer = parse_session_offer(&offer_body)?;
-    crate::logs::log(format!(
+    log(format!(
         "[wire] session offer: {} bytes, sid={}",
         offer_body.len(),
         offer.sid
@@ -111,24 +112,28 @@ pub async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(s: &mut S) -> Result<O
     Ok(offer)
 }
 
+/// 測試用的固定 offer。
+#[cfg(test)]
+pub(crate) const OFFER: Offer = Offer {
+    sid: 187,
+    seconds: 1_795_266_064,
+    millis: 189,
+};
+
+/// 依 [`OFFER`] 組一份 SESSION_OFFER 本體。
+#[cfg(test)]
+pub(crate) fn offer_body() -> Vec<u8> {
+    let mut body = vec![0u8; 120];
+    body[0] = 1;
+    body[4..8].copy_from_slice(&OFFER.sid.to_le_bytes());
+    body[10..14].copy_from_slice(&OFFER.seconds.to_le_bytes());
+    body[14..18].copy_from_slice(&OFFER.millis.to_le_bytes());
+    body
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const OFFER: Offer = Offer {
-        sid: 187,
-        seconds: 1_795_266_064,
-        millis: 189,
-    };
-
-    fn offer_body() -> Vec<u8> {
-        let mut body = vec![0u8; 120];
-        body[0] = 1;
-        body[4..8].copy_from_slice(&OFFER.sid.to_le_bytes());
-        body[10..14].copy_from_slice(&OFFER.seconds.to_le_bytes());
-        body[14..18].copy_from_slice(&OFFER.millis.to_le_bytes());
-        body
-    }
 
     #[test]
     fn parse_session_offer_reads_fields() {
