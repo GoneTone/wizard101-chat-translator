@@ -60,11 +60,14 @@ fn busy_paths(root: &Path, exes: &[String]) -> bool {
 
 /// `root` 底下是否有遊戲用戶端或官方啟動器在執行。
 pub fn install_busy(root: &Path) -> bool {
-    let exes: Vec<String> = process_ids()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(process_exe_path)
-        .collect();
+    let Some(pids) = process_ids() else {
+        log(format!(
+            "[patch] install busy check: process enumeration failed, treating as not busy: root={}",
+            root.display()
+        ));
+        return false;
+    };
+    let exes: Vec<String> = pids.into_iter().filter_map(process_exe_path).collect();
     let busy = busy_paths(root, &exes);
     log(format!(
         "[patch] install busy check: root={} processes={} busy={busy}",

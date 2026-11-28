@@ -180,22 +180,29 @@ async fn run<E: PatchEnv>(
     install: &Install,
     env: &E,
     report: &(dyn Fn(PatchStatus) + Sync),
-    records: &mut Records<'_>,
+    records: &mut Records,
     list_fetched: &mut bool,
 ) -> Result<bool, PatchFailure> {
     let loc = env.list_location(install).await?;
     let entries = load_list(&install.root, &loc, env, list_fetched).await?;
     let local_packages = read_local_packages(&install.root);
-    let selected = select(&entries, install.source, &local_packages);
-    let stale = scan(&install.root, &selected, records, report).await?;
+    let selected = select(&entries, install.source, &local_packages)
+        .into_iter()
+        .cloned()
+        .collect();
+    let stale = scan(&install.root, selected, records, report).await?;
     if stale.is_empty() {
         return Ok(false);
     }
     if install.source == InstallSource::Steam {
         log(format!(
-            "[patch] steam install is outdated: {} file(s) differ, first={}",
+            "[patch] steam install is outdated: {} file(s) differ, first={:?}",
             stale.len(),
-            stale[0].src
+            stale
+                .iter()
+                .take(5)
+                .map(|e| e.src.as_str())
+                .collect::<Vec<_>>()
         ));
         return Err(PatchFailure::SteamOutdated);
     }
@@ -265,32 +272,56 @@ async fn load_list<E: PatchEnv>(
     blocking(move || parse_file_list(&bytes).map_err(PatchFailure::Protocol)).await
 }
 
-/// 逐檔比對紀錄、必要時重算 CRC；回仍不符或缺少的檔案。
-async fn scan<'a>(
+/// 在 blocking 執行緒跑整個比對；進度經 channel 轉給 `report`，紀錄不論成敗都放回 `records`。
+async fn scan(
     root: &Path,
-    selected: &[&'a FileEntry],
-    records: &mut Records<'_>,
+    selected: Vec<FileEntry>,
+    records: &mut Records,
     report: &(dyn Fn(PatchStatus) + Sync),
-) -> Result<Vec<&'a FileEntry>, PatchFailure> {
+) -> Result<Vec<FileEntry>, PatchFailure> {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut taken = std::mem::replace(records, Records::new(root));
+    let root = root.to_path_buf();
+    let task = tokio::task::spawn_blocking(move || {
+        let stale = scan_files(&root, &selected, &mut taken, &|status| {
+            let _ = tx.send(status);
+        });
+        (taken, stale)
+    });
+    while let Some(status) = rx.recv().await {
+        report(status);
+    }
+    let (taken, stale) = task.await.map_err(|e| PatchFailure::Io(e.to_string()))?;
+    *records = taken;
+    stale
+}
+
+/// 逐檔比對紀錄、必要時重算 CRC；回仍不符或缺少的檔案。
+fn scan_files(
+    root: &Path,
+    selected: &[FileEntry],
+    records: &mut Records,
+    report: &dyn Fn(PatchStatus),
+) -> Result<Vec<FileEntry>, PatchFailure> {
     let started = Instant::now();
     let total = selected.len() as u64;
     let mut last_report = Instant::now();
     report(PatchStatus::Checking { done: 0, total });
     let (mut hashed, mut stale) = (0usize, Vec::new());
-    for (i, &entry) in selected.iter().enumerate() {
+    for (i, entry) in selected.iter().enumerate() {
         let dest = root.join(entry.local_path());
         let stamp = file_stamp(&dest);
         if !is_fresh(records.get(entry)?, entry, stamp) {
             match stamp {
                 Some(stamp) if stamp.0 == u64::from(entry.size) => {
                     hashed += 1;
-                    if file_crc(&dest).await? == entry.crc {
+                    if file_crc(&dest)? == entry.crc {
                         records.set(entry, record_for(entry, stamp))?;
                     } else {
-                        stale.push(entry);
+                        stale.push(entry.clone());
                     }
                 }
-                _ => stale.push(entry),
+                _ => stale.push(entry.clone()),
             }
         }
         let done = i as u64 + 1;
@@ -307,15 +338,11 @@ async fn scan<'a>(
     Ok(stale)
 }
 
-async fn file_crc(path: &Path) -> Result<u32, PatchFailure> {
-    let path = path.to_path_buf();
-    blocking(move || {
-        File::open(&path).and_then(ki_crc_reader).map_err(|e| {
-            log(format!("[patch] cannot read {}: {e}", path.display()));
-            io_failure(&path)(e)
-        })
+fn file_crc(path: &Path) -> Result<u32, PatchFailure> {
+    File::open(path).and_then(ki_crc_reader).map_err(|e| {
+        log(format!("[patch] cannot read {}: {e}", path.display()));
+        io_failure(path)(e)
     })
-    .await
 }
 
 /// 逐檔下載、驗證、換上並立刻存該套件的紀錄。
@@ -323,9 +350,9 @@ async fn download<E: PatchEnv>(
     root: &Path,
     loc: &ListLocation,
     env: &E,
-    stale: &[&FileEntry],
+    stale: &[FileEntry],
     total: u64,
-    records: &mut Records<'_>,
+    records: &mut Records,
     report: &(dyn Fn(PatchStatus) + Sync),
 ) -> Result<(), PatchFailure> {
     let started = Instant::now();
@@ -336,7 +363,8 @@ async fn download<E: PatchEnv>(
     let done = AtomicU64::new(0);
     let mut ticker = tokio::time::interval(REPORT_INTERVAL);
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    for &entry in stale {
+    let mut finished = 0u64;
+    for entry in stale {
         let dest = root.join(entry.local_path());
         let temp = fetch::temp_path(&dest);
         if let Some(dir) = dest.parent() {
@@ -372,31 +400,33 @@ async fn download<E: PatchEnv>(
         })?;
         records.set(entry, record_for(entry, stamp))?;
         records.save(&entry.package)?;
+        // gzip 檔收到的是壓縮後位元組，每檔完成時校正成解壓後大小的累計
+        finished += u64::from(entry.size);
+        done.store(finished, Ordering::Relaxed);
     }
     report(PatchStatus::Downloading {
         done: done.load(Ordering::Relaxed),
         total,
     });
     log(format!(
-        "[patch] downloaded {} file(s), {} bytes received, elapsed={}s",
+        "[patch] downloaded {} file(s), {finished} bytes, elapsed={}s",
         stale.len(),
-        done.load(Ordering::Relaxed),
-        started.elapsed().as_secs()
+        started.elapsed().as_secs_f64().round() as u64
     ));
     Ok(())
 }
 
 /// 依套件懶載入的檢查紀錄，記住哪些套件改過還沒存。
-struct Records<'a> {
-    root: &'a Path,
+struct Records {
+    root: PathBuf,
     loaded: HashMap<String, PackageRecords>,
     dirty: BTreeSet<String>,
 }
 
-impl<'a> Records<'a> {
-    fn new(root: &'a Path) -> Self {
+impl Records {
+    fn new(root: &Path) -> Self {
         Self {
-            root,
+            root: root.to_path_buf(),
             loaded: HashMap::new(),
             dirty: BTreeSet::new(),
         }
@@ -404,11 +434,11 @@ impl<'a> Records<'a> {
 
     fn package(&mut self, package: &str) -> Result<&mut PackageRecords, PatchFailure> {
         if !self.loaded.contains_key(package) {
-            let recs = PackageRecords::load(self.root, package).map_err(|e| {
+            let recs = PackageRecords::load(&self.root, package).map_err(|e| {
                 log(format!(
                     "[patch] cannot read check records: package={package} error={e}"
                 ));
-                io_failure(&record_path(self.root, package))(e)
+                io_failure(&record_path(&self.root, package))(e)
             })?;
             self.loaded.insert(package.to_string(), recs);
         }
@@ -427,8 +457,12 @@ impl<'a> Records<'a> {
 
     fn save(&mut self, package: &str) -> Result<(), PatchFailure> {
         if let Some(recs) = self.loaded.get(package) {
-            recs.save(self.root, package)
-                .map_err(io_failure(&record_path(self.root, package)))?;
+            recs.save(&self.root, package).map_err(|e| {
+                log(format!(
+                    "[patch] cannot save check records: package={package} error={e}"
+                ));
+                io_failure(&record_path(&self.root, package))(e)
+            })?;
         }
         self.dirty.remove(package);
         Ok(())
@@ -755,6 +789,35 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("Bin/b.dll")).unwrap(), b"old b");
         assert_eq!(record(dir.path(), &entries[1]), Some(old_b));
         assert!(!dir.path().join("Bin/b.dll.w101tmp").exists());
+        assert_no_list_copy(dir.path());
+        assert_terminal(&statuses, PatchStatus::Failed(err));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn corrupt_download_keeps_original_and_record() {
+        let dir = tempfile::tempdir().unwrap();
+        let inst = install(&dir, InstallSource::Official);
+        let mut env = FakeEnv::new(&[("Base", "Bin/a.dll", b"new a")]);
+        env.bodies
+            .insert(format!("{PREFIX}/Bin/a.dll"), b"bad a".to_vec());
+        put(dir.path(), "Bin/a.dll", b"old a");
+        let entry = &env.entries()[0];
+        let old = CacheRecord {
+            name_crc: ki_crc(b"Bin/a.dll"),
+            size: 5,
+            crc: 0x1234,
+            mtime_ms: 1,
+        };
+        let mut recs = PackageRecords::default();
+        recs.set(old);
+        recs.save(dir.path(), "Base").unwrap();
+
+        let (result, statuses) = run(&inst, &env).await;
+        let err = result.unwrap_err();
+        assert!(matches!(&err, PatchFailure::Download(m) if m.contains("CRC mismatch")));
+        assert_eq!(fs::read(dir.path().join("Bin/a.dll")).unwrap(), b"old a");
+        assert_eq!(record(dir.path(), entry), Some(old));
+        assert!(!dir.path().join("Bin/a.dll.w101tmp").exists());
         assert_no_list_copy(dir.path());
         assert_terminal(&statuses, PatchStatus::Failed(err));
     }
