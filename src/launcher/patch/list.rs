@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use crate::launcher::install::InstallSource;
+use crate::logs::log;
 
 /// 清單裡一個檔案的資料列。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,13 +56,29 @@ impl Schema {
         self.fields.iter().position(|f| f.name == name)
     }
 
-    fn columns(&self) -> Option<Columns> {
-        Some(Columns {
-            src: self.column("SrcFileName")?,
-            tar: self.column("TarFileName")?,
-            file_type: self.column("FileType")?,
-            size: self.column("Size")?,
-            crc: self.column("CRC")?,
+    /// 找出資料列要用的欄位；缺任一欄回 `None`，欄位型別不符回錯誤。
+    fn columns(&self) -> Result<Option<Columns>, String> {
+        let typed = |name: &str, ty: u8| -> Result<Option<usize>, String> {
+            match self.column(name) {
+                Some(i) if self.fields[i].ty != ty => Err(format!(
+                    "column {name} in {} has type {} (expected {ty})",
+                    self.table, self.fields[i].ty
+                )),
+                found => Ok(found),
+            }
+        };
+        let (src, tar) = (typed("SrcFileName", STR)?, typed("TarFileName", STR)?);
+        let (file_type, size) = (typed("FileType", UINT)?, typed("Size", UINT)?);
+        let crc = typed("CRC", UINT)?;
+        Ok(match (src, tar, file_type, size, crc) {
+            (Some(src), Some(tar), Some(file_type), Some(size), Some(crc)) => Some(Columns {
+                src,
+                tar,
+                file_type,
+                size,
+                crc,
+            }),
+            _ => None,
         })
     }
 }
@@ -179,7 +196,7 @@ pub fn parse_file_list(bytes: &[u8]) -> Result<Vec<FileEntry>, String> {
             .ok_or_else(|| format!("record at offset {start} runs past the end"))?;
         if kind == [2, 1] {
             let schema = parse_schema(&mut c, end)?;
-            let cols = schema.columns();
+            let cols = schema.columns()?;
             current = Some((schema, cols));
         } else {
             let (schema, cols) = current.as_ref().ok_or("data row before any schema")?;
@@ -223,8 +240,14 @@ pub fn select<'a>(
 
 /// 讀安裝目錄的 `LocalPackagesList.txt`；檔案不存在回空。
 pub fn read_local_packages(root: &Path) -> Vec<String> {
-    let Ok(text) = std::fs::read(root.join("LocalPackagesList.txt")) else {
-        return Vec::new();
+    let text = match std::fs::read(root.join("LocalPackagesList.txt")) {
+        Ok(t) => t,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                log(format!("[patch] read LocalPackagesList.txt failed: {e}"));
+            }
+            return Vec::new();
+        }
     };
     String::from_utf8_lossy(&text)
         .lines()
@@ -340,6 +363,33 @@ mod tests {
         f.truncate(f.len() - 3);
         let err = parse_file_list(&f).unwrap_err();
         assert!(err.contains("runs past the end"), "{err}");
+    }
+
+    #[test]
+    fn data_row_before_any_schema_is_an_error() {
+        let mut f = 1u32.to_le_bytes().to_vec();
+        f.extend(record(2, &1u32.to_le_bytes()));
+        let err = parse_file_list(&f).unwrap_err();
+        assert!(err.contains("before any schema"), "{err}");
+    }
+
+    #[test]
+    fn row_not_ending_at_record_end_is_an_error() {
+        let mut f = 1u32.to_le_bytes().to_vec();
+        f.extend(schema("About", &[("Version", UINT)]));
+        f.extend(record(2, &[1, 0, 0, 0, 9]));
+        let err = parse_file_list(&f).unwrap_err();
+        assert!(err.contains("does not end at record end"), "{err}");
+    }
+
+    #[test]
+    fn mistyped_column_is_an_error() {
+        let mut fields = PKG_FIELDS;
+        fields[6] = ("CRC", STR);
+        let mut f = 1u32.to_le_bytes().to_vec();
+        f.extend(schema("Base", &fields));
+        let err = parse_file_list(&f).unwrap_err();
+        assert!(err.contains("column CRC"), "{err}");
     }
 
     #[test]
