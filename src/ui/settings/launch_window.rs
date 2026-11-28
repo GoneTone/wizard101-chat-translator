@@ -1,4 +1,4 @@
-//! 啟動遊戲帳號視窗的畫面：上方「全選」、中間可捲動的帳號列（勾選、標記、單獨〔啟動〕與進度），底部自動關窗選項與批次啟動。
+//! 啟動遊戲帳號視窗的畫面：上方「全選」、中間可捲動的區域（各安裝的更新狀態卡與帳號列：勾選、標記、單獨〔啟動〕與進度），底部自動關窗選項與批次啟動。
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{Checkbox, Color32, Frame, Id, Margin, Panel, Ui, WidgetInfo};
@@ -114,9 +114,10 @@ pub fn show(
         .show(ui, |ui| footer(ui, list, auto_close, &mut actions));
     Panel::top("launch_window_header")
         .frame(Frame::new().inner_margin(HEADER_MARGIN))
-        .show(ui, |ui| header(ui, list, patch, &mut actions));
+        .show(ui, |ui| header(ui, list, &mut actions));
     let margin = Margin::symmetric(20, LIST_PADDING);
     scroll_page(ui, "launch_window_list", margin, theme::CARD_GAP, |ui| {
+        board_card(ui, patch);
         for account in list.accounts().to_vec() {
             row(ui, list, &account, &mut actions);
         }
@@ -139,7 +140,7 @@ fn no_accounts(ui: &mut Ui, actions: &mut Vec<LaunchAction>) {
     });
 }
 
-fn header(ui: &mut Ui, list: &mut LaunchList, patch: &PatchBoard, actions: &mut Vec<LaunchAction>) {
+fn header(ui: &mut Ui, list: &mut LaunchList, actions: &mut Vec<LaunchAction>) {
     let all = list.select_all_state();
     let any = list.accounts().iter().any(|a| list.checkable(a));
     let mut on = all == SelectAll::All;
@@ -148,10 +149,6 @@ fn header(ui: &mut Ui, list: &mut LaunchList, patch: &PatchBoard, actions: &mut 
     if ui.add_enabled(any, check).changed() {
         list.toggle_all();
         actions.push(selection_changed(list));
-    }
-    if !patch.is_empty() {
-        ui.add_space(12.0 - ui.spacing().item_spacing.y);
-        board_card(ui, patch);
     }
 }
 

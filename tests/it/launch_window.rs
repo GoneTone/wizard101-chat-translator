@@ -263,8 +263,9 @@ fn patch_card_hidden_when_board_empty() {
 }
 
 #[test]
-fn two_rows_stay_visible_under_the_patch_card_at_min_size() {
-    let mut h = window_sized(theme::LAUNCH_MIN_SIZE, three(), &["a", "b"], &[]);
+fn the_patch_card_scrolls_with_the_list_at_min_size() {
+    let size = theme::LAUNCH_MIN_SIZE;
+    let mut h = window_sized(size, three(), &["c"], &[]);
     let downloading = PatchStatus::Downloading {
         done: 1 << 30,
         total: 3 << 30,
@@ -275,27 +276,50 @@ fn two_rows_stay_visible_under_the_patch_card_at_min_size() {
     };
     patch(&mut h, InstallSource::Official, Some(downloading));
     patch(&mut h, InstallSource::Steam, Some(checking));
-    h.state_mut()
-        .list
-        .set_status("a", LaunchStatus::Waiting(InstallSource::Official));
-    h.state_mut()
-        .list
-        .set_status("b", LaunchStatus::Waiting(InstallSource::Steam));
-    run(&mut h);
-    let card_bottom = h
-        .query_all_by_role(Role::ProgressIndicator)
-        .map(|n| n.rect().max.y)
-        .fold(0.0, f32::max);
-    let footer = h.get_by_role_and_label(Role::Button, &open_count(0)).rect();
-    let mut buttons: Vec<_> = h
-        .query_all_by_role_and_label(Role::Button, &tr("button.launch"))
-        .map(|n| n.rect())
-        .collect();
-    buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
-    for button in &buttons[..2] {
-        assert!(button.min.y > card_bottom, "{button:?} below the card");
-        assert!(button.max.y <= footer.min.y, "{button:?} above {footer:?}");
+    let window = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+    let header = h
+        .get_by_role_and_label(Role::CheckBox, &tr("launch.select_all"))
+        .rect();
+    let open = h.get_by_role_and_label(Role::Button, &open_count(1)).rect();
+    let auto_close = h
+        .get_by_role_and_label(Role::CheckBox, &tr("launch.auto_close"))
+        .rect();
+    for rect in [header, open, auto_close] {
+        assert!(window.contains_rect(rect), "{rect:?}");
     }
+    let bar = |h: &Harness<Window>| {
+        h.query_all_by_role(Role::ProgressIndicator)
+            .map(|n| n.rect())
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .expect("a progress bar")
+    };
+    assert!(
+        bar(&h).min.y >= header.max.y,
+        "the card starts under the header"
+    );
+    let last = |h: &Harness<Window>| h.get_by_role_and_label(Role::CheckBox, "Carol").rect();
+    assert!(last(&h).min.y > open.min.y, "Carol starts out of view");
+
+    h.hover_at(bar(&h).center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Page,
+        delta: egui::vec2(0.0, -10.0),
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
+        modifiers: egui::Modifiers::NONE,
+    });
+    run(&mut h);
+    let scrolled = last(&h);
+    assert!(
+        scrolled.max.y <= open.min.y && scrolled.min.y >= header.max.y,
+        "{scrolled:?}"
+    );
+    assert!(
+        bar(&h).max.y < header.max.y,
+        "the card scrolled away with the list"
+    );
+    click(&mut h, Role::Button, &open_count(1));
+    assert_eq!(h.state().actions, [LaunchAction::Launch(ids(&["c"]))]);
 }
 
 #[test]
